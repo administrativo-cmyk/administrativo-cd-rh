@@ -1,0 +1,15 @@
+"use client";
+
+import { Bell, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, UserRound } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+
+export function AppHeader({ collapsed, onToggle, onMobileOpen }: { collapsed: boolean; onToggle: () => void; onMobileOpen: () => void }) {
+  return <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur-md sm:px-4 md:px-5">
+    <button aria-label="Abrir menu" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 lg:hidden" onClick={onMobileOpen}><Menu size={18} /></button>
+    <button aria-label={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"} className="hidden h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 lg:grid" onClick={onToggle}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+    <div className="min-w-0 flex-1 md:flex-none"><p className="truncate text-sm font-semibold">Chamada Diária</p><p className="hidden text-[11px] text-slate-500 sm:block">Administrativo CD</p></div>
+    <label className="mx-auto hidden w-full max-w-72 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition focus-within:border-blue-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 lg:flex"><Search size={15} className="text-slate-400" /><input aria-label="Pesquisa global" className="w-full bg-transparent text-sm outline-none" placeholder="Pesquisar no sistema" /><kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-400">Ctrl K</kbd></label>
+    <button aria-label="Notificações" className="relative grid h-9 w-9 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100"><Bell size={18} /><span className="absolute right-2 top-1.5 h-2 w-2 rounded-full border-2 border-white bg-blue-500" /></button>
+    <DropdownMenu><DropdownMenuTrigger asChild><button aria-label="Abrir menu do usuário" className="flex items-center gap-2 rounded-lg p-1 transition hover:bg-slate-50"><span className="grid h-9 w-9 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">JF</span><span className="hidden text-left xl:block"><b className="block text-sm">Júlio Freitas</b><small className="text-slate-500">RH Corporativo</small></span><ChevronDown size={15} className="hidden text-slate-400 sm:block" /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-56"><DropdownMenuLabel>Conta demonstrativa</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuItem><UserRound />Meu perfil</DropdownMenuItem><DropdownMenuItem><Settings />Preferências</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem className="text-slate-400"><LogOut />Sair (indisponível)</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+  </header>;
+}
