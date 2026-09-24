@@ -1,4 +1,5 @@
 import type { AttendanceCode, AttendanceStatus, AttendanceStatusCode, BankHoursSummary, Employee } from "./daily-call-types";
+import { calculateCompensationCycle } from "./domain/bank-hours";
 
 type AttendanceVisual = AttendanceStatus & { className: string };
 
@@ -16,13 +17,19 @@ export const attendanceMeta: Record<AttendanceStatusCode, AttendanceVisual> = {
 };
 
 export function countUsedCompensations(employee: Pick<Employee, "bankDays" | "attendance">): number {
-  if (employee.bankDays <= 0) return 0;
-  return Object.values(employee.attendance).filter((code) => code === "G").length;
+  return calculateCompensationCycle({
+    balanceDays: employee.bankDays,
+    effectiveFrom: "0000-01-01",
+    attendance: Object.entries(employee.attendance).map(([date, status]) => ({ date, status })),
+  }).compensationDaysUsed;
 }
 
 export function calculatePendingCompensation(employee: Pick<Employee, "bankDays" | "attendance">): number {
-  if (employee.bankDays <= 0) return 0;
-  return Math.max(0, employee.bankDays - countUsedCompensations(employee));
+  return calculateCompensationCycle({
+    balanceDays: employee.bankDays,
+    effectiveFrom: "0000-01-01",
+    attendance: Object.entries(employee.attendance).map(([date, status]) => ({ date, status })),
+  }).pendingCompensationDays;
 }
 
 export function getBankHoursSummary(employee: Pick<Employee, "bankDays" | "bankHours" | "attendance">): BankHoursSummary {
