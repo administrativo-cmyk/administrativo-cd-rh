@@ -71,8 +71,8 @@ const googleMockVisible = await interaction.getByText("Integração Google será
 await interaction.getByRole("link", { name: "Cadastre-se", exact: true }).click();
 await interaction.waitForURL("**/cadastro");
 
-await interaction.getByLabel("Nome completo", { exact: true }).fill("Marina Duarte");
-await interaction.getByLabel("CPF", { exact: true }).fill("52998224725");
+await interaction.getByLabel("Nome", { exact: true }).fill("Marina Duarte");
+await interaction.getByLabel("Usuário", { exact: true }).fill("52998224725");
 await interaction.getByLabel("Senha", { exact: true }).fill("segura123");
 await interaction.getByLabel("Confirmar senha", { exact: true }).fill("segura123");
 await interaction.getByRole("button", { name: "Cadastrar", exact: true }).click();
@@ -97,11 +97,9 @@ const videoState = await video.evaluate((element) => ({
   videoHeight: element.videoHeight,
   currentTime: element.currentTime,
 }));
-await video.dispatchEvent("ended");
-const stayedAfterEnd = interaction.url().endsWith("/cadastro/sucesso");
 await video.dispatchEvent("error");
 const fallbackVisible = await interaction.getByTestId("registration-success-fallback").isVisible();
-await interaction.getByRole("link", { name: "Voltar para o login", exact: true }).click();
+await interaction.getByRole("button", { name: "Voltar para o login", exact: true }).click();
 await interaction.waitForURL("**/login");
 const backToLogin = interaction.url().endsWith("/login");
 await interaction.close();
@@ -117,7 +115,7 @@ await browser.close();
 
 const report = {
   pages,
-  interactions: { invalidCpfVisible, passwordVisible, googleMockVisible, videoState, stayedAfterEnd, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
+  interactions: { invalidCpfVisible, passwordVisible, googleMockVisible, videoState, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
   dailyCall: { preserved: dailyCallPreserved, consoleErrors: existingPageErrors },
 };
 await writeFile(path.join(outputDir, "report.json"), JSON.stringify(report, null, 2));
@@ -127,15 +125,16 @@ const failures = [
   ...pages.flatMap((page) => [
     page.actualViewport.width !== page.width || page.actualViewport.height !== page.height ? `${page.route} ${page.width}x${page.height}: viewport incorreto` : null,
     page.overflowX ? `${page.route} ${page.width}x${page.height}: overflow horizontal` : null,
-    !page.headingVisible ? `${page.route} ${page.width}x${page.height}: título ausente` : null,
+    page.route !== "/cadastro/sucesso" && !page.headingVisible ? `${page.route} ${page.width}x${page.height}: título ausente` : null,
+    page.route === "/cadastro/sucesso" && page.headingVisible ? `${page.route} ${page.width}x${page.height}: conteúdo extra na tela minimalista` : null,
     page.consoleErrors.length ? `${page.route} ${page.width}x${page.height}: erro de console` : null,
   ]),
   ...pages.filter((page) => page.route !== "/cadastro/sucesso" && page.width > 900 && page.visualDisplay === "none").map((page) => `${page.route} ${page.width}x${page.height}: painel institucional ausente`),
   ...pages.filter((page) => page.route !== "/cadastro/sucesso" && page.width <= 640 && page.visualDisplay !== "none").map((page) => `${page.route} ${page.width}x${page.height}: painel deveria priorizar formulário no mobile`),
   ...pages.filter((page) => page.route === "/cadastro/sucesso" && (!page.mediaBox || !page.videoBox || page.videoBox.width > page.mediaBox.width + 1)).map((page) => `${page.route} ${page.width}x${page.height}: vídeo excede o contêiner`),
   !invalidCpfVisible || !passwordVisible || !googleMockVisible ? "interações de login incompletas" : null,
-  !videoState.autoplay || !videoState.muted || !videoState.playsInline || videoState.loop || videoState.controls ? "configuração do vídeo incorreta" : null,
-  !stayedAfterEnd || !fallbackVisible || !backToLogin ? "fluxo de sucesso incompleto" : null,
+  !videoState.autoplay || !videoState.muted || !videoState.playsInline || !videoState.loop || videoState.controls ? "configuração do vídeo incorreta" : null,
+  !fallbackVisible || !backToLogin ? "fluxo de sucesso incompleto" : null,
   interactionErrors.length || existingPageErrors.length ? "erro de console durante fluxos" : null,
   !dailyCallPreserved ? "Chamada Diária não encontrada" : null,
 ].filter(Boolean);

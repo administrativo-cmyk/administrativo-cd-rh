@@ -16,7 +16,6 @@ export function AuthLayout({ children, variant }: AuthLayoutProps) {
         <section className="auth-form-panel">
           <AuthBrand />
           <div className="auth-form-panel__content">{children}</div>
-          <p className="auth-form-panel__footnote">Ambiente demonstrativo • Autenticação segura será ativada na próxima etapa</p>
         </section>
         <AuthVisualPanel variant={variant} />
       </main>

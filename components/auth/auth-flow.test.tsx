@@ -20,8 +20,8 @@ function CpfFieldHarness() {
 }
 
 async function fillValidRegistration(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("Nome completo"), "Marina Duarte");
-  await user.type(screen.getByLabelText("CPF"), "52998224725");
+  await user.type(screen.getByLabelText("Nome"), "Marina Duarte");
+  await user.type(screen.getByLabelText("Usuário"), "52998224725");
   await user.type(screen.getByLabelText("Senha", { exact: true }), "segura123");
   await user.type(screen.getByLabelText("Confirmar senha"), "segura123");
 }
@@ -71,8 +71,8 @@ describe("experiência visual de autenticação", () => {
   it("informa quando senha e confirmação divergem", async () => {
     const user = userEvent.setup();
     render(<RegisterForm service={new MockAuthService(0)} />);
-    await user.type(screen.getByLabelText("Nome completo"), "Marina Duarte");
-    await user.type(screen.getByLabelText("CPF"), "52998224725");
+    await user.type(screen.getByLabelText("Nome"), "Marina Duarte");
+    await user.type(screen.getByLabelText("Usuário"), "52998224725");
     await user.type(screen.getByLabelText("Senha", { exact: true }), "segura123");
     await user.type(screen.getByLabelText("Confirmar senha"), "outrasenha");
     await user.click(screen.getByRole("button", { name: "Cadastrar" }));
@@ -102,38 +102,40 @@ describe("experiência visual de autenticação", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/cadastro/sucesso"));
   });
 
-  it("mostra a mensagem correta de cadastro realizado", () => {
+  it("mantém a tela de sucesso minimalista com vídeo e botão", () => {
     render(<RegistrationSuccess />);
-    expect(screen.getByText("Cadastro realizado com sucesso")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Seu cadastro foi enviado para aprovação." })).toBeInTheDocument();
+    expect(screen.getByTestId("registration-success-video")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Voltar para o login" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
 
-  it("reproduz o vídeo sem loop nem controles", () => {
+  it("reproduz o vídeo automaticamente, em loop, silencioso e sem controles", () => {
     render(<RegistrationSuccess />);
-    const video = screen.getByTestId("registration-success-video");
+    const video = screen.getByTestId("registration-success-video") as HTMLVideoElement;
     expect(video).toHaveAttribute("autoplay");
     expect(video).toHaveAttribute("playsinline");
-    expect(video).not.toHaveAttribute("loop");
+    expect(video).toHaveAttribute("loop");
+    expect(video.muted).toBe(true);
     expect(video).not.toHaveAttribute("controls");
   });
 
   it("mantém o botão Voltar para o login acessível", () => {
     render(<RegistrationSuccess />);
-    expect(screen.getByRole("link", { name: "Voltar para o login" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("button", { name: "Voltar para o login" })).toBeInTheDocument();
   });
 
   it("mostra fallback visual quando o vídeo falha", () => {
     render(<RegistrationSuccess />);
     fireEvent.error(screen.getByTestId("registration-success-video"));
     expect(screen.getByTestId("registration-success-fallback")).toBeInTheDocument();
-    expect(screen.getByText("Cadastro realizado com sucesso")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Voltar para o login" })).toBeInTheDocument();
   });
 
-  it("mantém a tela aberta ao fim do vídeo", () => {
+  it("volta ao login somente quando o usuário aciona o botão", async () => {
+    const user = userEvent.setup();
     render(<RegistrationSuccess />);
-    fireEvent.ended(screen.getByTestId("registration-success-video"));
-    expect(screen.getByRole("heading", { name: "Seu cadastro foi enviado para aprovação." })).toBeInTheDocument();
-    expect(pushMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Voltar para o login" }));
+    expect(pushMock).toHaveBeenCalledWith("/login");
   });
 
   it("mantém Google como ação visual sem OAuth", async () => {

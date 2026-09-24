@@ -41,26 +41,23 @@ export function RegisterForm({ service = mockAuthService }: RegisterFormProps) {
   return (
     <>
       <div className="auth-form-heading auth-form-heading--register">
-        <span className="auth-form-heading__kicker">Solicitação de acesso</span>
         <h1>Crie sua conta</h1>
-        <p>Cadastre seus dados para solicitar acesso ao Administrativo CD.</p>
+        <p>Junte-se a uma plataforma feita para valorizar pessoas e simplificar a gestão de talentos.</p>
       </div>
 
       <form className="auth-form auth-form--register" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
-          <label htmlFor="register-name">Nome completo</label>
+          <label htmlFor="register-name">Nome</label>
           <div className={`auth-input-wrap${errors.fullName ? " auth-input-wrap--error" : ""}`}>
             <UserRound aria-hidden="true" />
-            <input id="register-name" name="name" type="text" autoComplete="name" placeholder="Digite seu nome completo" value={fullName} onChange={(event) => setFullName(event.target.value)} aria-invalid={Boolean(errors.fullName)} aria-describedby={errors.fullName ? "register-name-error" : undefined} autoFocus />
+            <input id="register-name" name="name" type="text" autoComplete="name" placeholder="Digite seu nome completo" value={fullName} onChange={(event) => setFullName(event.target.value)} aria-invalid={Boolean(errors.fullName)} aria-describedby={errors.fullName ? "register-name-error" : undefined} />
           </div>
           {errors.fullName ? <p className="auth-field__error" id="register-name-error">{errors.fullName}</p> : null}
         </div>
 
-        <CpfField id="register-cpf" label="CPF" value={cpf} onChange={setCpf} error={errors.cpf} />
+        <CpfField id="register-cpf" label="Usuário" value={cpf} onChange={setCpf} error={errors.cpf} />
         <PasswordField id="register-password" label="Senha" placeholder="Crie uma senha" value={password} onChange={setPassword} error={errors.password} autoComplete="new-password" />
         <PasswordField id="register-confirmation" label="Confirmar senha" placeholder="Confirme sua senha" value={confirmation} onChange={setConfirmation} error={errors.confirmation} autoComplete="new-password" />
-
-        <p className="auth-access-note">Seu cadastro ficará <strong>pendente de aprovação</strong>. O perfil de acesso será definido pela administração.</p>
 
         <button className="auth-primary-button" type="submit" disabled={loading}>
           {loading ? <><LoaderCircle className="auth-spinner" aria-hidden="true" /> Cadastrando...</> : <>Cadastrar <ArrowRight aria-hidden="true" /></>}

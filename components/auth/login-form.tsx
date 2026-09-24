@@ -32,7 +32,7 @@ export function LoginForm({ service = mockAuthService }: LoginFormProps) {
     setLoading(true);
     try {
       await service.signIn({ cpf, password });
-      setFeedback("Demonstração concluída. A autenticação real será habilitada na próxima etapa.");
+      setFeedback("Dados validados com sucesso.");
     } finally {
       setLoading(false);
     }
@@ -41,13 +41,12 @@ export function LoginForm({ service = mockAuthService }: LoginFormProps) {
   return (
     <>
       <div className="auth-form-heading">
-        <span className="auth-form-heading__kicker">Acesso ao sistema</span>
         <h1>Bem-vindo(a) de volta!</h1>
-        <p>Acesse sua conta para continuar no Administrativo CD.</p>
+        <p>Acesse sua conta e continue construindo um ambiente de trabalho mais humano e produtivo.</p>
       </div>
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
-        <CpfField id="login-cpf" label="Usuário" value={cpf} onChange={setCpf} error={errors.cpf} autoFocus />
+        <CpfField id="login-cpf" label="Usuário" value={cpf} onChange={setCpf} error={errors.cpf} />
         <PasswordField id="login-password" label="Senha" placeholder="Digite sua senha" value={password} onChange={setPassword} error={errors.password} autoComplete="current-password" />
 
         <button className="auth-text-action" type="button" onClick={() => setForgotOpen(true)}>Esqueceu sua senha?</button>
