@@ -31,9 +31,6 @@ const expectFailure = async (label, statement) => {
 };
 
 await database.exec(`
-  insert into public.unidades (id, codigo, nome)
-  values ('10000000-0000-0000-0000-000000000001', 'CD I', 'Centro de Distribuicao I');
-
   insert into public.gestores (id, nome)
   values ('20000000-0000-0000-0000-000000000001', 'Gestor Ficticio');
 
@@ -43,7 +40,7 @@ await database.exec(`
     '30000000-0000-0000-0000-000000000001',
     'FICT-001',
     'Colaborador Ficticio',
-    '10000000-0000-0000-0000-000000000001',
+    (select id from public.unidades where codigo = 'CD I'),
     '20000000-0000-0000-0000-000000000001',
     'ATIVO',
     '2026-01-01'
@@ -73,7 +70,7 @@ await database.exec(`
 
 await expectFailure("duplicate employee number", `
   insert into public.colaboradores (matricula, nome, unidade_id)
-  values ('FICT-001', 'Duplicado', '10000000-0000-0000-0000-000000000001');
+  values ('FICT-001', 'Duplicado', (select id from public.unidades where codigo = 'CD I'));
 `);
 
 await expectFailure("duplicate daily attendance", `
@@ -99,6 +96,22 @@ const cycles = await database.query(`
   from public.vw_banco_horas_ciclos
   order by aplica_a_partir_de;
 `);
+
+const referenceUnits = await database.query(`
+  select codigo, nome, ativo
+  from public.unidades
+  order by codigo;
+`);
+
+const expectedReferenceUnits = [
+  { codigo: "CD FLV", nome: "CD FLV", ativo: true },
+  { codigo: "CD I", nome: "CD I", ativo: true },
+  { codigo: "CD II", nome: "CD II", ativo: true },
+];
+
+if (JSON.stringify(referenceUnits.rows) !== JSON.stringify(expectedReferenceUnits)) {
+  throw new Error(`reference units mismatch: ${JSON.stringify(referenceUnits.rows)}`);
+}
 
 const expectedCycles = [
   { aplica_a_partir_de: "2026-09-13", dias_g_ciclo: 2, dias_pendentes_compensar: 2, situacao_banco: "A_COMPENSAR" },
@@ -176,6 +189,7 @@ if (missingForeignKeyIndexes.rows.length !== 0) {
 
 console.log(JSON.stringify({
   migrationsApplied: migrations.length,
+  referenceUnitsVerified: referenceUnits.rows,
   constraintsVerified: 4,
   baselineCyclesVerified: normalizedCycles,
   rlsTablesVerified: rls.rows[0].protected_tables,
