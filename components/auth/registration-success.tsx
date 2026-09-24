@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Clock3 } from "lucide-react";
 
 export function RegistrationSuccess() {
   const router = useRouter();
@@ -13,18 +13,27 @@ export function RegistrationSuccess() {
       <main className="auth-success-minimal">
         <div className="auth-success-media">
           {!videoFailed ? (
-            <video
-              data-testid="registration-success-video"
-              src="/media/cadastro-realizado-rh.mp4"
-              autoPlay
-              loop
-              muted
-              playsInline
-              controls={false}
-              preload="auto"
-              onError={() => setVideoFailed(true)}
-              aria-label="Animação de cadastro realizado"
-            />
+            <>
+              <video
+                data-testid="registration-success-video"
+                src="/media/cadastro-realizado-rh.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                controls={false}
+                preload="auto"
+                onError={() => setVideoFailed(true)}
+                aria-label="Animação de cadastro realizado"
+              />
+              <div className="auth-success-approval" aria-label="Aguarde a aprovação">
+                <span className="auth-success-approval__icon"><Clock3 aria-hidden="true" /></span>
+                <span>
+                  <strong>Aguarde a aprovação</strong>
+                  <small>Você será informado assim que seu acesso for aprovado e liberado na plataforma.</small>
+                </span>
+              </div>
+            </>
           ) : (
             <div className="auth-success-fallback" data-testid="registration-success-fallback" aria-label="Cadastro realizado com sucesso">
               <Check aria-hidden="true" />

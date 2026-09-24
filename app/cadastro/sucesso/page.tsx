@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { RegistrationSuccess } from "@/components/auth/registration-success";
 
 export const metadata: Metadata = {
-  title: "Cadastro realizado | Administrativo CD",
+  title: "Cadastro realizado | RH Conect",
   description: "Solicitação de acesso enviada para aprovação.",
 };
 

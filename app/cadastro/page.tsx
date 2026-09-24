@@ -3,7 +3,7 @@ import { AuthLayout } from "@/components/auth/auth-layout";
 import { RegisterForm } from "@/components/auth/register-form";
 
 export const metadata: Metadata = {
-  title: "Cadastro | Administrativo CD",
+  title: "Cadastro | RH Conect",
   description: "Solicite acesso ao ambiente do Administrativo CD.",
 };
 
