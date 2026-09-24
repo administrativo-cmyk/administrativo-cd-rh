@@ -16,7 +16,8 @@
     "supabase:start": "supabase start",
     "supabase:reset": "supabase db reset --local",
     "supabase:status": "supabase status",
-    "test:visual": "node scripts/visual-audit.mjs"
+    "test:visual": "node scripts/visual-audit.mjs",
+    "test:auth-visual": "node scripts/auth-visual-audit.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

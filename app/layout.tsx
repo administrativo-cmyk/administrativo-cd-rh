@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./auth.css";
 
 export const metadata: Metadata = {
-  title: "Chamada Diária | Administrativo CD",
+  title: "Administrativo CD",
   description: "Controle operacional de presença e banco de horas do Administrativo CD.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
