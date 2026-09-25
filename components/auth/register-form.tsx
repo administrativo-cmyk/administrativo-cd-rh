@@ -3,17 +3,18 @@
 import { type FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, LoaderCircle, UserRound } from "lucide-react";
+import { ArrowRight, CircleAlert, LoaderCircle, UserRound } from "lucide-react";
 import { CpfField } from "@/components/auth/cpf-field";
 import { PasswordField } from "@/components/auth/password-field";
 import { validateRegistration, type RegistrationErrors } from "@/lib/auth/auth-validation";
-import { mockAuthService, type AuthService } from "@/lib/auth/auth-service";
+import { AuthFlowError, type AuthService } from "@/lib/auth/auth-service";
+import { supabaseAuthService } from "@/lib/auth/supabase-auth-service";
 
 type RegisterFormProps = {
   service?: AuthService;
 };
 
-export function RegisterForm({ service = mockAuthService }: RegisterFormProps) {
+export function RegisterForm({ service = supabaseAuthService }: RegisterFormProps) {
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [cpf, setCpf] = useState("");
@@ -21,18 +22,22 @@ export function RegisterForm({ service = mockAuthService }: RegisterFormProps) {
   const [confirmation, setConfirmation] = useState("");
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validateRegistration({ fullName, cpf, password, confirmation });
 
     setErrors(nextErrors);
+    setFeedback("");
     if (Object.keys(nextErrors).length > 0) return;
 
     setLoading(true);
     try {
       const result = await service.signUp({ fullName: fullName.trim(), cpf, password });
       if (result.status === "PENDENTE") router.push("/cadastro/sucesso");
+    } catch (error) {
+      setFeedback(error instanceof AuthFlowError ? error.message : "Não foi possível concluir o cadastro. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -62,6 +67,7 @@ export function RegisterForm({ service = mockAuthService }: RegisterFormProps) {
         <button className="auth-primary-button" type="submit" disabled={loading}>
           {loading ? <><LoaderCircle className="auth-spinner" aria-hidden="true" /> Cadastrando...</> : <>Cadastrar <ArrowRight aria-hidden="true" /></>}
         </button>
+        {feedback ? <p className="auth-feedback auth-feedback--error" role="alert"><CircleAlert aria-hidden="true" /> {feedback}</p> : null}
         <p className="auth-switch">Já tem uma conta? <Link href="/login">Entrar</Link></p>
       </form>
     </>

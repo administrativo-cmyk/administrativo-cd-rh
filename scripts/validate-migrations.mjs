@@ -13,7 +13,18 @@ await database.exec(`
   create role authenticated nologin;
   create role service_role nologin;
   create schema auth;
-  create table auth.users (id uuid primary key default gen_random_uuid());
+  create table auth.users (
+    id uuid primary key default gen_random_uuid(),
+    email text unique,
+    raw_user_meta_data jsonb not null default '{}'::jsonb
+  );
+  create function auth.uid()
+  returns uuid
+  language sql
+  stable
+  as $$
+    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  $$;
 `);
 
 for (const migration of migrations) {
@@ -28,6 +39,24 @@ const expectFailure = async (label, statement) => {
     return;
   }
   throw new Error(`${label}: the database accepted invalid data`);
+};
+
+const asAuthenticated = async (userId, operation) => {
+  await database.exec(`select set_config('request.jwt.claim.sub', '${userId}', false); set role authenticated;`);
+  try {
+    return await operation();
+  } finally {
+    await database.exec("reset role; select set_config('request.jwt.claim.sub', '', false);");
+  }
+};
+
+const expectAuthenticatedFailure = async (label, userId, statement) => {
+  try {
+    await asAuthenticated(userId, () => database.exec(statement));
+  } catch {
+    return;
+  }
+  throw new Error(`${label}: authenticated operation was unexpectedly accepted`);
 };
 
 await database.exec(`
@@ -91,6 +120,161 @@ await expectFailure("orphan measurement", `
   );
 `);
 
+const authUsers = {
+  admin: "10000000-0000-0000-0000-000000000001",
+  rh: "10000000-0000-0000-0000-000000000002",
+  manager: "10000000-0000-0000-0000-000000000003",
+  reader: "10000000-0000-0000-0000-000000000004",
+  pendingAdminRole: "10000000-0000-0000-0000-000000000005",
+  pendingRhRole: "10000000-0000-0000-0000-000000000006",
+  selfPending: "10000000-0000-0000-0000-000000000007",
+};
+
+await database.exec(`
+  insert into auth.users (id, email, raw_user_meta_data) values
+    ('${authUsers.admin}', encode(sha256(convert_to('00000000001', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Admin Local","cpf_normalizado":"00000000001"}'),
+    ('${authUsers.rh}', encode(sha256(convert_to('00000000002', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"RH Local","cpf_normalizado":"00000000002"}'),
+    ('${authUsers.manager}', encode(sha256(convert_to('00000000003', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Gestor Local","cpf_normalizado":"00000000003"}'),
+    ('${authUsers.reader}', encode(sha256(convert_to('00000000004', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Leitura Local","cpf_normalizado":"00000000004"}'),
+    ('${authUsers.pendingAdminRole}', encode(sha256(convert_to('00000000005', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente Admin","cpf_normalizado":"00000000005"}'),
+    ('${authUsers.pendingRhRole}', encode(sha256(convert_to('00000000006', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente RH","cpf_normalizado":"00000000006"}'),
+    ('${authUsers.selfPending}', encode(sha256(convert_to('00000000007', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Auto Pendente","cpf_normalizado":"00000000007"}');
+
+  update public.perfis
+  set status_usuario = 'APROVADO', papel_usuario = 'ADMIN', aprovado_em = now()
+  where id = '${authUsers.admin}';
+
+  update public.perfis
+  set status_usuario = 'APROVADO', papel_usuario = 'RH', aprovado_em = now()
+  where id = '${authUsers.rh}';
+`);
+
+const createdProfiles = await database.query(`
+  select id, status_usuario, papel_usuario
+  from public.perfis
+  where id in ('${authUsers.manager}', '${authUsers.reader}')
+  order by id;
+`);
+if (createdProfiles.rows.some((row) => row.status_usuario !== "PENDENTE" || row.papel_usuario !== null)) {
+  throw new Error(`new profile state mismatch: ${JSON.stringify(createdProfiles.rows)}`);
+}
+
+const sanitizedMetadata = await database.query(`
+  select raw_user_meta_data ? 'cpf_normalizado' as keeps_cpf
+  from auth.users
+  where id = '${authUsers.manager}';
+`);
+if (sanitizedMetadata.rows[0].keeps_cpf !== false) {
+  throw new Error(`CPF was retained in Auth metadata: ${JSON.stringify(sanitizedMetadata.rows[0])}`);
+}
+
+await expectFailure("duplicate CPF profile", `
+  insert into auth.users (id, email, raw_user_meta_data)
+  values (
+    '10000000-0000-0000-0000-000000000099',
+    encode(sha256(convert_to('00000000003', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid',
+    '{"nome_completo":"Duplicado Local","cpf_normalizado":"00000000003"}'
+  );
+`);
+
+await expectFailure("mismatched technical identifier", `
+  insert into auth.users (id, email, raw_user_meta_data)
+  values (
+    '10000000-0000-0000-0000-000000000098',
+    'identificador-invalido@auth.administrativo-cd.invalid',
+    '{"nome_completo":"Identidade Invalida","cpf_normalizado":"00000000008"}'
+  );
+`);
+
+await expectAuthenticatedFailure(
+  "pending user self approval",
+  authUsers.selfPending,
+  `select public.aprovar_usuario('${authUsers.selfPending}', 'ADMIN', null);`,
+);
+
+await expectAuthenticatedFailure(
+  "RH promotes ADMIN",
+  authUsers.rh,
+  `select public.aprovar_usuario('${authUsers.pendingAdminRole}', 'ADMIN', null);`,
+);
+
+await expectAuthenticatedFailure(
+  "RH promotes RH",
+  authUsers.rh,
+  `select public.aprovar_usuario('${authUsers.pendingRhRole}', 'RH', null);`,
+);
+
+await asAuthenticated(authUsers.rh, () => database.exec(`
+  select public.aprovar_usuario('${authUsers.manager}', 'GESTOR', null);
+  select public.aprovar_usuario('${authUsers.reader}', 'LEITURA', null);
+`));
+
+await asAuthenticated(authUsers.admin, () => database.exec(`
+  select public.aprovar_usuario('${authUsers.pendingRhRole}', 'RH', null);
+`));
+
+await expectAuthenticatedFailure(
+  "RH blocks ADMIN",
+  authUsers.rh,
+  `select public.bloquear_usuario('${authUsers.admin}');`,
+);
+
+await expectAuthenticatedFailure(
+  "RH blocks RH",
+  authUsers.rh,
+  `select public.bloquear_usuario('${authUsers.pendingRhRole}');`,
+);
+
+await asAuthenticated(authUsers.rh, () => database.exec(`select public.bloquear_usuario('${authUsers.manager}');`));
+await asAuthenticated(authUsers.rh, () => database.exec(`select public.reativar_usuario('${authUsers.manager}');`));
+await asAuthenticated(authUsers.admin, () => database.exec(`select public.bloquear_usuario('${authUsers.pendingRhRole}');`));
+await asAuthenticated(authUsers.admin, () => database.exec(`select public.reativar_usuario('${authUsers.pendingRhRole}');`));
+
+await expectAuthenticatedFailure(
+  "user edits own role",
+  authUsers.reader,
+  `update public.perfis set papel_usuario = 'ADMIN' where id = '${authUsers.reader}';`,
+);
+
+const ownProfileRows = await asAuthenticated(authUsers.reader, () => database.query(`
+  select id, nome_completo, status_usuario, papel_usuario
+  from public.perfis;
+`));
+if (ownProfileRows.rows.length !== 1 || ownProfileRows.rows[0].id !== authUsers.reader) {
+  throw new Error(`own-profile RLS mismatch: ${JSON.stringify(ownProfileRows.rows)}`);
+}
+
+await expectAuthenticatedFailure(
+  "manager lists users",
+  authUsers.manager,
+  `select * from public.listar_usuarios(null, null, null);`,
+);
+
+const administrativeUsers = await asAuthenticated(authUsers.admin, () => database.query(`
+  select cpf_mascarado
+  from public.listar_usuarios(null, null, null);
+`));
+if (
+  administrativeUsers.rows.length !== 7
+  || administrativeUsers.rows.some((row) => !/^\*\*\*\.\*\*\*\.\*\*\*-[0-9]{2}$/.test(row.cpf_mascarado))
+) {
+  throw new Error(`administrative CPF masking mismatch: ${JSON.stringify(administrativeUsers.rows)}`);
+}
+
+const authorizationStates = await database.query(`
+  select id, status_usuario, papel_usuario
+  from public.perfis
+  where id in (
+    '${authUsers.manager}',
+    '${authUsers.reader}',
+    '${authUsers.pendingRhRole}'
+  )
+  order by id;
+`);
+if (authorizationStates.rows.some((row) => row.status_usuario !== "APROVADO")) {
+  throw new Error(`approval/block/reactivation mismatch: ${JSON.stringify(authorizationStates.rows)}`);
+}
+
 const cycles = await database.query(`
   select aplica_a_partir_de, dias_g_ciclo, dias_pendentes_compensar, situacao_banco
   from public.vw_banco_horas_ciclos
@@ -133,18 +317,26 @@ const rls = await database.query(`
   where relnamespace = 'public'::regnamespace
     and relname in (
       'unidades', 'gestores', 'lotes_importacao', 'colaboradores',
-      'banco_horas_medicoes', 'chamada_diaria'
+      'banco_horas_medicoes', 'chamada_diaria', 'perfis'
     )
     and relrowsecurity;
 `);
 
-if (rls.rows[0].protected_tables !== 6) {
+if (rls.rows[0].protected_tables !== 7) {
   throw new Error(`RLS mismatch: ${JSON.stringify(rls.rows[0])}`);
 }
 
-const policies = await database.query(`select count(*)::integer as policy_count from pg_policies where schemaname = 'public';`);
-if (policies.rows[0].policy_count !== 0) {
-  throw new Error(`unexpected permissive policies: ${JSON.stringify(policies.rows[0])}`);
+const policies = await database.query(`
+  select tablename, policyname, cmd, roles
+  from pg_policies
+  where schemaname = 'public'
+  order by tablename, policyname;
+`);
+const expectedPolicies = [
+  { tablename: "perfis", policyname: "perfis_select_proprio", cmd: "SELECT", roles: ["authenticated"] },
+];
+if (JSON.stringify(policies.rows) !== JSON.stringify(expectedPolicies)) {
+  throw new Error(`RLS policies mismatch: ${JSON.stringify(policies.rows)}`);
 }
 
 const exposedGrants = await database.query(`
@@ -193,7 +385,7 @@ console.log(JSON.stringify({
   constraintsVerified: 4,
   baselineCyclesVerified: normalizedCycles,
   rlsTablesVerified: rls.rows[0].protected_tables,
-  policiesVerified: policies.rows[0].policy_count,
+  policiesVerified: policies.rows,
   exposedGrantsVerified: exposedGrants.rows[0].grant_count,
   securityInvokerViewsVerified: secureViews.rows[0].secure_views,
   missingForeignKeyIndexes: missingForeignKeyIndexes.rows.length,

@@ -14,6 +14,11 @@ export function formatCPF(value: string): string {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
 }
 
+export function maskCPF(value: string): string {
+  const digits = normalizeCPF(value);
+  return `***.***.***-${digits.slice(-2).padStart(2, "*")}`;
+}
+
 function calculateDigit(digits: string, factor: number): number {
   const total = digits.split("").reduce((sum, digit) => sum + Number(digit) * factor--, 0);
   const remainder = total % 11;

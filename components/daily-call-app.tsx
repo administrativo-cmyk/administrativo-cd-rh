@@ -19,9 +19,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDailyCall } from "@/hooks/use-daily-call";
 import type { AttendanceCode, DemoState } from "@/lib/daily-call-types";
+import type { AuthenticatedProfile } from "@/lib/auth/types";
 import { cn } from "@/lib/utils";
 
-export function DailyCallApp() {
+export function DailyCallApp({ profile }: { profile: AuthenticatedProfile }) {
   const daily = useDailyCall();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -57,9 +58,9 @@ export function DailyCallApp() {
 
   return <TooltipProvider delayDuration={250}>
     <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
-      <AppSidebar collapsed={collapsed} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+      <AppSidebar collapsed={collapsed} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Chamada Diária" />
       <section className={cn("transition-[padding] duration-200", collapsed ? "lg:pl-18" : "lg:pl-[232px]")}>
-        <AppHeader collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onMobileOpen={() => setMobileOpen(true)} />
+        <AppHeader collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onMobileOpen={() => setMobileOpen(true)} profile={profile} />
         <div className="mx-auto max-w-[1720px] space-y-4 p-3 sm:p-4 md:p-5">
           <header className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
             <div>

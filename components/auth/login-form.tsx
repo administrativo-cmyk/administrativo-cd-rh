@@ -2,18 +2,21 @@
 
 import { type FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle2, LoaderCircle, ShieldCheck } from "lucide-react";
 import { CpfField } from "@/components/auth/cpf-field";
 import { PasswordField } from "@/components/auth/password-field";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { validateLogin, type LoginErrors } from "@/lib/auth/auth-validation";
-import { mockAuthService, type AuthService } from "@/lib/auth/auth-service";
+import { AuthFlowError, type AuthService } from "@/lib/auth/auth-service";
+import { supabaseAuthService } from "@/lib/auth/supabase-auth-service";
 
 type LoginFormProps = {
   service?: AuthService;
 };
 
-export function LoginForm({ service = mockAuthService }: LoginFormProps) {
+export function LoginForm({ service = supabaseAuthService }: LoginFormProps) {
+  const router = useRouter();
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<LoginErrors>({});
@@ -31,8 +34,12 @@ export function LoginForm({ service = mockAuthService }: LoginFormProps) {
 
     setLoading(true);
     try {
-      await service.signIn({ cpf, password });
-      setFeedback("Dados validados com sucesso.");
+      const result = await service.signIn({ cpf, password });
+      if (result.status === "PENDENTE") router.push("/acesso-pendente");
+      else if (result.status === "BLOQUEADO") router.push("/acesso-bloqueado");
+      else router.push("/");
+    } catch (error) {
+      setFeedback(error instanceof AuthFlowError ? error.message : "Não foi possível entrar. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -55,11 +62,11 @@ export function LoginForm({ service = mockAuthService }: LoginFormProps) {
           {loading ? <><LoaderCircle className="auth-spinner" aria-hidden="true" /> Entrando...</> : <>Entrar <ArrowRight aria-hidden="true" /></>}
         </button>
 
-        {feedback ? <p className="auth-feedback auth-feedback--success" role="status"><CheckCircle2 aria-hidden="true" /> {feedback}</p> : null}
+        {feedback ? <p className="auth-feedback auth-feedback--error" role="status"><CheckCircle2 aria-hidden="true" /> {feedback}</p> : null}
 
         <div className="auth-divider"><span>ou</span></div>
 
-        <button className="auth-google-button" type="button" onClick={() => setFeedback("Integração Google será habilitada em breve.")}>
+        <button className="auth-google-button" type="button" onClick={() => setFeedback("Login com Google será disponibilizado futuramente.")}>
           <svg className="auth-google-mark" viewBox="0 0 48 48" aria-hidden="true">
             <path fill="#FFC107" d="M43.61 20H42V20H24v8h11.3C33.65 32.66 29.22 36 24 36c-6.63 0-12-5.37-12-12s5.37-12 12-12c3.06 0 5.84 1.15 7.96 3.04l5.66-5.66C34.05 6.05 29.27 4 24 4 12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20c0-1.34-.14-2.65-.39-4Z" />
             <path fill="#FF3D00" d="m6.31 14.69 6.57 4.82C14.66 15.11 18.96 12 24 12c3.06 0 5.84 1.15 7.96 3.04l5.66-5.66C34.05 6.05 29.27 4 24 4c-7.68 0-14.34 4.34-17.69 10.69Z" />
@@ -77,7 +84,7 @@ export function LoginForm({ service = mockAuthService }: LoginFormProps) {
           <DialogHeader>
             <span className="auth-dialog__icon"><ShieldCheck aria-hidden="true" /></span>
             <DialogTitle>Recuperação de senha</DialogTitle>
-            <DialogDescription>Recuperação de senha será habilitada em breve.</DialogDescription>
+            <DialogDescription>Para redefinir sua senha, procure o RH ou administrador responsável.</DialogDescription>
           </DialogHeader>
         </DialogContent>
       </Dialog>

@@ -6,12 +6,14 @@ import { CpfField } from "@/components/auth/cpf-field";
 import { LoginForm } from "@/components/auth/login-form";
 import { RegisterForm } from "@/components/auth/register-form";
 import { RegistrationSuccess } from "@/components/auth/registration-success";
-import { MockAuthService, type AuthService } from "@/lib/auth/auth-service";
+import { AuthFlowError, MockAuthService, type AuthService } from "@/lib/auth/auth-service";
 
 const pushMock = vi.hoisted(() => vi.fn());
+const replaceMock = vi.hoisted(() => vi.fn());
+const refreshMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, refresh: refreshMock }),
 }));
 
 function CpfFieldHarness() {
@@ -27,7 +29,11 @@ async function fillValidRegistration(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("experiência visual de autenticação", () => {
-  beforeEach(() => pushMock.mockClear());
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    refreshMock.mockClear();
+  });
 
   it("renderiza a tela de Login", () => {
     render(<LoginForm service={new MockAuthService(0)} />);
@@ -102,6 +108,56 @@ describe("experiência visual de autenticação", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/cadastro/sucesso"));
   });
 
+  it("redireciona usuário pendente após o login", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm service={new MockAuthService(0, { status: "PENDENTE", role: null })} />);
+    await user.type(screen.getByLabelText("Usuário"), "52998224725");
+    await user.type(screen.getByLabelText("Senha"), "segura123");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/acesso-pendente"));
+  });
+
+  it("redireciona usuário bloqueado após o login", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm service={new MockAuthService(0, { status: "BLOQUEADO", role: "LEITURA" })} />);
+    await user.type(screen.getByLabelText("Usuário"), "52998224725");
+    await user.type(screen.getByLabelText("Senha"), "segura123");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/acesso-bloqueado"));
+  });
+
+  it("redireciona usuário aprovado para a aplicação", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm service={new MockAuthService(0, { status: "APROVADO", role: "LEITURA" })} />);
+    await user.type(screen.getByLabelText("Usuário"), "52998224725");
+    await user.type(screen.getByLabelText("Senha"), "segura123");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/"));
+  });
+
+  it("mostra mensagem amigável para login inválido", async () => {
+    const user = userEvent.setup();
+    const service = new MockAuthService(0);
+    vi.spyOn(service, "signIn").mockRejectedValue(new AuthFlowError("INVALID_CREDENTIALS", "CPF ou senha inválidos."));
+    render(<LoginForm service={service} />);
+    await user.type(screen.getByLabelText("Usuário"), "52998224725");
+    await user.type(screen.getByLabelText("Senha"), "segura123");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("CPF ou senha inválidos.");
+  });
+
+  it("não revela se a falha de cadastro foi causada por CPF duplicado", async () => {
+    const user = userEvent.setup();
+    const service = new MockAuthService(0);
+    vi.spyOn(service, "signUp").mockRejectedValue(new AuthFlowError("UNEXPECTED", "Não foi possível concluir o cadastro. Verifique os dados ou procure o RH ou administrador responsável."));
+    render(<RegisterForm service={service} />);
+    await fillValidRegistration(user);
+    await user.click(screen.getByRole("button", { name: "Cadastrar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível concluir o cadastro. Verifique os dados ou procure o RH ou administrador responsável.");
+    expect(screen.queryByText(/CPF (já|existente|cadastrado)/i)).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalledWith("/cadastro/sucesso");
+  });
+
   it("mantém a tela de sucesso minimalista com vídeo e botão", () => {
     render(<RegistrationSuccess />);
     expect(screen.getByTestId("registration-success-video")).toBeInTheDocument();
@@ -144,7 +200,14 @@ describe("experiência visual de autenticação", () => {
     const signIn = vi.spyOn(service, "signIn");
     render(<LoginForm service={service} />);
     await user.click(screen.getByRole("button", { name: "Entrar com Google" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Integração Google será habilitada em breve.");
+    expect(screen.getByRole("status")).toHaveTextContent("Login com Google será disponibilizado futuramente.");
     expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("orienta procurar RH ou administrador para redefinir a senha", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm service={new MockAuthService(0)} />);
+    await user.click(screen.getByRole("button", { name: "Esqueceu sua senha?" }));
+    expect(screen.getByText("Para redefinir sua senha, procure o RH ou administrador responsável.")).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@
 - Projeto: `administrativo-cd-rh`
 - Região: South America (São Paulo), `sa-east-1`
 - Criado em: 2026-09-24
-- Situação: fundação criada, sem Auth de aplicação e sem dados reais de RH
+- Situação: fundação de autenticação e perfis aplicada, sem usuários ou dados reais de RH
 
 O projeto `supabase-almond-village` contém dados de outro aplicativo e está fora do escopo do App RH. Ele não deve ser vinculado, migrado ou alterado por este workspace.
 
@@ -17,6 +17,9 @@ O projeto `supabase-almond-village` contém dados de outro aplicativo e está fo
 3. `20260923204015_daily_attendance.sql`
 4. `20260923204017_views_indexes_rls.sql`
 5. `20260924143652_seed_reference_units.sql`
+6. `20260924195656_authentication_profiles_approval.sql`
+7. `20260925112752_harden_auth_rpc_exposure.sql`
+8. `20260925120000_enforce_auth_identifier_binding.sql`
 
 ## Estrutura criada
 
@@ -28,6 +31,7 @@ Tabelas:
 - `colaboradores`
 - `banco_horas_medicoes`
 - `chamada_diaria`
+- `perfis`
 
 Views com `security_invoker = true`:
 
@@ -45,12 +49,14 @@ Unidades estruturais:
 
 ## Segurança e exposição
 
-- RLS está habilitado nas seis tabelas.
-- Não existem policies de aplicação nesta etapa.
-- As tabelas e views do App RH não possuem grants para `anon` ou `authenticated`.
+- RLS está habilitado nas sete tabelas.
+- As seis tabelas operacionais continuam sem policies de aplicação e sem grants para `anon` ou `authenticated`.
+- `perfis` permite ao usuário autenticado apenas a leitura das colunas mínimas do próprio perfil; não existe `UPDATE` genérico.
+- A administração de perfis usa wrappers públicos `SECURITY INVOKER` e implementações privilegiadas no schema `private`, com validação de papel no banco.
 - O projeto mantém os privilégios padrão da plataforma para futuros objetos do schema `public`; essa configuração global da Data API não foi alterada.
-- As funções auxiliares estão no schema `private`, sem `SECURITY DEFINER`.
-- Auth permanece com zero usuários.
+- As implementações privilegiadas estão no schema `private` com `SECURITY DEFINER`, `search_path` vazio e execução revogada de `public`, `anon` e `authenticated`; apenas wrappers públicos `SECURITY INVOKER` com grants mínimos são expostos.
+- O trigger de criação valida que o e-mail técnico corresponde ao SHA-256 do CPF normalizado antes de persistir o perfil e remove o CPF do metadata de Auth após o uso.
+- Auth e `perfis` permanecem com zero registros após a remoção dos usuários fictícios de teste.
 - Storage permanece com zero buckets.
 - Nenhuma Edge Function foi criada ou implantada.
 
@@ -60,4 +66,4 @@ Nenhum gestor, colaborador, lote, saldo de banco de horas ou chamada diária rea
 
 ## Aplicação
 
-O frontend continua usando `MockDailyCallRepository`. URL, chave pública e credenciais do projeto remoto ainda não foram adicionadas à aplicação.
+O frontend continua usando `MockDailyCallRepository` para Chamada Diária e demais dados operacionais. A autenticação usa o projeto remoto oficial por meio de URL e chave publicável no ambiente local ignorado pelo Git; nenhuma chave secreta é exposta ao navegador ou versionada.

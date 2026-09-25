@@ -122,6 +122,7 @@
 .auth-feedback { display: flex; align-items: flex-start; gap: 8px; margin: -5px 0 0; padding: 9px 11px; border-radius: 9px; font-size: 0.73rem; line-height: 1.4; }
 .auth-feedback svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .auth-feedback--success { color: #08623c; background: #edf8f2; }
+.auth-feedback--error { color: #9f1239; background: #fff1f2; }
 
 .auth-dialog { max-width: 390px; border-color: #dce7ee; border-radius: 18px; }
 .auth-dialog [data-slot="dialog-header"] { align-items: center; text-align: center; }

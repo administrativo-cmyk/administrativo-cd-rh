@@ -2,10 +2,10 @@ import { chromium } from "playwright-core";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const baseUrl = process.env.AUTH_VISUAL_AUDIT_URL ?? "http://localhost:4173";
+const baseUrl = process.env.AUTH_VISUAL_AUDIT_URL ?? "http://localhost:3000";
 const chrome = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const outputDir = path.resolve("artifacts/auth-visual-audit");
-const routes = ["/login", "/cadastro", "/cadastro/sucesso"];
+const routes = ["/login", "/cadastro", "/cadastro/sucesso", "/acesso-pendente", "/acesso-bloqueado"];
 const viewports = [
   { width: 1440, height: 900 },
   { width: 1366, height: 768 },
@@ -25,7 +25,7 @@ for (const route of routes) {
     page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
     await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
-    const slug = route === "/login" ? "login" : route === "/cadastro" ? "cadastro" : "sucesso";
+    const slug = route.replace(/^\//, "").replaceAll("/", "-") || "inicio";
     await page.screenshot({ path: path.join(outputDir, `${slug}-${viewport.width}x${viewport.height}.png`), fullPage: false });
 
     const measurements = await page.evaluate(() => {
@@ -67,16 +67,15 @@ const invalidCpfVisible = await interaction.getByText("Informe um CPF válido", 
 await interaction.getByRole("button", { name: "Mostrar senha", exact: true }).click();
 const passwordVisible = await interaction.getByLabel("Senha", { exact: true }).getAttribute("type") === "text";
 await interaction.getByRole("button", { name: "Entrar com Google", exact: true }).click();
-const googleMockVisible = await interaction.getByText("Integração Google será habilitada em breve.", { exact: true }).isVisible();
+const googleMockVisible = await interaction.getByText("Login com Google será disponibilizado futuramente.", { exact: true }).isVisible();
 await interaction.getByRole("link", { name: "Cadastre-se", exact: true }).click();
 await interaction.waitForURL("**/cadastro");
 
-await interaction.getByLabel("Nome", { exact: true }).fill("Marina Duarte");
-await interaction.getByLabel("Usuário", { exact: true }).fill("52998224725");
-await interaction.getByLabel("Senha", { exact: true }).fill("segura123");
-await interaction.getByLabel("Confirmar senha", { exact: true }).fill("segura123");
-await interaction.getByRole("button", { name: "Cadastrar", exact: true }).click();
-await interaction.waitForURL("**/cadastro/sucesso");
+const registerHeadingVisible = await interaction.getByRole("heading", { name: "Crie sua conta", exact: true }).isVisible();
+
+// Não cria usuários remotos durante a auditoria visual. O signup real é
+// validado pelos testes controlados, e esta tela pode ser aberta diretamente.
+await interaction.goto(`${baseUrl}/cadastro/sucesso`, { waitUntil: "networkidle" });
 
 const video = interaction.getByTestId("registration-success-video");
 await video.waitFor({ state: "visible" });
@@ -109,14 +108,15 @@ const existingPageErrors = [];
 existingPage.on("console", (message) => { if (message.type() === "error") existingPageErrors.push(message.text()); });
 existingPage.on("pageerror", (error) => existingPageErrors.push(error.message));
 await existingPage.goto(baseUrl, { waitUntil: "networkidle" });
-const dailyCallPreserved = await existingPage.getByRole("heading", { name: "Chamada Diária", exact: true }).isVisible();
+const protectedByDefault = existingPage.url().endsWith("/login")
+  && await existingPage.getByRole("heading", { name: "Bem-vindo(a) de volta!", exact: true }).isVisible();
 await existingPage.close();
 await browser.close();
 
 const report = {
   pages,
-  interactions: { invalidCpfVisible, passwordVisible, googleMockVisible, videoState, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
-  dailyCall: { preserved: dailyCallPreserved, consoleErrors: existingPageErrors },
+  interactions: { invalidCpfVisible, passwordVisible, googleMockVisible, registerHeadingVisible, videoState, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
+  protectedRoute: { redirectedToLogin: protectedByDefault, consoleErrors: existingPageErrors },
 };
 await writeFile(path.join(outputDir, "report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));
@@ -129,14 +129,14 @@ const failures = [
     page.route === "/cadastro/sucesso" && page.headingVisible ? `${page.route} ${page.width}x${page.height}: conteúdo extra na tela minimalista` : null,
     page.consoleErrors.length ? `${page.route} ${page.width}x${page.height}: erro de console` : null,
   ]),
-  ...pages.filter((page) => page.route !== "/cadastro/sucesso" && page.width > 900 && page.visualDisplay === "none").map((page) => `${page.route} ${page.width}x${page.height}: painel institucional ausente`),
-  ...pages.filter((page) => page.route !== "/cadastro/sucesso" && page.width <= 640 && page.visualDisplay !== "none").map((page) => `${page.route} ${page.width}x${page.height}: painel deveria priorizar formulário no mobile`),
+  ...pages.filter((page) => ["/login", "/cadastro"].includes(page.route) && page.width > 900 && page.visualDisplay === "none").map((page) => `${page.route} ${page.width}x${page.height}: painel institucional ausente`),
+  ...pages.filter((page) => ["/login", "/cadastro"].includes(page.route) && page.width <= 640 && page.visualDisplay !== "none").map((page) => `${page.route} ${page.width}x${page.height}: painel deveria priorizar formulário no mobile`),
   ...pages.filter((page) => page.route === "/cadastro/sucesso" && (!page.mediaBox || !page.videoBox || page.videoBox.width > page.mediaBox.width + 1)).map((page) => `${page.route} ${page.width}x${page.height}: vídeo excede o contêiner`),
-  !invalidCpfVisible || !passwordVisible || !googleMockVisible ? "interações de login incompletas" : null,
+  !invalidCpfVisible || !passwordVisible || !googleMockVisible || !registerHeadingVisible ? "interações públicas incompletas" : null,
   !videoState.autoplay || !videoState.muted || !videoState.playsInline || !videoState.loop || videoState.controls ? "configuração do vídeo incorreta" : null,
   !fallbackVisible || !backToLogin ? "fluxo de sucesso incompleto" : null,
   interactionErrors.length || existingPageErrors.length ? "erro de console durante fluxos" : null,
-  !dailyCallPreserved ? "Chamada Diária não encontrada" : null,
+  !protectedByDefault ? "rota interna sem proteção padrão" : null,
 ].filter(Boolean);
 
 if (failures.length) {

@@ -1,4 +1,6 @@
-export type AccessRequestStatus = "PENDENTE" | "APROVADO" | "BLOQUEADO";
+import type { AccessRequestStatus, UserRole } from "@/lib/auth/types";
+
+export type { AccessRequestStatus, UserRole } from "@/lib/auth/types";
 
 export interface SignInInput {
   cpf: string;
@@ -9,11 +11,26 @@ export interface SignUpInput extends SignInInput {
   fullName: string;
 }
 
+export type SignInResult = {
+  status: AccessRequestStatus;
+  role: UserRole | null;
+};
+
 export interface AuthService {
-  signIn(input: SignInInput): Promise<{ demo: true }>;
-  signUp(input: SignUpInput): Promise<{ status: AccessRequestStatus }>;
+  signIn(input: SignInInput): Promise<SignInResult>;
+  signUp(input: SignUpInput): Promise<{ status: "PENDENTE" }>;
   signOut(): Promise<void>;
   resetPassword(cpf: string): Promise<{ available: false }>;
+}
+
+export class AuthFlowError extends Error {
+  constructor(
+    public readonly code: "INVALID_CREDENTIALS" | "PROFILE_UNAVAILABLE" | "UNEXPECTED",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AuthFlowError";
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -22,14 +39,17 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 export class MockAuthService implements AuthService {
-  constructor(private readonly delayMilliseconds = 650) {}
+  constructor(
+    private readonly delayMilliseconds = 650,
+    private readonly result: SignInResult = { status: "APROVADO", role: "LEITURA" },
+  ) {}
 
-  async signIn(): Promise<{ demo: true }> {
+  async signIn(): Promise<SignInResult> {
     await delay(this.delayMilliseconds);
-    return { demo: true };
+    return this.result;
   }
 
-  async signUp(): Promise<{ status: AccessRequestStatus }> {
+  async signUp(): Promise<{ status: "PENDENTE" }> {
     await delay(this.delayMilliseconds);
     return { status: "PENDENTE" };
   }
@@ -43,5 +63,3 @@ export class MockAuthService implements AuthService {
     return { available: false };
   }
 }
-
-export const mockAuthService = new MockAuthService();
