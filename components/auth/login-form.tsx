@@ -52,9 +52,9 @@ export function LoginForm({ service = supabaseAuthService }: LoginFormProps) {
         <p>Acesse sua conta e continue construindo um ambiente de trabalho mais humano e produtivo.</p>
       </div>
 
-      <form className="auth-form" onSubmit={handleSubmit} noValidate>
-        <CpfField id="login-cpf" label="Usuário" value={cpf} onChange={setCpf} error={errors.cpf} />
-        <PasswordField id="login-password" label="Senha" placeholder="Digite sua senha" value={password} onChange={setPassword} error={errors.password} autoComplete="current-password" />
+      <form className="auth-form" onSubmit={handleSubmit} autoComplete="off" noValidate>
+        <CpfField id="login-cpf" label="Usuário" value={cpf} onChange={setCpf} error={errors.cpf} autoComplete="off" preventAutofill />
+        <PasswordField id="login-password" label="Senha" placeholder="Digite sua senha" value={password} onChange={setPassword} error={errors.password} autoComplete="new-password" preventAutofill />
 
         <button className="auth-text-action" type="button" onClick={() => setForgotOpen(true)}>Esqueceu sua senha?</button>
 

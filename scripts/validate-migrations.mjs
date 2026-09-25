@@ -128,6 +128,7 @@ const authUsers = {
   pendingAdminRole: "10000000-0000-0000-0000-000000000005",
   pendingRhRole: "10000000-0000-0000-0000-000000000006",
   selfPending: "10000000-0000-0000-0000-000000000007",
+  secondAdmin: "10000000-0000-0000-0000-000000000008",
 };
 
 await database.exec(`
@@ -138,7 +139,8 @@ await database.exec(`
     ('${authUsers.reader}', encode(sha256(convert_to('00000000004', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Leitura Local","cpf_normalizado":"00000000004"}'),
     ('${authUsers.pendingAdminRole}', encode(sha256(convert_to('00000000005', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente Admin","cpf_normalizado":"00000000005"}'),
     ('${authUsers.pendingRhRole}', encode(sha256(convert_to('00000000006', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente RH","cpf_normalizado":"00000000006"}'),
-    ('${authUsers.selfPending}', encode(sha256(convert_to('00000000007', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Auto Pendente","cpf_normalizado":"00000000007"}');
+    ('${authUsers.selfPending}', encode(sha256(convert_to('00000000007', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Auto Pendente","cpf_normalizado":"00000000007"}'),
+    ('${authUsers.secondAdmin}', encode(sha256(convert_to('00000000008', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Segundo Admin","cpf_normalizado":"00000000008"}');
 
   update public.perfis
   set status_usuario = 'APROVADO', papel_usuario = 'ADMIN', aprovado_em = now()
@@ -186,6 +188,21 @@ await expectFailure("mismatched technical identifier", `
   );
 `);
 
+await expectFailure(
+  "last approved admin cannot be demoted by direct table mutation",
+  `update public.perfis set papel_usuario = 'RH' where id = '${authUsers.admin}';`,
+);
+
+await expectFailure(
+  "last approved admin cannot be deactivated by direct table mutation",
+  `update public.perfis set status_usuario = 'BLOQUEADO' where id = '${authUsers.admin}';`,
+);
+
+await expectFailure(
+  "last approved admin cannot be deleted by direct table mutation",
+  `delete from public.perfis where id = '${authUsers.admin}';`,
+);
+
 await expectAuthenticatedFailure(
   "pending user self approval",
   authUsers.selfPending,
@@ -225,6 +242,42 @@ await expectAuthenticatedFailure(
   `select public.bloquear_usuario('${authUsers.pendingRhRole}');`,
 );
 
+await expectAuthenticatedFailure(
+  "admin blocks self",
+  authUsers.admin,
+  `select public.bloquear_usuario('${authUsers.admin}');`,
+);
+
+await expectFailure(
+  "last approved admin protection",
+  `select private.assert_active_admin_remains('${authUsers.admin}');`,
+);
+
+await database.exec(`
+  update public.perfis
+  set status_usuario = 'APROVADO', papel_usuario = 'ADMIN', aprovado_em = now()
+  where id = '${authUsers.secondAdmin}';
+`);
+
+await asAuthenticated(authUsers.admin, () => database.exec(
+  `select public.bloquear_usuario('${authUsers.secondAdmin}');`,
+));
+
+const remainingAdmins = await database.query(`
+  select count(*)::integer as count
+  from public.perfis
+  where status_usuario = 'APROVADO' and papel_usuario = 'ADMIN';
+`);
+if (remainingAdmins.rows[0].count !== 1) {
+  throw new Error(`blocking another admin did not preserve one approved admin: ${JSON.stringify(remainingAdmins.rows[0])}`);
+}
+
+await expectAuthenticatedFailure(
+  "blocked admin cannot block remaining admin",
+  authUsers.secondAdmin,
+  `select public.bloquear_usuario('${authUsers.admin}');`,
+);
+
 await asAuthenticated(authUsers.rh, () => database.exec(`select public.bloquear_usuario('${authUsers.manager}');`));
 await asAuthenticated(authUsers.rh, () => database.exec(`select public.reativar_usuario('${authUsers.manager}');`));
 await asAuthenticated(authUsers.admin, () => database.exec(`select public.bloquear_usuario('${authUsers.pendingRhRole}');`));
@@ -250,15 +303,45 @@ await expectAuthenticatedFailure(
   `select * from public.listar_usuarios(null, null, null);`,
 );
 
+await expectAuthenticatedFailure(
+  "reader lists users",
+  authUsers.reader,
+  `select * from public.listar_usuarios(null, null, null);`,
+);
+
 const administrativeUsers = await asAuthenticated(authUsers.admin, () => database.query(`
   select cpf_mascarado
   from public.listar_usuarios(null, null, null);
 `));
 if (
-  administrativeUsers.rows.length !== 7
+  administrativeUsers.rows.length !== 8
   || administrativeUsers.rows.some((row) => !/^\*\*\*\.\*\*\*\.\*\*\*-[0-9]{2}$/.test(row.cpf_mascarado))
 ) {
   throw new Error(`administrative CPF masking mismatch: ${JSON.stringify(administrativeUsers.rows)}`);
+}
+
+const pendingUsers = await asAuthenticated(authUsers.admin, () => database.query(`
+  select id
+  from public.listar_usuarios('PENDENTE', null, null);
+`));
+if (pendingUsers.rows.length !== 2) {
+  throw new Error(`status filter mismatch: ${JSON.stringify(pendingUsers.rows)}`);
+}
+
+const cpfSearch = await asAuthenticated(authUsers.admin, () => database.query(`
+  select id, cpf_mascarado
+  from public.listar_usuarios(null, null, '00000000004');
+`));
+if (cpfSearch.rows.length !== 1 || cpfSearch.rows[0].cpf_mascarado !== "***.***.***-04") {
+  throw new Error(`CPF search filter mismatch: ${JSON.stringify(cpfSearch.rows)}`);
+}
+
+const rhUsers = await asAuthenticated(authUsers.rh, () => database.query(`
+  select id
+  from public.listar_usuarios(null, null, null);
+`));
+if (rhUsers.rows.length !== 8) {
+  throw new Error(`approved RH administrative access mismatch: ${JSON.stringify(rhUsers.rows)}`);
 }
 
 const authorizationStates = await database.query(`
@@ -273,6 +356,32 @@ const authorizationStates = await database.query(`
 `);
 if (authorizationStates.rows.some((row) => row.status_usuario !== "APROVADO")) {
   throw new Error(`approval/block/reactivation mismatch: ${JSON.stringify(authorizationStates.rows)}`);
+}
+
+const blockFunction = await database.query(`
+  select pg_get_functiondef('private.bloquear_usuario_impl(uuid)'::regprocedure) as definition;
+`);
+if (!blockFunction.rows[0].definition.includes("pg_advisory_xact_lock(824202609, 1)")) {
+  throw new Error("admin block RPC is missing its transaction-scoped concurrency lock");
+}
+
+const triggerFunctions = await database.query(`
+  select count(*)::integer as protected_triggers
+  from pg_trigger
+  where tgrelid = 'public.perfis'::regclass
+    and not tgisinternal
+    and tgname in ('perfis_admin_mutation_lock', 'perfis_preserve_last_approved_admin');
+`);
+if (triggerFunctions.rows[0].protected_triggers !== 2) {
+  throw new Error(`last-admin mutation triggers missing: ${JSON.stringify(triggerFunctions.rows[0])}`);
+}
+
+const privateFunctionGrants = await database.query(`
+  select has_function_privilege('authenticated', 'private.assert_active_admin_remains(uuid)', 'EXECUTE') as helper_exposed,
+         has_function_privilege('anon', 'private.assert_active_admin_remains(uuid)', 'EXECUTE') as anon_helper_exposed;
+`);
+if (privateFunctionGrants.rows[0].helper_exposed || privateFunctionGrants.rows[0].anon_helper_exposed) {
+  throw new Error(`last-admin helper execute privilege expanded: ${JSON.stringify(privateFunctionGrants.rows[0])}`);
 }
 
 const cycles = await database.query(`
@@ -383,6 +492,10 @@ console.log(JSON.stringify({
   migrationsApplied: migrations.length,
   referenceUnitsVerified: referenceUnits.rows,
   constraintsVerified: 4,
+  approvedAdminsRemainingAfterBlockTest: remainingAdmins.rows[0].count,
+  lastAdminTriggersVerified: triggerFunctions.rows[0].protected_triggers,
+  filtersVerified: { pendingUsers: pendingUsers.rows.length, cpfSearch: cpfSearch.rows.length },
+  adminAndRhListAccessVerified: { adminUsers: administrativeUsers.rows.length, rhUsers: rhUsers.rows.length },
   baselineCyclesVerified: normalizedCycles,
   rlsTablesVerified: rls.rows[0].protected_tables,
   policiesVerified: policies.rows,

@@ -38,8 +38,23 @@ describe("experiência visual de autenticação", () => {
   it("renderiza a tela de Login", () => {
     render(<LoginForm service={new MockAuthService(0)} />);
     expect(screen.getByRole("heading", { name: "Bem-vindo(a) de volta!" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Usuário")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Usuário")).toHaveAttribute("autocomplete", "off");
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "new-password");
+    expect(screen.getByLabelText("Usuário")).toHaveValue("");
+    expect(screen.getByLabelText("Senha")).toHaveValue("");
+    expect(screen.getByLabelText("Usuário")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: "Entrar" })).toBeInTheDocument();
+  });
+
+  it("libera os campos para digitação após o foco", () => {
+    render(<LoginForm service={new MockAuthService(0)} />);
+    const userField = screen.getByLabelText("Usuário");
+    const passwordField = screen.getByLabelText("Senha");
+    fireEvent.focus(userField);
+    fireEvent.focus(passwordField);
+    expect(userField).not.toHaveAttribute("readonly");
+    expect(passwordField).not.toHaveAttribute("readonly");
   });
 
   it("formata o CPF durante a digitação", async () => {

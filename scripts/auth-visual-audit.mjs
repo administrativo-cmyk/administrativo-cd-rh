@@ -60,8 +60,20 @@ interaction.on("console", (message) => { if (message.type() === "error") interac
 interaction.on("pageerror", (error) => interactionErrors.push(error.message));
 
 await interaction.goto(`${baseUrl}/login`, { waitUntil: "networkidle" });
-await interaction.getByLabel("Usuário", { exact: true }).fill("11111111111");
-await interaction.getByLabel("Senha", { exact: true }).fill("segura123");
+const loginInitiallyBlank = await interaction.evaluate(() => {
+  const cpf = document.querySelector("#login-cpf");
+  const password = document.querySelector("#login-password");
+  return cpf instanceof HTMLInputElement
+    && password instanceof HTMLInputElement
+    && cpf.value === ""
+    && password.value === "";
+});
+const loginCpfField = interaction.getByLabel("Usuário", { exact: true });
+const loginPasswordField = interaction.getByLabel("Senha", { exact: true });
+await loginCpfField.click();
+await loginCpfField.fill("11111111111");
+await loginPasswordField.click();
+await loginPasswordField.fill("segura123");
 await interaction.getByRole("button", { name: "Entrar", exact: true }).click();
 const invalidCpfVisible = await interaction.getByText("Informe um CPF válido", { exact: true }).isVisible();
 await interaction.getByRole("button", { name: "Mostrar senha", exact: true }).click();
@@ -115,7 +127,7 @@ await browser.close();
 
 const report = {
   pages,
-  interactions: { invalidCpfVisible, passwordVisible, googleMockVisible, registerHeadingVisible, videoState, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
+  interactions: { loginInitiallyBlank, invalidCpfVisible, passwordVisible, googleMockVisible, registerHeadingVisible, videoState, fallbackVisible, backToLogin, consoleErrors: interactionErrors },
   protectedRoute: { redirectedToLogin: protectedByDefault, consoleErrors: existingPageErrors },
 };
 await writeFile(path.join(outputDir, "report.json"), JSON.stringify(report, null, 2));
@@ -132,6 +144,7 @@ const failures = [
   ...pages.filter((page) => ["/login", "/cadastro"].includes(page.route) && page.width > 900 && page.visualDisplay === "none").map((page) => `${page.route} ${page.width}x${page.height}: painel institucional ausente`),
   ...pages.filter((page) => ["/login", "/cadastro"].includes(page.route) && page.width <= 640 && page.visualDisplay !== "none").map((page) => `${page.route} ${page.width}x${page.height}: painel deveria priorizar formulário no mobile`),
   ...pages.filter((page) => page.route === "/cadastro/sucesso" && (!page.mediaBox || !page.videoBox || page.videoBox.width > page.mediaBox.width + 1)).map((page) => `${page.route} ${page.width}x${page.height}: vídeo excede o contêiner`),
+  !loginInitiallyBlank ? "login iniciou com credenciais preenchidas" : null,
   !invalidCpfVisible || !passwordVisible || !googleMockVisible || !registerHeadingVisible ? "interações públicas incompletas" : null,
   !videoState.autoplay || !videoState.muted || !videoState.playsInline || !videoState.loop || videoState.controls ? "configuração do vídeo incorreta" : null,
   !fallbackVisible || !backToLogin ? "fluxo de sucesso incompleto" : null,

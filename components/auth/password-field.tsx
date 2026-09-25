@@ -11,10 +11,12 @@ type PasswordFieldProps = {
   onChange: (value: string) => void;
   error?: string;
   autoComplete: "current-password" | "new-password";
+  preventAutofill?: boolean;
 };
 
-export function PasswordField({ id, label, placeholder, value, onChange, error, autoComplete }: PasswordFieldProps) {
+export function PasswordField({ id, label, placeholder, value, onChange, error, autoComplete, preventAutofill = false }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
+  const [readOnly, setReadOnly] = useState(preventAutofill);
   const errorId = `${id}-error`;
 
   return (
@@ -30,6 +32,8 @@ export function PasswordField({ id, label, placeholder, value, onChange, error, 
           placeholder={placeholder}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setReadOnly(false)}
+          readOnly={readOnly}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? errorId : undefined}
         />
