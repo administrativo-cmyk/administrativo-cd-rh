@@ -50,9 +50,9 @@ function csvIssues(issues: ImportIssue[]): string {
 export function summaryMarkdown(summary: DryRunSummary): string {
   const codes = Object.entries(summary.issues.byCode).sort(([a], [b]) => a.localeCompare(b));
   const list = (items: Record<string, number>) => Object.entries(items).map(([key, value]) => `| ${key} | ${value} |`).join("\n") || "| Nenhum | 0 |";
-  return `# Dry-run de importação RH - Etapa 5A.1
+  return `# Dry-run de importação RH
 
-Este relatório contém somente agregados. A base operacional é o XLSX bruto; o tratado é referência opcional. Nenhuma escrita remota foi executada. O arquivo bruto atual é uma amostra histórica parcialmente tratada e não serve para a primeira carga real.
+Este relatório contém somente agregados. A base operacional é o XLSX bruto; o tratado é referência opcional. Nenhuma escrita remota foi executada. A completude e atualidade do export exigem confirmação de proveniência além do parsing.
 
 ## Fonte bruta
 
@@ -82,7 +82,7 @@ ${list(summary.population.situations)}
 
 - Linhas válidas: ${summary.bank.rows}; positivas: ${summary.bank.positive}; zero: ${summary.bank.zero}; negativas nesta amostra: ${summary.bank.negative}.
 - Faixa de saldo: ${summary.bank.minMinutes ?? "indisponível"} a ${summary.bank.maxMinutes ?? "indisponível"} minutos.
-- O arquivo histórico atual teve colaboradores com saldo negativo removidos manualmente antes da análise. Esta ausência é informativa, **não é blocker**. O parser aceita sinais positivos, zero e negativos.
+- O parser aceita sinais positivos, zero e negativos. A ausência de negativos isoladamente não demonstra filtragem; a presença deles isoladamente não comprova completude do export.
 - Modo histórico: ${summary.history.mode}. Movimentos: ${JSON.stringify(summary.history.movements)}. Na primeira carga ninguém é marcado automaticamente como novo admitido.
 
 ## Golden master opcional
@@ -92,7 +92,7 @@ ${summary.golden ? `- Abas: ${summary.golden.sheets.join(", ")}.
 - Quadro em comum: ${summary.golden.overlap}; divergências de unidade: ${summary.golden.unitDifferences}; situação: ${summary.golden.situationDifferences}; gestor: ${summary.golden.managerDifferences}; jornada: ${summary.golden.journeyDifferences}.
 - No Banco tratado atual: ${summary.golden.currentPositive} positivos, ${summary.golden.currentZero} zeros e ${summary.golden.currentNegative} negativos.
 - Decimal × HH:MM no tratado: ${summary.golden.hhmmCompared} comparações, ${summary.golden.hhmmDisagreements} divergências acima de 1 minuto.
-- Saldo atual exatamente igual em ${summary.golden.balanceExactMatches}/${summary.golden.balanceCompared} linhas comparáveis. **Não interpretar diferenças individuais como erro**, pois a data da fonte bruta não é comprovada e a amostra foi filtrada.
+- Saldo atual exatamente igual em ${summary.golden.balanceExactMatches}/${summary.golden.balanceCompared} linhas comparáveis. **Não interpretar diferenças individuais como erro** sem confirmar equivalência temporal e populacional das fontes.
 ` : "- Referência não fornecida. O fluxo operacional continua independente dela.\n"}
 ## Validação e decisão
 
@@ -104,7 +104,7 @@ ${codes.map(([code, number]) => `| ${code} | ${number} |`).join("\n")}
 
 - Escritas remotas: **0**. Dry-run não instancia cliente administrativo nem executa INSERT/UPDATE/UPSERT/DELETE.
 - Política: gestor ausente e sem extrato são WARNING; matrícula duplicada, unidade principal desconhecida, saldo necessário inválido, identidade ambígua e data sem fonte confiável/sem --reference-date são BLOCKER.
-- Primeira carga real: requer um novo export atual, completo, sem filtros ou tratamento manual, novo dry-run e autorização explícita. Este relatório histórico não libera --apply nem a Etapa 5B.
+- Primeira carga real: requer confirmação de export atual e completo, sem filtros ou tratamento manual, data de referência comprovada, dry-run sem blockers e autorização explícita. Este relatório não executa --apply nem libera automaticamente a Etapa 5B.
 `;
 }
 

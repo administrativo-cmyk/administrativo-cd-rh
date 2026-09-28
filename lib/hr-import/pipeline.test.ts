@@ -91,6 +91,7 @@ describe("importador da base bruta fictícia", () => {
     expect(result.summary.population).toMatchObject({ total: 5, measured: 4, outsideMeasurement: 1 });
     expect(result.summary.bank).toMatchObject({ positive: 1, zero: 1, negative: 1, both: 3, onlyQuadro: 2, measuredWithoutExtract: 1 });
     expect(result.summary.issues.BLOCKER).toBe(0);
+    expect(result.summary.issues.byCode.HISTORICAL_NEGATIVES_MANUALLY_REMOVED).toBeUndefined();
     expect(result.private.bank.find((row) => row.matricula === "0001")?.saldoMinutos).toBe(720);
     expect(result.private.bank.find((row) => row.matricula === "0002")?.saldoMinutos).toBe(0);
     expect(result.private.bank.find((row) => row.matricula === "0003")?.saldoMinutos).toBe(-360);

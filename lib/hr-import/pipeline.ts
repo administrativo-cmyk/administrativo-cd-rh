@@ -289,7 +289,8 @@ export async function runDryImport(sourcePath: string, referencePath?: string, p
   // Only explicit metadata above an operational table or an explicitly supplied date qualifies.
   // Methodology, golden master and filesystem timestamps are never date sources.
   if (!resolvedDate) issue(issues, "BLOCKER", "DATA_REFERENCIA_NAO_INFORMADA");
-  issue(issues, "INFO", "HISTORICAL_NEGATIVES_MANUALLY_REMOVED");
+  // Whether an older workbook was manually filtered is provenance supplied by an operator,
+  // not a property that can be inferred from the balance values of every new export.
   if (quadroTable.rows.some((row) => typeof value(row, "Chapa") === "number")) issue(issues, "INFO", "NUMERIC_SOURCE_MATRICULA");
 
   const movements = compareSnapshots(employees, previous);
