@@ -50,3 +50,7 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+
+# HR source workbooks and reports with personal data (local only)
+/data/private/*
+!/data/private/.gitkeep

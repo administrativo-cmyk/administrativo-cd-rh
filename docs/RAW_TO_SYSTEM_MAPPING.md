@@ -1,0 +1,29 @@
+# Mapeamento da base bruta para o sistema
+
+> Estado: cabeçalhos e tipos verificados nos dois XLSX locais. Os arquivos reais permanecem em `data/private/`; esta documentação contém apenas esquema e agregados. O mapeamento não autoriza `--apply`.
+
+| Fonte bruta confirmada | Tipo observado e transformação | Destino planejado | Validação/regra |
+| --- | --- | --- | --- |
+| `Quadro.Chapa` | 384 números Excel `General`; converter inteiro seguro em string, respeitando formato explícito de zeros se vier em exportações futuras | `colaboradores.matricula` | 384 únicas, sem vazias/duplicadas; zeros à esquerda não são reconstruíveis se a origem numérica já os perdeu |
+| `Quadro.Nome` | Texto; `trim` e colapso de espaços | `colaboradores.nome` | Não corrigir grafia/capitalização |
+| `Quadro.Nome do Departamento` | Texto: `CENTRO DE DISTRIBUICAO` → CD I (208), `CENTRO DE DISTRIBUICAO II` → CD II (43), `CD FLV` → CD FLV (133) | `colaboradores.unidade_id` | Desconhecidos são blocker; `Código da Filial` 9/23 não diferencia CD I de CD FLV |
+| `Quadro.Descrição Seção` | Texto; espaços normalizados | `colaboradores.setor` | Preservar valor de origem para conferência privada |
+| `Quadro.Nome Funcão` | Texto; cabeçalho contém esta grafia exata | `colaboradores.funcao` e regra de jornada | 7h20 padrão; exceções de função explicitadas na arquitetura |
+| `Quadro.Descrição da Situação` | Texto; `Ativo` 354, `Férias` 13, `Af.Previdência` 11, `Outros` 2, `Af.Ac.Trabalho` 2, `Aviso Prévio` 1, `Licença Mater.` 1 | `colaboradores.situacao` | Mapear explicitamente; 367 mensurados, 17 fora da mensuração |
+| `Quadro.Data de Admissão` | 384 datas Excel (`dd/mm/yyyy` ou `d/m/yyyy`) | `colaboradores.admissao` | Converter para ISO sem inferir formatos ambíguos |
+| `Gerente | Gestor.MATR.` | 359 números Excel; chave textual compatível com Chapa | associação futura `colaboradores.gestor_id` nullable | 358 joins com Quadro; 26 Quadro sem linha de gestor, incluindo 9 mensurados; 1 linha órfã. Os 26 permanecem no plano como `VINCULO_GESTOR_PENDENTE`, em `Sem gestor definido`; é WARNING, não exclusão |
+| `Gerente | Gestor.GERENTE`, `GESTOR`, `COLABORADOR`, `UNID.` | Texto; comparação de nomes normalizados, sem fusão heurística | `gestores` e relação com colaboradores | 32 gestores únicos; 9 conflitos de unidade; não existe `GESTOR ATUAL` na fonte bruta, portanto usar `GESTOR` quando presente |
+| `Banco de horas.CHAPA` | 356 números Excel; chave textual | `banco_horas_medicoes.colaborador_id` | 356 presentes em Quadro, nenhum só Banco; 28 só Quadro, dos quais 12 mensurados |
+| `Banco de horas.SALDO POSITIVO` | 326 durações Excel `hh:mm` e 30 `[hh]:mm:ss`, representadas como data pelo leitor; converter para minutos inteiros assinados | `banco_horas_medicoes.saldo_minutos` | 204 positivos, 152 zeros, 0 negativos na amostra filtrada; suporte negativo testado com fixtures fictícias |
+| `Banco de horas.NOME`, `FILIAL`, `SITUACAO` | Texto; conferir com Quadro | validação do extrato | 1 conflito de nome, 0 de unidade nesta amostra; códigos A/F/V comparados à situação cadastral |
+| `Férias.CHAPA` | 372 números Excel; chave textual | modelo intermediário de férias | 322 em Quadro, 50 só Férias; cadastro histórico não deve ser apagado automaticamente |
+| `Férias.INICIO AQUISITIVO`, `FIM AQUISITIVO`, `AGENDAR A PARTIR DE`, `DATAADMISSAO` | Datas Excel | módulo futuro de férias | Início/fim efetivos de férias estão vazios nesta amostra; não inventar programação |
+| `Férias.AVOS`, `ABONO PECUNIÁRIO`, `SITUAÇÃO`, `FUNCAO`, `DESCRICAO`, `FILIAL`, `COD FILIAL` | Número/texto; preservar para regras futuras | módulo futuro de férias | O motor de Sugestão de Férias não pertence à Etapa 5A; `FILIAL` não discrimina CD FLV como unidade operacional |
+
+O arquivo tratado `Banco de horas.xlsx` é apenas referência opcional. Tem 11 abas; `Quadro Atual` e `Banco de Horas` possuem 376 matrículas cada, na posição de 13/09/2026. A coluna de mensuração atual no Banco tratado traz 224 saldos positivos, 11 zeros e 141 negativos. Sua metodologia cita outra extração de 394/383 linhas, ao passo que o bruto entregue tem 384/356; não assumir datas iguais nem equivalência individual de saldo. Em 354 matrículas com saldo nos dois arquivos, apenas 13 valores atuais são exatamente iguais, consistente com a diferença temporal/filtro, não prova de erro de conversão.
+
+Os 13 cabeçalhos do `Quadro Atual` tratado são matrícula, nome, unidade, setor, função, gestor, gestor atual, situação, categoria, admissão, tempo de empresa, movimento e observação. `GESTOR ATUAL` está vazio nas 376 linhas observadas. Os módulos Dashboard, Top 20, Top por Gestor, Chamada Diária e Afastados são visões derivadas; não são tabelas de importação operacional. A aba Metodologia valida regras, não fornece linhas de produção.
+
+O plano local conserva todos os colaboradores válidos sem gestor, inclusive os mensurados, com `gestor = null`; numa aplicação futura o `gestor_id` correspondente poderá ser `NULL`. Totais, unidade, setor, Quadro Atual, Banco de Horas e Chamada Diária não devem filtrá-los. Visões dependentes de gestor devem agregá-los em `Sem gestor definido`. Conflitos de nome/unidade de fontes secundárias permanecem WARNING quando a matrícula é única e inequívoca; identidade ambígua é BLOCKER. Ausência de extrato no Banco é WARNING para mensurados e nunca vira saldo zero.
+
+Data da futura medição: metadado confiável `Data de referência` no Quadro/Banco de horas tem prioridade; senão exigir `--reference-date YYYY-MM-DD`; sem ambos, `DATA_REFERENCIA_NAO_INFORMADA` é BLOCKER. Não usar data do golden master, Metodologia copiada ou timestamp do arquivo. A primeira carga usará essa data como baseline, sem inventar histórico. O arquivo bruto atual é amostra histórica parcialmente tratada; a primeira carga real requer novo export atual e completo, sem exclusões nem tratamento intermediário, seguido de novo dry-run.
