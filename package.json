@@ -19,6 +19,7 @@
     "test:visual": "node scripts/visual-audit.mjs",
     "test:auth-visual": "node scripts/auth-visual-audit.mjs",
     "hr:import:dry": "node --experimental-strip-types scripts/import-hr-data.ts --dry-run",
+    "hr:import:apply": "node --experimental-strip-types scripts/import-hr-data.ts --apply",
     "auth:bootstrap-admin": "node --env-file=.env.local scripts/promote-first-admin.mjs"
   },
   "dependencies": {

@@ -1,13 +1,13 @@
-# Importação de dados de RH — arquitetura das Etapas 5A e 5A.1
+# Importação de dados de RH — arquitetura da baseline
 
-> Estado: parser e dry-run locais implementados a partir dos dois arquivos recebidos. A amostra histórica tem um blocker de data não informada; esta documentação não autoriza aplicação remota.
+> Estado: baseline inicial de 2026-09-28 aplicada e auditada no projeto oficial `administrativo-cd-rh`. Detalhes agregados em `HR_BASELINE_IMPORT.md`.
 
 ## Fontes e limite desta etapa
 
 - `Banco de dados RH.xlsx` é a única fonte operacional prevista. O usuário deve exportar a base completa, sem filtrar saldos ou colaboradores.
 - `Banco de horas.xlsx` é referência histórica opcional para comparar regras e resultados. Não entra no fluxo operacional cotidiano.
 - Ambos devem permanecer em `data/private/`, ignorado pelo Git. Relatórios que contenham nome, matrícula ou qualquer dado pessoal também ficam nesse diretório. Documentação versionável conterá somente agregados.
-- A Etapa 5A.1 termina no dry-run. Não executar `--apply`, migration ou qualquer escrita remota; não substituir os mocks da Chamada Diária.
+- A Etapa 5B aplica somente gestores, colaboradores e medições da baseline. Não substitui os mocks da Chamada Diária nem importa Férias.
 
 ## Fluxo proposto
 
@@ -17,8 +17,9 @@
 4. Cruzar Quadro, Gerente | Gestor, Banco de horas e Férias por matrícula. Ausência de linha no Banco não é saldo zero.
 5. Montar um modelo intermediário por matrícula, independente de Supabase e do layout do Excel tratado.
 6. Comparar com o snapshot anterior somente quando houver histórico. Na primeira carga, registrar baseline; não classificar toda a população como novos admitidos.
-7. Gerar modelo intermediário ordenado e fingerprint determinístico privado, além de relatório agregado versionável. Dry-run não importa código Supabase nem instancia cliente de escrita.
+7. Gerar modelo intermediário ordenado e fingerprint determinístico privado, além de relatório agregado versionável. Dry-run não instancia cliente de escrita.
 8. Quando disponível, comparar a referência histórica opcional, primeiro verificando a data/snapshot de cada arquivo. Períodos diferentes impedem tratar divergência individual de saldo como erro da regra.
+9. No `--apply`, recalcular SHA-256, exigir data e ref oficiais, validar o mesmo plano do dry-run, confirmar organização/projeto vinculado e executar uma única função administrativa no PostgreSQL. A função valida pré e pós-condições e a chamada é uma transação atômica.
 
 ## Regras já estabelecidas no domínio
 
@@ -35,25 +36,25 @@
 
 ## Estrutura auditada e origem temporal
 
-O bruto contém `Quadro`, `Banco de horas`, `Férias`, `Metodologia` e `Gerente | Gestor`. As linhas de dados são respectivamente 384, 356, 372 e 359; a Metodologia é texto, não tabela operacional. A coluna `SALDO POSITIVO` é um horário Excel: 326 células formatadas `hh:mm` e 30 `[hh]:mm:ss`, incluindo duração acima de 24 horas. O leitor converte `Date` Excel pela época do workbook, números por fração de dia × 1440 e texto assinado `HH:MM` diretamente. Os saldos desta amostra são 204 positivos, 152 zeros e nenhum negativo, conforme o filtro manual informado pelo usuário.
+O bruto homologado contém `Quadro`, `Banco de horas`, `Férias`, `Metodologia` e `Gerente | Gestor`. As linhas de dados são respectivamente 384, 356, 372 e 359; a Metodologia é texto, não tabela operacional. O leitor converte durações Excel para minutos inteiros assinados. Neste export há 183 saldos positivos, 35 zero e 138 negativos.
 
 O golden master contém 11 abas. O título de `Banco de Horas` identifica mensuração anterior em 11/09/2026 e atual em 13/09/2026; `Quadro Atual` também declara posição em 13/09/2026. A **data da extração bruta não é comprovada** por suas abas operacionais. A Metodologia reproduz texto de uma origem diferente (394 no Quadro e 383 no Banco, divergindo dos 384 e 356 efetivos). Por isso o parser não usa esse texto para datar ou contar a base bruta. Comparação individual de saldo é somente informativa.
 
 O Quadro bruto tem 354 `Ativo`, 13 `Férias` e 17 em outras situações. Os 367 primeiros compõem a população mensurada desta amostra. O tratado tem 376 pessoas mensuradas em seu próprio período. Há 357 matrículas em comum; diferenças de integrantes e saldos não provam erro sem snapshots equivalentes.
 
-## Data de referência e bloqueio no dry-run atual
+## Data de referência
 
 - **Data/snapshot da fonte bruta não comprovada.** A resolução usa, nesta ordem: metadado explícito `Data de referência` antes do cabeçalho em Quadro/Banco de horas, desde que válido e não conflitante; depois `--reference-date YYYY-MM-DD` informado pelo operador; senão `DATA_REFERENCIA_NAO_INFORMADA` (`BLOCKER`). A opção anterior `--as-of` segue aceita por compatibilidade. Data de modificação/download do arquivo, timestamp do Windows, Metodologia copiada e data do golden master nunca preenchem essa lacuna. Metadado da fonte válido prevalece sobre argumento divergente, com `WARNING`.
-- A primeira aplicação real usará `reference_date` como baseline de `aplica_a_partir_de`, sem criar medições de períodos anteriores. O fluxo futuro de upload deve detectar a data, exigir o campo “Data de referência” quando não houver metadado confiável, mostrar dry-run e pedir confirmação antes da aplicação.
+- A primeira aplicação real usou `reference_date` como baseline de `aplica_a_partir_de`, sem criar medições de períodos anteriores. O fluxo futuro de upload deve detectar a data, exigir o campo “Data de referência” quando não houver metadado confiável, mostrar dry-run e pedir confirmação antes da aplicação.
 
-O dry-run atual tem **1 blocker, 51 warnings e 68 infos**. Entre os warnings estão 26 sem gestor (9 mensurados), 9 conflitos de unidade entre Quadro e aba de gestores, 1 conflito de nome no Banco, 12 mensurados sem extrato, 1 linha de gestor órfã e comparação temporal. As 50 linhas de Férias sem Quadro são informativas. O Quadro é autoridade da unidade cadastral; divergências não são escondidas. Férias pode conter histórico de pessoas que já não constam do Quadro.
+O dry-run homologado para **2026-09-28** tem **0 blockers, 50 warnings e 67 infos**. Entre os warnings estão 26 sem gestor (9 mensurados), 9 conflitos de unidade entre Quadro e aba de gestores, 1 conflito de nome no Banco, 12 mensurados sem extrato e 1 linha de gestor órfã. As 50 linhas de Férias sem Quadro são informativas. O Quadro é autoridade da unidade cadastral; divergências não são escondidas.
 
-O XLSX atual é **amostra histórica parcialmente tratada**: serve para validar estrutura, parsing, joins, positivos, zeros e jornadas, mas não para a primeira aplicação real. Antes da Etapa 5B, obter novo export atual, completo, sem exclusão de negativos/colaboradores, fórmulas manuais ou tratamento intermediário; repetir o dry-run. A futura tela “Pendências de Dados” pode reunir gestor pendente, conflitos de unidade/nome e sem extrato, sem bloquear a população válida. Essa tela não foi implementada.
+O arquivo aplicado foi identificado pelo SHA-256 completo, verificado imediatamente antes da escrita. Uma futura tela “Pendências de Dados” pode reunir gestor pendente, conflitos de unidade/nome e sem extrato, sem bloquear a população válida; ela não foi implementada.
 
-## Persistência futura — não implementada nem executada nesta etapa
+## Persistência da primeira baseline
 
-O banco contém `unidades`, `gestores`, `colaboradores`, `banco_horas_medicoes` e `lotes_importacao`. O plano futuro deve resolver unidades existentes, identificar gestores por identidade normalizada **com revisão de homônimos**, atualizar colaboradores por matrícula e criar medições por `(colaborador_id, aplica_a_partir_de)`. O mesmo arquivo/lote precisa produzir o mesmo plano e nunca duplicar medições. A aplicação real exigirá autorização em etapa posterior, mecanismo de lote transacional no banco, chave idempotente e rollback definido. A API de escrita e seus privilégios não pertencem ao processo de dry-run. O fingerprint atual é local e privado; ainda não há transação/aplicação implementada.
+O banco reutiliza as três `unidades` e cria 32 `gestores`, 384 `colaboradores`, 356 `banco_horas_medicoes` e um `lotes_importacao`. O hash, data, status, timestamps e warnings agregados ficam no lote; nenhuma planilha ou caminho local é persistido. A função `private.aplicar_baseline_rh` não é executável por `anon`, `authenticated` ou `service_role`. A migration adiciona uma unicidade de baseline concluída por data; uma segunda tentativa retorna `BASELINE_ALREADY_APPLIED`, sem duplicar dados. Qualquer erro durante a função reverte lote, gestores, colaboradores e medições. O arquivo SQL temporário do apply fica em `data/private/` somente durante a chamada e é removido em seguida.
 
-## Critério para avançar
+## Limite desta entrega
 
-Só recomendar a Etapa 5B após novo export completo, `BLOCKERS = 0` e revisão dos warnings relevantes. O arquivo histórico mantém exclusivamente `DATA_REFERENCIA_NAO_INFORMADA`; **não liberar 5B nem executar `--apply`**. Isso não impede versionar a infraestrutura local.
+Esta baseline não integra a Chamada Diária ao banco, não remove mocks, não implementa Férias e não altera Auth. Uma próxima etapa deve tratar o consumo operacional e os warnings pendentes separadamente.

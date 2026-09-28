@@ -80,8 +80,12 @@ async function goldenFixture(): Promise<string> {
 }
 
 describe("importador da base bruta fictícia", () => {
-  it("recusa explicitamente --apply antes de carregar arquivos ou clientes remotos", () => {
-    expect(() => parseArgs(["--apply", "--source", "data/private/fixture.xlsx"])).toThrow("proibido");
+  it("exige data e ref explícitos para --apply", () => {
+    expect(() => parseArgs(["--apply", "--source", "data/private/fixture.xlsx"])).toThrow("--reference-date");
+    expect(() => parseArgs(["--apply", "--source", "data/private/fixture.xlsx", "--reference-date", "2026-09-28"])).toThrow("--project-ref");
+    expect(() => parseArgs(["--apply", "--source", "data/private/fixture.xlsx", "--reference-date", "2026-09-28", "--project-ref", "outro"])).toThrow("--project-ref");
+    expect(() => parseArgs(["--dry-run", "--apply", "--source", "data/private/fixture.xlsx", "--reference-date", "2026-09-28", "--project-ref", "kqgtnucqxqqgwdyvhvdd"])).toThrow("mutuamente exclusivos");
+    expect(parseArgs(["--apply", "--source", "data/private/fixture.xlsx", "--reference-date", "2026-09-28", "--project-ref", "kqgtnucqxqqgwdyvhvdd"]).apply).toBe(true);
   });
 
   it("lê abas/colunas fora de ordem e separa positivo, zero, negativo e sem extrato", async () => {
