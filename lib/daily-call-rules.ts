@@ -17,6 +17,7 @@ export const attendanceMeta: Record<AttendanceStatusCode, AttendanceVisual> = {
 };
 
 export function countUsedCompensations(employee: Pick<Employee, "bankDays" | "attendance">): number {
+  if (employee.bankDays === null) return 0;
   return calculateCompensationCycle({
     balanceDays: employee.bankDays,
     effectiveFrom: "0000-01-01",
@@ -25,6 +26,7 @@ export function countUsedCompensations(employee: Pick<Employee, "bankDays" | "at
 }
 
 export function calculatePendingCompensation(employee: Pick<Employee, "bankDays" | "attendance">): number {
+  if (employee.bankDays === null) return 0;
   return calculateCompensationCycle({
     balanceDays: employee.bankDays,
     effectiveFrom: "0000-01-01",
@@ -32,7 +34,21 @@ export function calculatePendingCompensation(employee: Pick<Employee, "bankDays"
   }).pendingCompensationDays;
 }
 
-export function getBankHoursSummary(employee: Pick<Employee, "bankDays" | "bankHours" | "attendance">): BankHoursSummary {
+export function getBankHoursSummary(employee: Pick<Employee, "bankDays" | "bankHours" | "attendance" | "realBank">): BankHoursSummary {
+  if (employee.realBank === null || employee.bankDays === null || employee.bankHours === null) {
+    return { balanceDays: null, balanceHours: "Sem extrato", pendingCompensationDays: 0, replacementDays: 0, usedCompensationDays: 0, situation: "Sem extrato" };
+  }
+  if (employee.realBank) {
+    const bank = employee.realBank;
+    return {
+      balanceDays: bank.balanceDays,
+      balanceHours: employee.bankHours,
+      pendingCompensationDays: bank.pendingCompensationDays,
+      replacementDays: bank.replacementDays,
+      usedCompensationDays: bank.usedCompensationDays,
+      situation: bank.pendingCompensationDays > 0 ? "A compensar" : bank.replacementDays > 0 ? "A repor" : "Em dia",
+    };
+  }
   const pendingCompensationDays = calculatePendingCompensation(employee);
   const replacementDays = employee.bankDays < 0 ? Math.abs(employee.bankDays) : 0;
   return {
@@ -58,7 +74,7 @@ export function bankSituation(employee: Employee) { return getBankHoursSummary(e
 
 export function statusMatches(code: AttendanceStatusCode | undefined, status: string): boolean {
   if (status === "Todos") return true;
-  if (!code) return status === "Outros";
+  if (!code) return false;
   const map: Record<string, AttendanceStatusCode[]> = {
     Presente: ["P"], Folga: ["F"], Atestado: ["A"], Injustificado: ["I"], "Férias": ["X"], INSS: ["AF"], Outros: ["B", "H", "G", "D"],
   };

@@ -384,6 +384,57 @@ if (privateFunctionGrants.rows[0].helper_exposed || privateFunctionGrants.rows[0
   throw new Error(`last-admin helper execute privilege expanded: ${JSON.stringify(privateFunctionGrants.rows[0])}`);
 }
 
+await expectAuthenticatedFailure(
+  "RH cannot read daily call",
+  authUsers.rh,
+  `select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30');`,
+);
+await expectAuthenticatedFailure(
+  "blocked ADMIN cannot read daily call",
+  authUsers.secondAdmin,
+  `select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30');`,
+);
+await expectAuthenticatedFailure(
+  "invalid period cannot read daily call",
+  authUsers.admin,
+  `select public.ler_chamada_diaria('2026-09-21', '2026-09-30', '2026-09-01');`,
+);
+
+const dailyCall = await asAuthenticated(authUsers.admin, () => database.query(`
+  select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30') as snapshot;
+`));
+const snapshot = dailyCall.rows[0].snapshot;
+if (
+  snapshot.employees.length !== 1
+  || snapshot.employees[0].balanceDays !== 3
+  || snapshot.employees[0].usedCompensationDays !== 1
+  || snapshot.employees[0].pendingCompensationDays !== 2
+  || snapshot.employees[0].attendance.length !== 3
+  || JSON.stringify(snapshot).includes("cpf")
+) throw new Error("daily call read contract mismatch");
+
+const beforeBaseline = await asAuthenticated(authUsers.admin, () => database.query(`
+  select public.ler_chamada_diaria('2026-09-12', '2026-09-01', '2026-09-12') as snapshot;
+`));
+if (beforeBaseline.rows[0].snapshot.employees[0].balanceMinutes !== null) {
+  throw new Error("future measurement leaked into past date");
+}
+
+const dailyCallGrants = await database.query(`
+  select has_function_privilege('anon', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as anon_execute,
+         has_function_privilege('authenticated', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as authenticated_execute,
+         has_table_privilege('authenticated', 'public.chamada_diaria', 'INSERT') as attendance_insert,
+         has_table_privilege('authenticated', 'public.chamada_diaria', 'UPDATE') as attendance_update,
+         has_table_privilege('authenticated', 'public.chamada_diaria', 'DELETE') as attendance_delete;
+`);
+if (
+  dailyCallGrants.rows[0].anon_execute
+  || !dailyCallGrants.rows[0].authenticated_execute
+  || dailyCallGrants.rows[0].attendance_insert
+  || dailyCallGrants.rows[0].attendance_update
+  || dailyCallGrants.rows[0].attendance_delete
+) throw new Error("daily call privileges expanded unexpectedly");
+
 const cycles = await database.query(`
   select aplica_a_partir_de, dias_g_ciclo, dias_pendentes_compensar, situacao_banco
   from public.vw_banco_horas_ciclos

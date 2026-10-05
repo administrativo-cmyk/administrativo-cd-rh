@@ -6,6 +6,7 @@ type Display = "combined" | "situation" | "pending";
 
 export function BankHoursBadge({ employee, compact = false, display = "combined" }: { employee: Employee; compact?: boolean; display?: Display }) {
   const summary = getBankHoursSummary(employee);
+  if (summary.situation === "Sem extrato") return <span className="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">Sem extrato</span>;
   if (display === "situation") return <Situation situation={summary.situation} />;
   if (summary.situation === "A compensar") return <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200"><RotateCcw size={12} />{compact ? `${summary.pendingCompensationDays}d` : display === "pending" ? `${summary.pendingCompensationDays} ${summary.pendingCompensationDays === 1 ? "dia" : "dias"}` : `A compensar: ${summary.pendingCompensationDays} ${summary.pendingCompensationDays === 1 ? "dia" : "dias"}`}</span>;
   if (summary.situation === "A repor") return <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200"><Undo2 size={12} />{compact ? `${summary.replacementDays}d` : display === "pending" ? `${summary.replacementDays} ${summary.replacementDays === 1 ? "dia" : "dias"}` : `Repor ${summary.replacementDays} ${summary.replacementDays === 1 ? "dia" : "dias"}`}</span>;

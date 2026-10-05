@@ -87,7 +87,7 @@ export class MockBankHoursRepository implements BankHoursRepository {
       measurementDate: "2026-09-01",
       effectiveFrom: "2026-09-01",
       workdayHours: 7.3333,
-      balanceMinutes: parseBalanceMinutes(employee.bankHours),
+      balanceMinutes: parseBalanceMinutes(employee.bankHours ?? "00:00"),
       source: "mock",
       importBatchId: null,
     }];

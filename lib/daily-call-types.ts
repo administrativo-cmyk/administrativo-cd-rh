@@ -4,19 +4,30 @@ export type AttendanceStatusCode = (typeof attendanceCodes)[number];
 export type AttendanceCode = AttendanceStatusCode;
 export type UnitCode = "CD I" | "CD II" | "CD FLV";
 export type EmployeeSituation = "Ativo" | "Férias" | "Novo admitido" | "Afastado";
-export type BankSituation = "Em dia" | "A compensar" | "A repor";
+export type BankSituation = "Em dia" | "A compensar" | "A repor" | "Sem extrato";
 
 export type Unit = { id: string; name: UnitCode };
 export type Manager = { id: string; name: string; unitIds: Unit["id"][] };
 export type AttendanceStatus = { code: AttendanceStatusCode; label: string; shortLabel: string };
 export type AttendanceRecord = { employeeId: string; date: string; status: AttendanceStatusCode; observation?: string };
 export type BankHoursSummary = {
-  balanceDays: number;
+  balanceDays: number | null;
   balanceHours: string;
   pendingCompensationDays: number;
   replacementDays: number;
   usedCompensationDays: number;
   situation: BankSituation;
+};
+
+export type RealBankSnapshot = {
+  measurementDate: string;
+  effectiveFrom: string;
+  workdayHours: number;
+  balanceMinutes: number;
+  balanceDays: number;
+  pendingCompensationDays: number;
+  replacementDays: number;
+  usedCompensationDays: number;
 };
 
 export type Employee = {
@@ -29,8 +40,9 @@ export type Employee = {
   situation: EmployeeSituation;
   admissionDate: string;
   plannedVacation: string;
-  bankDays: number;
-  bankHours: string;
+  bankDays: number | null;
+  bankHours: string | null;
+  realBank?: RealBankSnapshot | null;
   attendance: Record<string, AttendanceStatusCode>;
   observations: Record<string, string>;
 };
@@ -46,4 +58,4 @@ export type DailyCallFilters = {
   endDate: string;
 };
 export type DailyCallMetrics = { collaborators: number; present: number; daysOff: number; absences: number; compensate: number; replace: number };
-export type DemoState = "ready" | "loading" | "empty" | "error";
+export type DailyCallSnapshot = { date: string; startDate: string; endDate: string; employees: Employee[] };

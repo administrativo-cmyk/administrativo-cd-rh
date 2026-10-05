@@ -3,11 +3,17 @@ import type { DailyCallFilters, DailyCallMetrics, Employee } from "./daily-call-
 
 export const defaultDailyCallFilters: DailyCallFilters = { unit: "Todas", manager: "Todos", query: "", bank: "Todos", status: "Todos", startDate: "2026-09-01", endDate: "2026-09-30" };
 
+export function filtersForDate(date: string): DailyCallFilters {
+  const [year, month] = date.split("-").map(Number);
+  const end = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { ...defaultDailyCallFilters, startDate: `${date.slice(0, 7)}-01`, endDate: `${date.slice(0, 7)}-${String(end).padStart(2, "0")}` };
+}
+
 export function filterEmployees(employees: Employee[], filters: DailyCallFilters, today: string): Employee[] {
   const query = filters.query.trim().toLocaleLowerCase("pt-BR");
   return employees.filter((employee) => (filters.unit === "Todas" || employee.unit === filters.unit)
     && (filters.manager === "Todos" || employee.manager === filters.manager)
-    && (!query || employee.name.toLocaleLowerCase("pt-BR").includes(query) || employee.id.includes(query))
+    && (!query || employee.name.toLocaleLowerCase("pt-BR").includes(query) || employee.id.toLocaleLowerCase("pt-BR").includes(query))
     && (filters.bank === "Todos" || bankSituation(employee) === filters.bank)
     && statusMatches(employee.attendance[today], filters.status));
 }
@@ -32,9 +38,9 @@ export function groupEmployeesByManager(employees: Employee[]): Array<[string, E
   return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
 }
 
-export function countActiveFilters(filters: DailyCallFilters): number {
+export function countActiveFilters(filters: DailyCallFilters, defaults = defaultDailyCallFilters): number {
   return Number(filters.unit !== defaultDailyCallFilters.unit) + Number(filters.manager !== defaultDailyCallFilters.manager)
     + Number(Boolean(filters.query.trim())) + Number(filters.bank !== defaultDailyCallFilters.bank)
     + Number(filters.status !== defaultDailyCallFilters.status)
-    + Number(filters.startDate !== defaultDailyCallFilters.startDate || filters.endDate !== defaultDailyCallFilters.endDate);
+    + Number(filters.startDate !== defaults.startDate || filters.endDate !== defaults.endDate);
 }
