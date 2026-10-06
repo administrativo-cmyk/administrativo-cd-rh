@@ -514,12 +514,12 @@ const rls = await database.query(`
   where relnamespace = 'public'::regnamespace
     and relname in (
       'unidades', 'gestores', 'lotes_importacao', 'colaboradores',
-      'banco_horas_medicoes', 'chamada_diaria', 'perfis'
+      'banco_horas_medicoes', 'chamada_diaria', 'chamada_diaria_auditoria', 'perfis'
     )
     and relrowsecurity;
 `);
 
-if (rls.rows[0].protected_tables !== 7) {
+if (rls.rows[0].protected_tables !== 8) {
   throw new Error(`RLS mismatch: ${JSON.stringify(rls.rows[0])}`);
 }
 
@@ -575,6 +575,151 @@ const missingForeignKeyIndexes = await database.query(`
 if (missingForeignKeyIndexes.rows.length !== 0) {
   throw new Error(`foreign keys without indexes: ${JSON.stringify(missingForeignKeyIndexes.rows)}`);
 }
+
+// All writes below run only in this disposable in-memory PGlite instance.
+const writeEmployee = "30000000-0000-0000-0000-000000000001";
+const sqlLiteral = (value) => value === null ? "null" : `'${String(value).replaceAll("'", "''")}'`;
+const saveCall = (actor, date, status, observation = null, version = null, employee = writeEmployee) =>
+  asAuthenticated(actor, async () => (await database.query(`
+    select public.salvar_chamada_diaria(
+      '${employee}', '${date}', ${sqlLiteral(status)}::public.codigo_chamada,
+      ${sqlLiteral(observation)}, ${sqlLiteral(version)}::timestamptz
+    ) as result;
+  `)).rows[0].result);
+const writeDate = "2026-10-06";
+let saved = await saveCall(authUsers.admin, writeDate, "P");
+if (!saved.changed || saved.record.status !== "P" || !saved.record.updatedAt) {
+  throw new Error(`ADMIN insert failed: ${JSON.stringify(saved)}`);
+}
+let version = saved.record.updatedAt;
+saved = await saveCall(authUsers.admin, writeDate, "P", null, version);
+if (saved.changed) throw new Error("identical save was not idempotent");
+saved = await saveCall(authUsers.admin, writeDate, "F", "  texto <especial>  ", version);
+if (saved.record.status !== "F" || saved.record.observation !== "texto <especial>" || saved.record.updatedAt === version) {
+  throw new Error(`ADMIN update/trim/version failed: ${JSON.stringify(saved)}`);
+}
+await expectAuthenticatedFailure("stale write", authUsers.admin, `
+  select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'G', null, '${version}');
+`);
+version = saved.record.updatedAt;
+saved = await saveCall(authUsers.admin, writeDate, null, null, version);
+if (!saved.changed || saved.record !== null) throw new Error("ADMIN clear failed");
+const written = await database.query(`
+  select (select count(*)::integer from public.chamada_diaria where colaborador_id = '${writeEmployee}' and data = '${writeDate}') as current_count,
+         (select string_agg(operacao, ',' order by alterado_em) from public.chamada_diaria_auditoria where colaborador_id = '${writeEmployee}' and data = '${writeDate}') as operations,
+         (select bool_and(alterado_por = '${authUsers.admin}'::uuid) from public.chamada_diaria_auditoria where colaborador_id = '${writeEmployee}' and data = '${writeDate}') as attributed;
+`);
+if (written.rows[0].current_count !== 0 || written.rows[0].operations !== "INSERT,UPDATE,CLEAR" || !written.rows[0].attributed) {
+  throw new Error(`audit or clear mismatch: ${JSON.stringify(written.rows[0])}`);
+}
+
+for (const [label, actor] of [
+  ["pending", authUsers.pendingAdminRole], ["blocked", authUsers.secondAdmin],
+  ["RH", authUsers.rh], ["GESTOR", authUsers.manager], ["LEITURA", authUsers.reader],
+]) {
+  await expectAuthenticatedFailure(`${label} cannot write daily call`, actor, `
+    select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'P', null, null);
+  `);
+}
+await expectFailure("anon cannot execute write RPC", `
+  set role anon;
+  select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'P', null, null);
+  reset role;
+`);
+await database.exec("reset role;");
+await expectAuthenticatedFailure("invalid attendance code", authUsers.admin, `
+  select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'ZZ'::public.codigo_chamada, null, null);
+`);
+await expectAuthenticatedFailure("observation without status", authUsers.admin, `
+  select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', null, 'sem status', null);
+`);
+await expectAuthenticatedFailure("observation too long", authUsers.admin, `
+  select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'P', repeat('a', 501), null);
+`);
+await expectAuthenticatedFailure("non-operational employee", authUsers.admin, `
+  select public.salvar_chamada_diaria('30000000-0000-0000-0000-000000000099', '${writeDate}', 'P', null, null);
+`);
+await database.exec(`
+  insert into public.colaboradores (id, matricula, nome, unidade_id, situacao)
+  values ('30000000-0000-0000-0000-000000000099', 'FICT-OUT', 'Excluded Fictitious',
+    (select id from public.unidades where codigo = 'CD FLV'), 'AFASTADO');
+`);
+await expectAuthenticatedFailure("excluded employee", authUsers.admin, `
+  select public.salvar_chamada_diaria('30000000-0000-0000-0000-000000000099', '${writeDate}', 'P', null, null);
+`);
+version = null;
+for (const code of ["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF"]) {
+  const result = await saveCall(authUsers.admin, writeDate, code, null, version);
+  if (result.record.status !== code) throw new Error(`attendance code ${code} was not saved`);
+  version = result.record.updatedAt;
+}
+const codeCount = await database.query(`
+  select count(*)::integer as count from public.chamada_diaria
+  where colaborador_id = '${writeEmployee}' and data = '${writeDate}';
+`);
+if (codeCount.rows[0].count !== 1) throw new Error("upsert created duplicate current rows");
+const auditGrants = await database.query(`
+  select has_table_privilege('authenticated', 'public.chamada_diaria_auditoria', 'SELECT') as audit_read,
+    has_table_privilege('authenticated', 'public.chamada_diaria_auditoria', 'INSERT') as audit_insert,
+    has_table_privilege('authenticated', 'public.chamada_diaria', 'INSERT') as direct_insert,
+    has_function_privilege('anon', 'public.salvar_chamada_diaria(uuid,date,public.codigo_chamada,text,timestamptz)', 'EXECUTE') as anon_execute,
+    has_function_privilege('authenticated', 'public.salvar_chamada_diaria(uuid,date,public.codigo_chamada,text,timestamptz)', 'EXECUTE') as authenticated_execute;
+`);
+if (auditGrants.rows[0].audit_read || auditGrants.rows[0].audit_insert || auditGrants.rows[0].direct_insert
+    || auditGrants.rows[0].anon_execute || !auditGrants.rows[0].authenticated_execute) {
+  throw new Error(`daily call write grants expanded: ${JSON.stringify(auditGrants.rows[0])}`);
+}
+
+const readBank = async (employee, date) => {
+  const result = await asAuthenticated(authUsers.admin, () => database.query(`
+    select public.ler_chamada_diaria('${date}', '${date.slice(0, 7)}-01', '${date.slice(0, 7)}-31') as snapshot;
+  `));
+  return result.rows[0].snapshot.employees.find((row) => row.id === employee);
+};
+let g1 = await saveCall(authUsers.admin, "2026-10-07", "G");
+let bank = await readBank(writeEmployee, "2026-10-08");
+if (bank.pendingCompensationDays !== 1 || bank.usedCompensationDays !== 2) throw new Error("first G did not reduce pending balance");
+let g2 = await saveCall(authUsers.admin, "2026-10-08", "G");
+bank = await readBank(writeEmployee, "2026-10-08");
+if (bank.pendingCompensationDays !== 0 || bank.usedCompensationDays !== 3) throw new Error("second G did not reduce pending balance");
+await saveCall(authUsers.admin, "2026-10-09", "G");
+bank = await readBank(writeEmployee, "2026-10-09");
+if (bank.pendingCompensationDays !== 0) throw new Error("G made pending balance negative");
+await saveCall(authUsers.admin, "2026-10-08", "P", null, g2.record.updatedAt);
+bank = await readBank(writeEmployee, "2026-10-08");
+if (bank.pendingCompensationDays !== 1) throw new Error("editing G to P did not restore a day");
+await saveCall(authUsers.admin, "2026-10-07", null, null, g1.record.updatedAt);
+bank = await readBank(writeEmployee, "2026-10-08");
+if (bank.pendingCompensationDays !== 2) throw new Error("clearing G did not restore a day");
+
+const negativeId = "30000000-0000-0000-0000-000000000097";
+const zeroId = "30000000-0000-0000-0000-000000000096";
+await database.exec(`
+  insert into public.colaboradores (id, matricula, nome, unidade_id, situacao)
+  values ('${negativeId}', 'FICT-NEG', 'Negative Fictitious', (select id from public.unidades where codigo = 'CD I'), 'ATIVO'),
+         ('${zeroId}', 'FICT-ZERO', 'Zero Fictitious', (select id from public.unidades where codigo = 'CD I'), 'FERIAS');
+  insert into public.banco_horas_medicoes (colaborador_id, data_medicao, aplica_a_partir_de, jornada_horas_dia, saldo_minutos)
+  values ('${negativeId}', '2026-09-28', '2026-09-28', 7.3333, -880),
+         ('${zeroId}', '2026-09-28', '2026-09-28', 7.3333, 0);
+`);
+await saveCall(authUsers.admin, "2026-10-08", "G", null, null, negativeId);
+await saveCall(authUsers.admin, "2026-10-08", "G", null, null, zeroId);
+const negative = await readBank(negativeId, "2026-10-08");
+const zero = await readBank(zeroId, "2026-10-08");
+if (negative.replacementDays !== 2 || negative.pendingCompensationDays !== 0
+    || zero.balanceMinutes !== 0 || zero.pendingCompensationDays !== 0) {
+  throw new Error("G changed negative or zero balance semantics");
+}
+await database.exec(`
+  insert into public.banco_horas_medicoes
+    (colaborador_id, data_medicao, aplica_a_partir_de, jornada_horas_dia, saldo_minutos)
+  values ('${writeEmployee}', '2026-10-10', '2026-10-10', 7.3333, 880);
+`);
+bank = await readBank(writeEmployee, "2026-10-11");
+if (bank.pendingCompensationDays !== 2 || bank.usedCompensationDays !== 0) throw new Error("new baseline inherited old G");
+await saveCall(authUsers.admin, "2026-10-11", "G");
+bank = await readBank(writeEmployee, "2026-10-11");
+if (bank.pendingCompensationDays !== 1 || bank.usedCompensationDays !== 1) throw new Error("new baseline G cycle mismatch");
 
 console.log(JSON.stringify({
   migrationsApplied: migrations.length,

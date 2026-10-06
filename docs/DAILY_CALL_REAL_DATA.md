@@ -18,7 +18,7 @@ Gestor ausente permanece na população e no agrupamento/filtro **Sem gestor def
 
 A migration `20261005175821_daily_call_admin_read_only.sql` cria somente a RPC de leitura. A função é `SECURITY DEFINER` com `search_path` vazio, exige `auth.uid()` e perfil `APROVADO/ADMIN`, revoga execução de `PUBLIC`/`anon` e concede apenas `EXECUTE` a `authenticated` (com validação interna de papel/status). Nenhum `SELECT` amplo nas tabelas/views e nenhum privilégio de `INSERT`, `UPDATE` ou `DELETE` foi concedido. O endpoint reforça a autorização no servidor e responde sem cache privado; falhas mostram erro, jamais mock. A rota continua protegida pelo fluxo Auth existente. A matriz definitiva de visibilidade RH/GESTOR/LEITURA permanece pendente.
 
-A UI está em modo somente leitura: controles de lançamento e observação ficam não interativos; não há rota/método de escrita nesta etapa. O próximo passo, somente após homologação explícita, é definir autorização por papel/unidade/gestor e implementar escrita de chamada em etapa separada.
+A Etapa 5C foi originalmente somente leitura. A Etapa 5D acrescenta gravação exclusivamente para `APROVADO/ADMIN`, mantendo a leitura e a população operacional desta página. Os detalhes da mutation, auditoria e concorrência estão em `docs/DAILY_CALL_WRITES.md`. A matriz de escrita RH/GESTOR/LEITURA permanece fora do escopo.
 
 ## Homologação
 

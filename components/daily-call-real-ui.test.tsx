@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TodayTable } from "./today-table";
@@ -29,5 +30,40 @@ describe("Chamada real sem gravação", () => {
     render(<TooltipProvider><PeriodGrid employees={snapshot.employees} startDate="2026-10-01" endDate="2026-10-03" onSelect={vi.fn()} /></TooltipProvider>);
     expect(screen.getByTestId("period-grid")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("controles ADMIN da Chamada Diária", () => {
+  it("salva status e limpa no modo Hoje", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(true);
+    render(<TooltipProvider><TodayTable employees={snapshot.employees} date={snapshot.date} onSelect={vi.fn()} readOnly={false} onSave={onSave} /></TooltipProvider>);
+    await user.click(screen.getAllByRole("button", { name: "Status de Colaborador Fictício" })[0]);
+    await user.click(screen.getByRole("button", { name: /PPresente/ }));
+    expect(onSave).toHaveBeenCalledWith(snapshot.employees[0], snapshot.date, "P", null);
+  });
+
+  it("salva o dia exato do Período e desabilita a célula em salvamento", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(true);
+    render(<TooltipProvider><PeriodGrid employees={snapshot.employees} startDate="2026-10-01" endDate="2026-10-03" onSelect={vi.fn()} readOnly={false} onSave={onSave} isSaving={(_, date) => date === "2026-10-02"} /></TooltipProvider>);
+    expect(screen.getByRole("button", { name: "Colaborador Fictício, dia 02" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Colaborador Fictício, dia 03" }));
+    await user.click(screen.getByRole("button", { name: /FFolga/ }));
+    expect(onSave).toHaveBeenCalledWith(snapshot.employees[0], "2026-10-03", "F", null);
+  });
+
+  it("permite observação somente mediante status e limpa pelo picker", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(true);
+    const employee = { ...snapshot.employees[0], attendance: { [snapshot.date]: "P" as const } };
+    render(<TooltipProvider><TodayTable employees={[employee]} date={snapshot.date} onSelect={vi.fn()} readOnly={false} onSave={onSave} /></TooltipProvider>);
+    const observation = screen.getAllByRole("textbox", { name: "Observação de Colaborador Fictício" })[0];
+    await user.type(observation, "  teste  ");
+    await user.tab();
+    expect(onSave).toHaveBeenCalledWith(employee, snapshot.date, "P", "teste");
+    await user.click(screen.getAllByRole("button", { name: "Status de Colaborador Fictício" })[0]);
+    await user.click(screen.getByRole("button", { name: "Limpar lançamento" }));
+    expect(onSave).toHaveBeenCalledWith(employee, snapshot.date, null, null);
   });
 });

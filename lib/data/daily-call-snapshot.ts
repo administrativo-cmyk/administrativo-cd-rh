@@ -5,6 +5,7 @@ const recordSchema = z.object({
   date: z.string(),
   status: z.enum(["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF"]),
   observation: z.string().nullable(),
+  updatedAt: z.string().optional(),
 });
 
 const employeeSchema = z.object({
@@ -54,9 +55,11 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
     employees: result.employees.map((row): Employee => {
       const attendance: Employee["attendance"] = {};
       const observations: Employee["observations"] = {};
+      const attendanceVersions: Record<string, string> = {};
       for (const record of row.attendance) {
         attendance[record.date] = record.status;
         if (record.observation) observations[record.date] = record.observation;
+        if (record.updatedAt) attendanceVersions[record.date] = record.updatedAt;
       }
       const hasMeasurement = row.balanceMinutes !== null;
       if (hasMeasurement && (
@@ -65,6 +68,7 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
       )) throw new Error("Medição incompleta na resposta da Chamada Diária");
       return {
         id: row.employeeNumber,
+        databaseId: row.id,
         name: row.name,
         unit: row.unit as UnitCode,
         manager: row.manager ?? "Sem gestor definido",
@@ -87,6 +91,7 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
         } : null,
         attendance,
         observations,
+        attendanceVersions,
       };
     }),
   };

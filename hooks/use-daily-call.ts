@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { calculateDailyCallMetrics, countActiveFilters, filterEmployees, filtersForDate, groupEmployeesByManager } from "@/lib/daily-call-selectors";
 import { validPeriod } from "@/lib/data/daily-call-dates";
-import type { DailyCallFilters, DailyCallSnapshot, Employee } from "@/lib/daily-call-types";
+import type { AttendanceCode, DailyCallFilters, DailyCallSnapshot, Employee } from "@/lib/daily-call-types";
+
+type WriteResult = { changed: boolean; record: { date: string; status: AttendanceCode; observation: string | null; updatedAt: string } | null };
 
 export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnapshot | null) {
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -11,12 +14,16 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const [filters, setFilters] = useState(() => filtersForDate(initialDate));
   const [viewMode, setViewMode] = useState<"today" | "period">("today");
   const [groupByManager, setGroupByManager] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const setSelectedEmployee = useCallback((employee: Employee | null) => setSelectedEmployeeId(employee?.id ?? null), []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialSnapshot === null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const pendingKeys = useRef(new Set<string>());
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const lastRequestKey = useRef(`${initialDate}|${filters.startDate}|${filters.endDate}|0`);
   const employees = useMemo(() => error ? [] : snapshot?.employees ?? [], [snapshot, error]);
+  const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId) ?? null, [employees, selectedEmployeeId]);
   const filteredEmployees = useMemo(() => filterEmployees(employees, filters, selectedDate), [employees, filters, selectedDate]);
   const metrics = useMemo(() => calculateDailyCallMetrics(filteredEmployees, selectedDate), [filteredEmployees, selectedDate]);
   const managerGroups = useMemo(() => groupEmployeesByManager(filteredEmployees), [filteredEmployees]);
@@ -46,12 +53,63 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
       .catch((cause: unknown) => { if (cause instanceof Error && cause.name !== "AbortError") { setSelectedEmployee(null); setError(true); } })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, [selectedDate, filters.startDate, filters.endDate, refreshKey]);
+  }, [selectedDate, filters.startDate, filters.endDate, refreshKey, setSelectedEmployee]);
 
   const updateFilter = useCallback(<K extends keyof DailyCallFilters>(key: K, value: DailyCallFilters[K]) => setFilters((current) => ({ ...current, [key]: value })), []);
   const clearFilters = useCallback(() => setFilters(filtersForDate(selectedDate)), [selectedDate]);
   const changeDate = useCallback((date: string) => { setSelectedDate(date); setFilters(filtersForDate(date)); }, []);
   const refresh = useCallback(() => setRefreshKey((current) => current + 1), []);
 
-  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, refresh, loading, error, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee };
+  const saveAttendance = useCallback(async (employee: Employee, date: string, status: AttendanceCode | null, observation: string | null): Promise<boolean> => {
+    const key = `${employee.id}|${date}`;
+    if (pendingKeys.current.has(key)) return false;
+    if (!employee.databaseId) { toast.error("Identificador do colaborador indisponível. Atualize a página."); return false; }
+    if (status === null && observation?.trim()) { toast.error("Selecione um status antes de adicionar observação."); return false; }
+    pendingKeys.current.add(key);
+    setSavingKeys(new Set(pendingKeys.current));
+    try {
+      const response = await fetch("/api/daily-call/entry", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify({ employeeId: employee.databaseId, date, status,
+          observation: observation?.trim() || null, expectedUpdatedAt: employee.attendanceVersions?.[date] ?? null }),
+      });
+      const result: WriteResult & { error?: string } = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar o lançamento.");
+      setSnapshot((current) => current ? { ...current, employees: current.employees.map((item) => {
+        if (item.id !== employee.id) return item;
+        const previous = item.attendance[date];
+        const attendance = { ...item.attendance };
+        const observations = { ...item.observations };
+        const attendanceVersions = { ...item.attendanceVersions };
+        if (result.record) {
+          attendance[date] = result.record.status;
+          if (result.record.observation) observations[date] = result.record.observation;
+          else delete observations[date];
+          attendanceVersions[date] = result.record.updatedAt;
+        } else {
+          delete attendance[date]; delete observations[date]; delete attendanceVersions[date];
+        }
+        const bank = item.realBank;
+        const currentCode = result.record?.status;
+        const delta = Number(currentCode === "G") - Number(previous === "G");
+        const inCycle = bank && date >= bank.effectiveFrom && date <= current.date;
+        const realBank = inCycle && delta ? { ...bank,
+          usedCompensationDays: Math.max(bank.usedCompensationDays + delta, 0),
+          pendingCompensationDays: Math.max(bank.balanceDays - bank.usedCompensationDays - delta, 0),
+        } : bank;
+        return { ...item, attendance, observations, attendanceVersions, realBank };
+      }) } : current);
+      if (result.changed) toast.success("Lançamento salvo.");
+      return true;
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Não foi possível salvar o lançamento.");
+      return false;
+    } finally {
+      pendingKeys.current.delete(key);
+      setSavingKeys(new Set(pendingKeys.current));
+    }
+  }, []);
+  const isSaving = useCallback((employee: Employee, date: string) => savingKeys.has(`${employee.id}|${date}`), [savingKeys]);
+
+  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, refresh, loading, error, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
 }

@@ -32,6 +32,7 @@ export type RealBankSnapshot = {
 
 export type Employee = {
   id: string;
+  databaseId?: string;
   name: string;
   unit: UnitCode;
   manager: Manager["name"];
@@ -45,6 +46,7 @@ export type Employee = {
   realBank?: RealBankSnapshot | null;
   attendance: Record<string, AttendanceStatusCode>;
   observations: Record<string, string>;
+  attendanceVersions?: Record<string, string>;
 };
 
 export type DailyCallStatusFilter = "Todos" | "Presente" | "Folga" | "Atestado" | "Injustificado" | "Férias" | "INSS" | "Outros";

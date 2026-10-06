@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarRange, CheckCircle2, Clock3, Download, RefreshCw, Users } from "lucide-react";
+import { CalendarRange, CheckCircle2, Download, RefreshCw, Users } from "lucide-react";
+import { Toaster } from "sonner";
 import { AppHeader } from "./app-header";
 import { AppSidebar } from "./app-sidebar";
 import { AttendanceLegend } from "./attendance-legend";
@@ -33,12 +34,12 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
     if (!daily.employees.length) return <EmptyState />;
     if (!daily.filteredEmployees.length) return <EmptyState filtered />;
     if (daily.viewMode === "period") {
-      return <PeriodGrid employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} />;
+      return <PeriodGrid employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />;
     }
     if (daily.groupByManager) {
-      return <div data-testid="manager-groups">{daily.managerGroups.map(([manager, employees]) => <ManagerGroup key={manager} manager={manager} employees={employees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} />)}</div>;
+      return <div data-testid="manager-groups">{daily.managerGroups.map(([manager, employees]) => <ManagerGroup key={manager} manager={manager} employees={employees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />)}</div>;
     }
-    return <TodayTable employees={daily.filteredEmployees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} />;
+    return <TodayTable employees={daily.filteredEmployees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />;
   }
 
   return <TooltipProvider delayDuration={250}>
@@ -51,7 +52,7 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
             <div><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Operação de pessoas</p><h1 className="text-2xl font-bold tracking-tight md:text-[28px]">Chamada Diária</h1><p className="mt-1 text-sm text-slate-500">Controle diário de presença, compensações e banco de horas.</p></div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-600"><CalendarRange size={14} /><span className="sr-only">Data da chamada</span><input aria-label="Data da chamada" type="date" value={daily.selectedDate} onChange={(event) => daily.changeDate(event.target.value)} className="bg-transparent outline-none" /></label>
-              <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500"><Clock3 size={14} />Leitura dos dados reais</span>
+              <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500"><CheckCircle2 size={14} />Dados sincronizados</span>
               <button disabled title="Exportação não disponível nesta etapa" className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-400"><Download size={14} />Exportar</button>
               <button onClick={daily.refresh} disabled={daily.loading} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"><RefreshCw size={14} className={daily.loading ? "animate-spin" : ""} />Atualizar</button>
             </div>
@@ -63,10 +64,11 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
             {renderContent()}
             <AttendanceLegend />
           </section>
-          <footer className="flex flex-col justify-between gap-2 pb-3 text-xs text-slate-400 sm:flex-row"><span>Dados reais · Modo somente leitura · Nenhuma chamada pode ser lançada nesta etapa.</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-500" />Acesso ADMIN</span></footer>
+          <footer className="flex flex-col justify-between gap-2 pb-3 text-xs text-slate-400 sm:flex-row"><span>Lançamentos atribuídos ao ADMIN autenticado e salvos no Supabase.</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-500" />Acesso ADMIN</span></footer>
         </div>
       </section>
       <EmployeeDrawer employee={daily.selectedEmployee} date={daily.selectedDate} onClose={() => daily.setSelectedEmployee(null)} />
+      <Toaster position="bottom-right" richColors closeButton />
     </main>
   </TooltipProvider>;
 }
