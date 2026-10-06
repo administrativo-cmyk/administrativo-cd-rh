@@ -34,7 +34,7 @@ export function normalizeUnit(value: unknown): UnitCode | null {
 }
 
 export type EmployeeSituation =
-  | "ATIVO" | "FERIAS" | "AFASTADO" | "DESLIGADO" | "AVISO_PREVIO"
+  | "ATIVO" | "FERIAS" | "NOVO_ADMITIDO" | "AFASTADO" | "DESLIGADO" | "AVISO_PREVIO"
   | "LICENCA_MATERNIDADE" | "ACIDENTE_TRABALHO" | "OUTRO_AFASTAMENTO";
 
 export function normalizeSituation(value: unknown): EmployeeSituation | null {
@@ -42,6 +42,8 @@ export function normalizeSituation(value: unknown): EmployeeSituation | null {
   const map: Record<string, EmployeeSituation> = {
     ATIVO: "ATIVO",
     FERIAS: "FERIAS",
+    "NOVO ADMITIDO": "NOVO_ADMITIDO",
+    "NOVOS ADMITIDOS": "NOVO_ADMITIDO",
     "AF PREVIDENCIA": "AFASTADO",
     "AF AC TRABALHO": "ACIDENTE_TRABALHO",
     "AF ACID TRABALHO": "ACIDENTE_TRABALHO",
@@ -55,7 +57,7 @@ export function normalizeSituation(value: unknown): EmployeeSituation | null {
 }
 
 export function isMeasured(situation: EmployeeSituation): boolean {
-  return situation === "ATIVO" || situation === "FERIAS";
+  return situation === "ATIVO" || situation === "FERIAS" || situation === "NOVO_ADMITIDO";
 }
 
 export function journeyMinutesForFunction(value: unknown): number {

@@ -11,7 +11,7 @@ afterAll(async () => {
   for (const directory of directories) await rm(directory, { recursive: true, force: true });
 });
 
-async function fixture(options: { missingOperationalManager?: boolean; duplicateKey?: boolean; unknownUnit?: boolean; sourceReferenceDate?: string } = {}): Promise<string> {
+async function fixture(options: { missingOperationalManager?: boolean; duplicateKey?: boolean; unknownUnit?: boolean; unknownSituation?: boolean; newAdmitted?: boolean; sourceReferenceDate?: string } = {}): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "hr-import-fixture-"));
   directories.push(directory);
   const workbook = new ExcelJS.Workbook();
@@ -41,9 +41,10 @@ async function fixture(options: { missingOperationalManager?: boolean; duplicate
     ["Ana  Fictícia", "0001", "Ativo", options.unknownUnit ? "UNIDADE NOVA" : "CENTRO DE DISTRIBUICAO", "ARMAZENISTA", 9, "ARMAZENAMENTO", new Date("2020-01-01T00:00:00Z")],
     ["Bruno Fictício", "0002", "Férias", "CENTRO DE DISTRIBUICAO II", "APRENDIZ ADM", 23, "APRENDIZADO", new Date("2021-01-01T00:00:00Z")],
     ["Carla Fictícia", "0003", "Ativo", "CD FLV", "APOIO PREVENCAO E PERDAS", 9, "PREVENCAO", new Date("2022-01-01T00:00:00Z")],
-    ["Daniel Fictício", "0004", "Af.Previdência", "CD FLV", "ARMAZENISTA", 9, "ARMAZENAMENTO", new Date("2023-01-01T00:00:00Z")],
+    ["Daniel Fictício", "0004", options.unknownSituation ? "Situação não cadastrada" : "Af.Previdência", "CD FLV", "ARMAZENISTA", 9, "ARMAZENAMENTO", new Date("2023-01-01T00:00:00Z")],
     ["Eva Fictícia", "0005", "Ativo", "CENTRO DE DISTRIBUICAO", "MENOR APRENDIZ ADM", 9, "APRENDIZADO", new Date("2024-01-01T00:00:00Z")],
   ];
+  if (options.newAdmitted) rows.push(["Fabio Fictício", "0006", "Novo admitido", "CD FLV", "ARMAZENISTA", 9, "ARMAZENAMENTO", new Date("2026-09-13T00:00:00Z")]);
   for (const row of rows) quadro.addRow(row);
   if (options.duplicateKey) quadro.addRow(rows[0]);
 
@@ -172,6 +173,26 @@ describe("importador da base bruta fictícia", () => {
     const path = await fixture();
     const result = await runDryImport(path, undefined, undefined, "2026-09-13");
     expect(result.summary.history).toEqual({ mode: "BASELINE", movements: {} });
+  });
+
+  it("inclui novo admitido explícito sem snapshot anterior, gestor ou extrato", async () => {
+    const result = await runDryImport(await fixture({ newAdmitted: true }), undefined, undefined, "2026-09-13");
+    expect(result.summary.population).toMatchObject({ total: 6, measured: 5, outsideMeasurement: 1 });
+    expect(result.summary.history).toEqual({ mode: "BASELINE", movements: {} });
+    expect(result.summary.managers.measuredWithoutManager).toBe(1);
+    expect(result.summary.bank.measuredWithoutExtract).toBe(2);
+    expect(result.private.employees.find((row) => row.matricula === "0006")).toMatchObject({
+      situacao: "NOVO_ADMITIDO", gestor: null, agrupamentoGestor: "Sem gestor definido",
+    });
+    expect(result.summary.issues.BLOCKER).toBe(0);
+  });
+
+  it("não exclui silenciosamente situação desconhecida da fonte", async () => {
+    const result = await runDryImport(await fixture({ unknownSituation: true }), undefined, undefined, "2026-09-13");
+    expect(result.summary.issues.byCode.UNKNOWN_SITUATION).toBe(1);
+    expect(result.private.issues).toContainEqual(expect.objectContaining({ code: "UNKNOWN_SITUATION", severity: "BLOCKER" }));
+    expect(result.summary.population.total).toBe(4);
+    expect(result.summary.remoteWrites).toBe(0);
   });
 
   it("usa o golden master apenas como comparador opcional e confere decimal × HH:MM", async () => {

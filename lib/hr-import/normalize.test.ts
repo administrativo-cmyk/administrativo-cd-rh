@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { convertHoursToDays } from "../domain/bank-hours";
 import {
-  comparableText, journeyMinutesForFunction, normalizeSituation, normalizeUnit,
+  comparableText, isMeasured, journeyMinutesForFunction, normalizeSituation, normalizeUnit,
   normalizedHeader, normalizedText, parseExcelDate, parseExcelDurationMinutes,
   parseMatricula, parseSignedHhMm,
 } from "./normalize";
@@ -33,12 +33,21 @@ describe("normalização da fonte RH", () => {
   });
 
   it.each([
-    ["Ativo", "ATIVO"], ["Férias", "FERIAS"], ["Af.Previdência", "AFASTADO"],
+    ["Ativo", "ATIVO"], ["Férias", "FERIAS"], [" novo admitido ", "NOVO_ADMITIDO"],
+    ["Novos Admitidos", "NOVO_ADMITIDO"], ["Af.Previdência", "AFASTADO"],
     ["Aviso Prévio", "AVISO_PREVIO"], ["Licença Mater.", "LICENCA_MATERNIDADE"],
     ["Af.Ac.Trabalho", "ACIDENTE_TRABALHO"], ["Outros", "OUTRO_AFASTAMENTO"],
     ["Valor novo", null],
   ])("mapeia situação %s", (source, expected) => {
     expect(normalizeSituation(source)).toBe(expected);
+  });
+
+  it.each([
+    ["ATIVO", true], ["FERIAS", true], ["NOVO_ADMITIDO", true],
+    ["AFASTADO", false], ["AVISO_PREVIO", false], ["LICENCA_MATERNIDADE", false],
+    ["ACIDENTE_TRABALHO", false], ["OUTRO_AFASTAMENTO", false], ["DESLIGADO", false],
+  ] as const)("aplica a regra oficial de mensuração a %s", (situation, expected) => {
+    expect(isMeasured(situation)).toBe(expected);
   });
 
   it.each([

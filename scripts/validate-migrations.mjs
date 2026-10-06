@@ -420,6 +420,43 @@ if (beforeBaseline.rows[0].snapshot.employees[0].balanceMinutes !== null) {
   throw new Error("future measurement leaked into past date");
 }
 
+// Fictitious population matrix: no manager or bank extract may hide an eligible employee.
+await database.exec(`
+  insert into public.colaboradores (matricula, nome, unidade_id, situacao, admissao)
+  select v.matricula, v.nome, u.id, v.situacao::public.situacao_colaborador, '2026-09-01'
+  from (values
+    ('FICT-ACTIVE', 'Active Fictitious', 'ATIVO'),
+    ('FICT-VACATION', 'Vacation Fictitious', 'FERIAS'),
+    ('FICT-NEW', 'New Hire Fictitious', 'NOVO_ADMITIDO'),
+    ('FICT-LEAVE', 'Leave Fictitious', 'AFASTADO'),
+    ('FICT-NOTICE', 'Notice Fictitious', 'AVISO_PREVIO'),
+    ('FICT-MATERNITY', 'Maternity Fictitious', 'LICENCA_MATERNIDADE'),
+    ('FICT-ACCIDENT', 'Accident Fictitious', 'ACIDENTE_TRABALHO'),
+    ('FICT-OTHER', 'Other Leave Fictitious', 'OUTRO_AFASTAMENTO')
+  ) as v(matricula, nome, situacao)
+  cross join public.unidades u
+  where u.codigo = 'CD FLV';
+`);
+const measuredPopulation = await database.query(`
+  select matricula, gestor_id from public.vw_colaboradores_mensurados
+  where matricula like 'FICT-%' order by matricula;
+`);
+const expectedPopulation = ['FICT-001', 'FICT-ACTIVE', 'FICT-NEW', 'FICT-VACATION'];
+if (
+  JSON.stringify(measuredPopulation.rows.map((row) => row.matricula)) !== JSON.stringify(expectedPopulation)
+  || measuredPopulation.rows.slice(1).some((row) => row.gestor_id !== null)
+) throw new Error(`daily call view population mismatch: ${JSON.stringify(measuredPopulation.rows)}`);
+const populationRpc = await asAuthenticated(authUsers.admin, () => database.query(`
+  select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30') as snapshot;
+`));
+const populationEmployees = populationRpc.rows[0].snapshot.employees;
+if (
+  JSON.stringify(populationEmployees.map((employee) => employee.employeeNumber).sort()) !== JSON.stringify(expectedPopulation)
+  || populationEmployees.filter((employee) => employee.employeeNumber !== 'FICT-001').some(
+    (employee) => employee.manager !== null || employee.balanceMinutes !== null,
+  )
+) throw new Error('daily call RPC population or optional joins mismatch');
+
 const dailyCallGrants = await database.query(`
   select has_function_privilege('anon', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as anon_execute,
          has_function_privilege('authenticated', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as authenticated_execute,
