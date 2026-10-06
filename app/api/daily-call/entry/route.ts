@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { attendanceCodes } from "@/lib/daily-call-types";
 import { validDate } from "@/lib/data/daily-call-dates";
+import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
 
 const requestSchema = z.object({
   employeeId: z.string().uuid(),
@@ -19,8 +20,7 @@ const resultSchema = z.object({
 });
 
 export async function PUT(request: Request) {
-  const origin = request.headers.get("origin");
-  if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+  if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Origem não autorizada." }, { status: 403 });
   }
   let raw: unknown;
