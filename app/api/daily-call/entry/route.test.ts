@@ -61,12 +61,19 @@ describe("gravação ADMIN da Chamada Diária", () => {
   });
 
   it.each([
-    ["PENDENTE", "ADMIN"], ["BLOQUEADO", "ADMIN"], ["APROVADO", "RH"],
-    ["APROVADO", "GESTOR"], ["APROVADO", "LEITURA"],
+    ["PENDENTE", "ADMIN"], ["BLOQUEADO", "ADMIN"], ["APROVADO", "LEITURA"],
   ])("rejeita %s/%s", async (status_usuario, papel_usuario) => {
     mocks.single.mockResolvedValue({ data: { status_usuario, papel_usuario } });
     expect((await PUT(request())).status).toBe(403);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(["ADMIN", "RH", "GESTOR"])("permite que %s aprovado chegue à RPC, sem confiar no client", async (papel_usuario) => {
+    mocks.single.mockResolvedValue({ data: { status_usuario: "APROVADO", papel_usuario } });
+    expect((await PUT(request())).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("salvar_chamada_diaria", expect.objectContaining({
+      p_colaborador_id: employeeId,
+    }));
   });
 
   it("usa somente identidade da sessão, aplica trim e não aceita ator do client", async () => {

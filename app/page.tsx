@@ -7,9 +7,6 @@ import type { DailyCallSnapshot } from "@/lib/daily-call-types";
 
 export default async function Home() {
   const profile = await requireApprovedProfile();
-  if (profile.papel_usuario !== "ADMIN") {
-    return <main className="grid min-h-screen place-items-center p-6 text-center"><p>Esta visualização está temporariamente disponível somente para ADMIN aprovado.</p></main>;
-  }
   const date = todayInSaoPaulo();
   const period = filtersForDate(date);
   let snapshot: DailyCallSnapshot | null = null;

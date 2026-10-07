@@ -1,94 +1,61 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UsersAdminPage } from "@/components/users/users-admin-page";
-import { userAdminService } from "@/lib/auth/user-admin-service";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { AdministrativeUser, AuthenticatedProfile } from "@/lib/auth/types";
 
-vi.mock("@/components/app-header", () => ({ AppHeader: () => <div /> }));
-vi.mock("@/components/app-sidebar", () => ({ AppSidebar: () => <div /> }));
-vi.mock("@/lib/auth/user-admin-service", () => ({
-  userAdminService: {
-    list: vi.fn(),
-    approve: vi.fn(),
-    block: vi.fn(),
-    reactivate: vi.fn(),
-  },
-}));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), listManagers: vi.fn(), approve: vi.fn(), linkManager: vi.fn(), block: vi.fn(), reactivate: vi.fn() }));
+vi.mock("@/lib/auth/user-admin-service", () => ({ userAdminService: mocks }));
 
-const profile: AuthenticatedProfile = {
-  id: "admin-current",
-  nome_completo: "Admin Atual",
-  status_usuario: "APROVADO",
-  papel_usuario: "ADMIN",
-  gestor_id: null,
-  ultimo_acesso_em: null,
-  created_at: "2026-09-25T00:00:00.000Z",
-  updated_at: "2026-09-25T00:00:00.000Z",
+import { UsersAdminPage } from "./users-admin-page";
+
+const managerA = "20000000-0000-4000-8000-000000000001";
+const managerB = "20000000-0000-4000-8000-000000000002";
+const actor: AuthenticatedProfile = {
+  id: "10000000-0000-4000-8000-000000000001", nome_completo: "RH Fictício",
+  status_usuario: "APROVADO", papel_usuario: "RH", gestor_id: null,
+  ultimo_acesso_em: null, created_at: "2026-10-07", updated_at: "2026-10-07",
+};
+const target: AdministrativeUser = {
+  id: "10000000-0000-4000-8000-000000000002", nome_completo: "Usuário Fictício",
+  cpf_mascarado: "***.***.***-00", status_usuario: "PENDENTE", papel_usuario: null,
+  gestor_id: null, created_at: "2026-10-07", aprovado_em: null, bloqueado_em: null,
 };
 
-const users: AdministrativeUser[] = [
-  {
-    id: profile.id,
-    nome_completo: profile.nome_completo,
-    cpf_mascarado: "***.***.***-01",
-    status_usuario: "APROVADO",
-    papel_usuario: "ADMIN",
-    gestor_id: null,
-    created_at: profile.created_at,
-    aprovado_em: profile.created_at,
-    bloqueado_em: null,
-  },
-  {
-    id: "admin-other",
-    nome_completo: "Outro Admin",
-    cpf_mascarado: "***.***.***-02",
-    status_usuario: "APROVADO",
-    papel_usuario: "ADMIN",
-    gestor_id: null,
-    created_at: profile.created_at,
-    aprovado_em: profile.created_at,
-    bloqueado_em: null,
-  },
-];
-
-describe("UsersAdminPage", () => {
+describe("vínculo de gestor em /usuarios", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(userAdminService.list).mockResolvedValue(users);
+    mocks.list.mockResolvedValue([target]);
+    mocks.listManagers.mockResolvedValue([
+      { id: managerA, nome: "Gestor A Fictício" },
+      { id: managerB, nome: "Gestor B Fictício" },
+    ]);
+    mocks.approve.mockResolvedValue(undefined);
+    mocks.linkManager.mockResolvedValue(undefined);
   });
 
-  it("desabilita o bloqueio da própria conta, mas permite gerenciar outro admin", async () => {
-    render(<UsersAdminPage profile={profile} />);
-
-    await waitFor(() => expect(screen.getByText("Admin Atual")).toBeInTheDocument());
-    const ownBlockButton = screen.getAllByRole("button", { name: "Bloquear" })[0];
-
-    expect(ownBlockButton).toBeDisabled();
-    expect(ownBlockButton).toHaveAttribute("title", "Você não pode bloquear seu próprio acesso.");
-    expect(screen.getAllByRole("button", { name: "Bloquear" })[1]).toBeEnabled();
-    expect(screen.getByText("***.***.***-01")).toBeInTheDocument();
-    expect(screen.getByText("***.***.***-02")).toBeInTheDocument();
-  });
-
-  it("envia os filtros de status e busca ao serviço administrativo", async () => {
+  it("RH só aprova GESTOR após selecionar um gestor real", async () => {
     const user = userEvent.setup();
-    render(<UsersAdminPage profile={profile} />);
+    render(<UsersAdminPage profile={actor} />);
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Papel para Usuário Fictício" }), "GESTOR");
+    const approve = screen.getByRole("button", { name: "Aprovar" });
+    expect(approve).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Gestor do quadro para Usuário Fictício" }), managerA);
+    expect(approve).toBeEnabled();
+    await user.click(approve);
+    expect(mocks.approve).toHaveBeenCalledWith(target.id, "GESTOR", managerA);
+  });
 
-    await screen.findByText("Admin Atual");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Filtrar por status" }), "BLOQUEADO");
-    await waitFor(() => expect(userAdminService.list).toHaveBeenLastCalledWith({
-      status: "BLOQUEADO",
-      role: null,
-      search: "",
-    }));
-
-    await user.type(screen.getByRole("textbox", { name: "Buscar por nome ou CPF" }), "Pessoa Exemplo");
-    await user.click(screen.getByRole("button", { name: "Buscar" }));
-    await waitFor(() => expect(userAdminService.list).toHaveBeenLastCalledWith({
-      status: "BLOQUEADO",
-      role: null,
-      search: "Pessoa Exemplo",
-    }));
+  it("RH pode trocar o vínculo de um GESTOR existente sem gerir ADMIN", async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([
+      { ...target, status_usuario: "APROVADO", papel_usuario: "GESTOR", gestor_id: managerA },
+      { ...target, id: "10000000-0000-4000-8000-000000000003", nome_completo: "Admin Fictício", status_usuario: "APROVADO", papel_usuario: "ADMIN" },
+    ]);
+    render(<UsersAdminPage profile={actor} />);
+    const selector = await screen.findByRole("combobox", { name: "Gestor do quadro de Usuário Fictício" });
+    expect(screen.getByText("Sem permissão para gerenciar")).toBeInTheDocument();
+    await user.selectOptions(selector, managerB);
+    await user.click(screen.getByRole("button", { name: "Vincular" }));
+    expect(mocks.linkManager).toHaveBeenCalledWith(target.id, managerB);
   });
 });

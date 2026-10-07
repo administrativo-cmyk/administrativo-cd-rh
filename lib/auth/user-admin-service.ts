@@ -7,6 +7,8 @@ export type UserFilters = {
   search: string;
 };
 
+export type ManagerOption = { id: string; nome: string };
+
 function requireSuccess(error: { message: string } | null): void {
   if (error) throw new Error("Não foi possível concluir a operação administrativa.");
 }
@@ -22,11 +24,25 @@ export const userAdminService = {
     return (data ?? []) as AdministrativeUser[];
   },
 
-  async approve(userId: string, role: UserRole): Promise<void> {
+  async listManagers(): Promise<ManagerOption[]> {
+    const { data, error } = await createClient().rpc("listar_gestores_quadro");
+    requireSuccess(error);
+    return (data ?? []) as ManagerOption[];
+  },
+
+  async approve(userId: string, role: UserRole, managerId: string | null = null): Promise<void> {
     const { error } = await createClient().rpc("aprovar_usuario", {
       p_usuario_id: userId,
       p_papel: role,
-      p_gestor_id: null,
+      p_gestor_id: role === "GESTOR" ? managerId : null,
+    });
+    requireSuccess(error);
+  },
+
+  async linkManager(userId: string, managerId: string): Promise<void> {
+    const { error } = await createClient().rpc("vincular_gestor_usuario", {
+      p_usuario_id: userId,
+      p_gestor_id: managerId,
     });
     requireSuccess(error);
   },

@@ -27,19 +27,23 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
   const daily = useDailyCall(initialDate, initialSnapshot);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const canWrite = profile.papel_usuario === "ADMIN" || profile.papel_usuario === "RH" || profile.papel_usuario === "GESTOR";
+  const isManager = profile.papel_usuario === "GESTOR";
+  const unitOptions = isManager ? [...new Set(daily.employees.map((employee) => employee.unit))] : undefined;
 
   function renderContent() {
     if (daily.loading) return <LoadingSkeleton />;
     if (daily.error) return <ErrorState onRetry={daily.refresh} />;
+    if (isManager && !profile.gestor_id && !daily.employees.length) return <div className="p-8 text-center text-sm text-slate-600">Seu usuário ainda não está vinculado a um gestor do quadro.</div>;
     if (!daily.employees.length) return <EmptyState />;
     if (!daily.filteredEmployees.length) return <EmptyState filtered />;
     if (daily.viewMode === "period") {
-      return <PeriodGrid employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />;
+      return <PeriodGrid employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} />;
     }
     if (daily.groupByManager) {
-      return <div data-testid="manager-groups">{daily.managerGroups.map(([manager, employees]) => <ManagerGroup key={manager} manager={manager} employees={employees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />)}</div>;
+      return <div data-testid="manager-groups">{daily.managerGroups.map(([manager, employees]) => <ManagerGroup key={manager} manager={manager} employees={employees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} />)}</div>;
     }
-    return <TodayTable employees={daily.filteredEmployees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={false} onSave={daily.saveAttendance} isSaving={daily.isSaving} />;
+    return <TodayTable employees={daily.filteredEmployees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} />;
   }
 
   return <TooltipProvider delayDuration={250}>
@@ -57,14 +61,14 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
               <button onClick={daily.refresh} disabled={daily.loading} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"><RefreshCw size={14} className={daily.loading ? "animate-spin" : ""} />Atualizar</button>
             </div>
           </header>
-          <DailyCallFilters filters={daily.filters} managerOptions={daily.managerOptions} activeCount={daily.activeFilterCount} updateFilter={daily.updateFilter} clearFilters={daily.clearFilters} />
+          <DailyCallFilters filters={daily.filters} managerOptions={daily.managerOptions} unitOptions={unitOptions} hideManagerFilter={isManager} activeCount={daily.activeFilterCount} updateFilter={daily.updateFilter} clearFilters={daily.clearFilters} />
           <DailyCallMetrics metrics={daily.metrics} />
           <section aria-label="Lista da chamada" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgb(15_23_42/4%)]">
             <div className="flex flex-col gap-3 border-b border-slate-200 p-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap items-center gap-3"><ViewModeSelector value={daily.viewMode} onChange={daily.setViewMode} /><span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Users size={14} />{daily.filteredEmployees.length} de {daily.employees.length} colaboradores</span></div><label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600", daily.viewMode === "period" && "pointer-events-none opacity-45")}><Checkbox checked={daily.groupByManager} onCheckedChange={(checked) => daily.setGroupByManager(Boolean(checked))} disabled={daily.viewMode === "period"} />Agrupar por gestor</label></div>
             {renderContent()}
             <AttendanceLegend />
           </section>
-          <footer className="flex flex-col justify-between gap-2 pb-3 text-xs text-slate-400 sm:flex-row"><span>Lançamentos atribuídos ao ADMIN autenticado e salvos no Supabase.</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-500" />Acesso ADMIN</span></footer>
+          <footer className="flex flex-col justify-between gap-2 pb-3 text-xs text-slate-400 sm:flex-row"><span>{canWrite ? "Lançamentos atribuídos ao usuário autenticado e salvos no Supabase." : "Consulta em modo somente leitura."}</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-500" />Acesso {profile.papel_usuario}</span></footer>
         </div>
       </section>
       <EmployeeDrawer employee={daily.selectedEmployee} date={daily.selectedDate} onClose={() => daily.setSelectedEmployee(null)} />

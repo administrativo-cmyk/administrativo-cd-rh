@@ -30,14 +30,15 @@ describe("endpoint de leitura da Chamada Diária", () => {
   });
 
   it.each([
-    ["PENDENTE", "ADMIN"], ["BLOQUEADO", "ADMIN"], ["APROVADO", "RH"],
+    ["PENDENTE", "ADMIN"], ["BLOQUEADO", "ADMIN"],
   ])("rejeita perfil %s/%s", async (status_usuario, papel_usuario) => {
     mocks.single.mockResolvedValue({ data: { status_usuario, papel_usuario } });
     expect((await GET(request())).status).toBe(403);
     expect(mocks.load).not.toHaveBeenCalled();
   });
 
-  it("permite ADMIN aprovado e não expõe mutação pela rota", async () => {
+  it.each(["ADMIN", "RH", "GESTOR", "LEITURA"])("permite leitura ao papel aprovado %s", async (papel_usuario) => {
+    mocks.single.mockResolvedValue({ data: { status_usuario: "APROVADO", papel_usuario } });
     const response = await GET(request());
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toContain("no-store");

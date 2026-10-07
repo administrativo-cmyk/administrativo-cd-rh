@@ -5,7 +5,7 @@ import { Check, LoaderCircle, Search, ShieldBan, UserCheck, Users } from "lucide
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import type { AccessRequestStatus, AdministrativeUser, AuthenticatedProfile, UserRole } from "@/lib/auth/types";
-import { userAdminService } from "@/lib/auth/user-admin-service";
+import { userAdminService, type ManagerOption } from "@/lib/auth/user-admin-service";
 import { assignableRolesFor, canManageRole } from "@/lib/auth/admin-permissions";
 import { cn } from "@/lib/utils";
 
@@ -26,11 +26,14 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [users, setUsers] = useState<AdministrativeUser[]>([]);
+  const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [status, setStatus] = useState<AccessRequestStatus | "">("");
   const [role, setRole] = useState<UserRole | "">("");
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [approvalRoles, setApprovalRoles] = useState<Record<string, UserRole>>({});
+  const [approvalManagers, setApprovalManagers] = useState<Record<string, string>>({});
+  const [linkedManagers, setLinkedManagers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -49,10 +52,12 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
 
   useEffect(() => {
     let active = true;
-    void userAdminService
-      .list({ status: status || null, role: role || null, search: appliedSearch })
-      .then((nextUsers) => {
-        if (active) setUsers(nextUsers);
+    void Promise.all([
+      userAdminService.list({ status: status || null, role: role || null, search: appliedSearch }),
+      userAdminService.listManagers(),
+    ])
+      .then(([nextUsers, nextManagers]) => {
+        if (active) { setUsers(nextUsers); setManagers(nextManagers); }
       })
       .catch(() => {
         if (active) setMessage("Não foi possível carregar os usuários.");
@@ -112,6 +117,8 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
                   <tbody className="divide-y divide-slate-100">
                     {users.map((user) => {
                       const selectedRole = approvalRoles[user.id] ?? assignableRoles.at(-1) ?? "LEITURA";
+                      const approvalManager = approvalManagers[user.id] ?? "";
+                      const linkedManager = linkedManagers[user.id] ?? user.gestor_id ?? "";
                       const isSelf = user.id === profile.id;
                       const canManageUser = user.status_usuario === "PENDENTE"
                         ? assignableRoles.length > 0
@@ -124,7 +131,8 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
                         <td className="px-4 py-3 text-xs text-slate-500">{dateLabel(user.created_at)}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">{dateLabel(user.aprovado_em)}</td>
                         <td className="px-4 py-3">
-                          {user.status_usuario === "PENDENTE" ? <div className="space-y-2"><div className="flex gap-2"><select aria-label={`Papel para ${user.nome_completo}`} value={selectedRole} onChange={(event) => setApprovalRoles((current) => ({ ...current, [user.id]: event.target.value as UserRole }))} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">{assignableRoles.map((item) => <option key={item} value={item}>{roleLabels[item]}</option>)}</select><button type="button" disabled={busyId === user.id} onClick={() => void runAction(user.id, () => userAdminService.approve(user.id, selectedRole), "Usuário aprovado com sucesso.")} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white disabled:opacity-60"><Check size={14} />Aprovar</button></div>{selectedRole === "GESTOR" ? <p className="max-w-56 text-[11px] leading-4 text-amber-700">Gestor ainda não vinculado ao quadro.</p> : null}</div> : null}
+                          {user.status_usuario === "PENDENTE" ? <div className="space-y-2"><div className="flex gap-2"><select aria-label={`Papel para ${user.nome_completo}`} value={selectedRole} onChange={(event) => setApprovalRoles((current) => ({ ...current, [user.id]: event.target.value as UserRole }))} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs">{assignableRoles.map((item) => <option key={item} value={item}>{roleLabels[item]}</option>)}</select><button type="button" disabled={busyId === user.id || (selectedRole === "GESTOR" && !approvalManager)} onClick={() => void runAction(user.id, () => userAdminService.approve(user.id, selectedRole, approvalManager || null), "Usuário aprovado com sucesso.")} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white disabled:opacity-60"><Check size={14} />Aprovar</button></div>{selectedRole === "GESTOR" ? <ManagerSelect label={`Gestor do quadro para ${user.nome_completo}`} value={approvalManager} managers={managers} onChange={(value) => setApprovalManagers((current) => ({ ...current, [user.id]: value }))} /> : null}</div> : null}
+                          {user.status_usuario !== "PENDENTE" && user.papel_usuario === "GESTOR" && canManageUser ? <div className="mb-2 flex items-center gap-2"><ManagerSelect label={`Gestor do quadro de ${user.nome_completo}`} value={linkedManager} managers={managers} onChange={(value) => setLinkedManagers((current) => ({ ...current, [user.id]: value }))} /><button type="button" disabled={busyId === user.id || !linkedManager || linkedManager === user.gestor_id} onClick={() => void runAction(user.id, () => userAdminService.linkManager(user.id, linkedManager), "Vínculo de gestor atualizado.")} className="h-9 rounded-lg border border-blue-200 px-3 text-xs font-semibold text-blue-700 disabled:opacity-40">Vincular</button></div> : null}
                           {user.status_usuario === "APROVADO" && canManageUser ? <button type="button" disabled={busyId === user.id || isSelf} title={isSelf ? "Você não pode bloquear seu próprio acesso." : undefined} onClick={() => void runAction(user.id, () => userAdminService.block(user.id), "Usuário bloqueado com sucesso.")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 disabled:opacity-60"><ShieldBan size={14} />Bloquear</button> : null}
                           {user.status_usuario === "BLOQUEADO" && canManageUser ? <button type="button" disabled={busyId === user.id} onClick={() => void runAction(user.id, () => userAdminService.reactivate(user.id), "Usuário reativado com sucesso.")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 px-3 text-xs font-semibold text-emerald-700 disabled:opacity-60"><UserCheck size={14} />Reativar</button> : null}
                           {user.status_usuario !== "PENDENTE" && !canManageUser ? <span className="text-xs text-slate-400">Sem permissão para gerenciar</span> : null}
@@ -140,4 +148,8 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
       </section>
     </main>
   );
+}
+
+function ManagerSelect({ label, value, managers, onChange }: { label: string; value: string; managers: ManagerOption[]; onChange: (value: string) => void }) {
+  return <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="h-9 min-w-44 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="">Selecione o gestor do quadro</option>{managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.nome}</option>)}</select>;
 }

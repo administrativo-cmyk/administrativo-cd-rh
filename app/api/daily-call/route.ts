@@ -18,7 +18,8 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase.from("perfis")
     .select("status_usuario,papel_usuario").eq("id", userId).single();
-  if (!profile || profile.status_usuario !== "APROVADO" || profile.papel_usuario !== "ADMIN") {
+  if (!profile || profile.status_usuario !== "APROVADO"
+    || !["ADMIN", "RH", "GESTOR", "LEITURA"].includes(profile.papel_usuario)) {
     return Response.json({ error: "Acesso não autorizado." }, { status: 403 });
   }
 

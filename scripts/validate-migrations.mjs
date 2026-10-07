@@ -60,8 +60,9 @@ const expectAuthenticatedFailure = async (label, userId, statement) => {
 };
 
 await database.exec(`
-  insert into public.gestores (id, nome)
-  values ('20000000-0000-0000-0000-000000000001', 'Gestor Ficticio');
+  insert into public.gestores (id, nome) values
+    ('20000000-0000-0000-0000-000000000001', 'Gestor A Ficticio'),
+    ('20000000-0000-0000-0000-000000000002', 'Gestor B Ficticio');
 
   insert into public.colaboradores (
     id, matricula, nome, unidade_id, gestor_id, situacao, admissao
@@ -129,6 +130,8 @@ const authUsers = {
   pendingRhRole: "10000000-0000-0000-0000-000000000006",
   selfPending: "10000000-0000-0000-0000-000000000007",
   secondAdmin: "10000000-0000-0000-0000-000000000008",
+  managerB: "10000000-0000-0000-0000-000000000009",
+  unlinkedManager: "10000000-0000-0000-0000-000000000010",
 };
 
 await database.exec(`
@@ -140,7 +143,9 @@ await database.exec(`
     ('${authUsers.pendingAdminRole}', encode(sha256(convert_to('00000000005', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente Admin","cpf_normalizado":"00000000005"}'),
     ('${authUsers.pendingRhRole}', encode(sha256(convert_to('00000000006', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Pendente RH","cpf_normalizado":"00000000006"}'),
     ('${authUsers.selfPending}', encode(sha256(convert_to('00000000007', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Auto Pendente","cpf_normalizado":"00000000007"}'),
-    ('${authUsers.secondAdmin}', encode(sha256(convert_to('00000000008', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Segundo Admin","cpf_normalizado":"00000000008"}');
+    ('${authUsers.secondAdmin}', encode(sha256(convert_to('00000000008', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Segundo Admin","cpf_normalizado":"00000000008"}'),
+    ('${authUsers.managerB}', encode(sha256(convert_to('00000000009', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Gestor B Local","cpf_normalizado":"00000000009"}'),
+    ('${authUsers.unlinkedManager}', encode(sha256(convert_to('00000000010', 'UTF8')), 'hex') || '@auth.administrativo-cd.invalid', '{"nome_completo":"Gestor Legado","cpf_normalizado":"00000000010"}');
 
   update public.perfis
   set status_usuario = 'APROVADO', papel_usuario = 'ADMIN', aprovado_em = now()
@@ -149,6 +154,16 @@ await database.exec(`
   update public.perfis
   set status_usuario = 'APROVADO', papel_usuario = 'RH', aprovado_em = now()
   where id = '${authUsers.rh}';
+
+  update public.perfis
+  set status_usuario = 'APROVADO', papel_usuario = 'GESTOR',
+      gestor_id = '20000000-0000-0000-0000-000000000002', aprovado_em = now()
+  where id = '${authUsers.managerB}';
+
+  -- Simulates a legacy approved GESTOR without a link; access must fail closed.
+  update public.perfis
+  set status_usuario = 'APROVADO', papel_usuario = 'GESTOR', aprovado_em = now()
+  where id = '${authUsers.unlinkedManager}';
 `);
 
 const createdProfiles = await database.query(`
@@ -221,8 +236,14 @@ await expectAuthenticatedFailure(
   `select public.aprovar_usuario('${authUsers.pendingRhRole}', 'RH', null);`,
 );
 
+await expectAuthenticatedFailure(
+  "manager approval requires a manager link",
+  authUsers.rh,
+  `select public.aprovar_usuario('${authUsers.manager}', 'GESTOR', null);`,
+);
+
 await asAuthenticated(authUsers.rh, () => database.exec(`
-  select public.aprovar_usuario('${authUsers.manager}', 'GESTOR', null);
+  select public.aprovar_usuario('${authUsers.manager}', 'GESTOR', '20000000-0000-0000-0000-000000000001');
   select public.aprovar_usuario('${authUsers.reader}', 'LEITURA', null);
 `));
 
@@ -314,7 +335,7 @@ const administrativeUsers = await asAuthenticated(authUsers.admin, () => databas
   from public.listar_usuarios(null, null, null);
 `));
 if (
-  administrativeUsers.rows.length !== 8
+  administrativeUsers.rows.length !== 10
   || administrativeUsers.rows.some((row) => !/^\*\*\*\.\*\*\*\.\*\*\*-[0-9]{2}$/.test(row.cpf_mascarado))
 ) {
   throw new Error(`administrative CPF masking mismatch: ${JSON.stringify(administrativeUsers.rows)}`);
@@ -340,7 +361,7 @@ const rhUsers = await asAuthenticated(authUsers.rh, () => database.query(`
   select id
   from public.listar_usuarios(null, null, null);
 `));
-if (rhUsers.rows.length !== 8) {
+if (rhUsers.rows.length !== 10) {
   throw new Error(`approved RH administrative access mismatch: ${JSON.stringify(rhUsers.rows)}`);
 }
 
@@ -384,11 +405,6 @@ if (privateFunctionGrants.rows[0].helper_exposed || privateFunctionGrants.rows[0
   throw new Error(`last-admin helper execute privilege expanded: ${JSON.stringify(privateFunctionGrants.rows[0])}`);
 }
 
-await expectAuthenticatedFailure(
-  "RH cannot read daily call",
-  authUsers.rh,
-  `select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30');`,
-);
 await expectAuthenticatedFailure(
   "blocked ADMIN cannot read daily call",
   authUsers.secondAdmin,
@@ -456,6 +472,39 @@ if (
     (employee) => employee.manager !== null || employee.balanceMinutes !== null,
   )
 ) throw new Error('daily call RPC population or optional joins mismatch');
+
+const teamAEmployee = '30000000-0000-0000-0000-000000000001';
+const teamBEmployee = '30000000-0000-0000-0000-000000000002';
+await database.exec(`
+  insert into public.colaboradores (id, matricula, nome, unidade_id, gestor_id, situacao)
+  values ('${teamBEmployee}', 'FICT-B', 'Team B Fictitious',
+    (select id from public.unidades where codigo = 'CD II'),
+    '20000000-0000-0000-0000-000000000002', 'ATIVO');
+`);
+const readCall = async (actor) => (await asAuthenticated(actor, () => database.query(`
+  select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30') as snapshot;
+`))).rows[0].snapshot.employees;
+const fullPopulation = [authUsers.admin, authUsers.rh, authUsers.reader];
+for (const actor of fullPopulation) {
+  const rows = await readCall(actor);
+  if (rows.length !== 5 || !rows.some((row) => row.id === teamAEmployee)
+      || !rows.some((row) => row.id === teamBEmployee)
+      || !rows.some((row) => row.manager === null)) {
+    throw new Error('ADMIN/RH/LEITURA read scope mismatch');
+  }
+}
+for (const [actor, employee] of [[authUsers.manager, teamAEmployee], [authUsers.managerB, teamBEmployee]]) {
+  const rows = await readCall(actor);
+  if (rows.length !== 1 || rows[0].id !== employee) throw new Error('GESTOR team read scope mismatch');
+}
+if ((await readCall(authUsers.unlinkedManager)).length !== 0) {
+  throw new Error('unlinked GESTOR obtained employees');
+}
+await expectAuthenticatedFailure('pending cannot read daily call', authUsers.pendingAdminRole,
+  `select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30');`);
+await expectAuthenticatedFailure('anon cannot read daily call', authUsers.selfPending,
+  `set role anon; select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30'); reset role;`);
+await database.exec('reset role;');
 
 const dailyCallGrants = await database.query(`
   select has_function_privilege('anon', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as anon_execute,
@@ -615,11 +664,41 @@ if (written.rows[0].current_count !== 0 || written.rows[0].operations !== "INSER
 
 for (const [label, actor] of [
   ["pending", authUsers.pendingAdminRole], ["blocked", authUsers.secondAdmin],
-  ["RH", authUsers.rh], ["GESTOR", authUsers.manager], ["LEITURA", authUsers.reader],
+  ["GESTOR without link", authUsers.unlinkedManager], ["LEITURA", authUsers.reader],
 ]) {
   await expectAuthenticatedFailure(`${label} cannot write daily call`, actor, `
     select public.salvar_chamada_diaria('${writeEmployee}', '${writeDate}', 'P', null, null);
   `);
+}
+await expectAuthenticatedFailure('cross-team UUID by GESTOR A', authUsers.manager, `
+  select public.salvar_chamada_diaria('${teamBEmployee}', '2026-10-15', 'P', null, null);
+`);
+await expectAuthenticatedFailure('cross-team UUID by GESTOR B', authUsers.managerB, `
+  select public.salvar_chamada_diaria('${teamAEmployee}', '2026-10-15', 'P', null, null);
+`);
+await expectAuthenticatedFailure('cross-team observation by GESTOR A', authUsers.manager, `
+  select public.salvar_chamada_diaria('${teamBEmployee}', '2026-10-15', 'P', 'observacao indevida', null);
+`);
+const rhSave = await saveCall(authUsers.rh, '2026-10-15', 'P', 'RH ficticio', null, teamBEmployee);
+const managerSave = await saveCall(authUsers.manager, '2026-10-15', 'G', null, null, teamAEmployee);
+const managerBSave = await saveCall(authUsers.managerB, '2026-10-16', 'P', null, null, teamBEmployee);
+const adminOtherTeam = await saveCall(authUsers.admin, '2026-10-17', 'P', null, null, teamBEmployee);
+if (!rhSave.changed || !managerSave.changed || !managerBSave.changed || !adminOtherTeam.changed) {
+  throw new Error('ADMIN/RH/GESTOR write matrix mismatch');
+}
+await expectAuthenticatedFailure('cross-team clear by GESTOR A', authUsers.manager, `
+  select public.salvar_chamada_diaria('${teamBEmployee}', '2026-10-16', null, null, '${managerBSave.record.updatedAt}');
+`);
+await saveCall(authUsers.rh, '2026-10-15', null, null, rhSave.record.updatedAt, teamBEmployee);
+await saveCall(authUsers.manager, '2026-10-15', null, null, managerSave.record.updatedAt, teamAEmployee);
+const roleAudit = await database.query(`
+  select alterado_por::text as actor, count(*)::integer as count
+  from public.chamada_diaria_auditoria where data between '2026-10-15' and '2026-10-17'
+  group by alterado_por order by actor;
+`);
+if (roleAudit.rows.length !== 4 || roleAudit.rows.some((row) => row.count < 1)
+    || roleAudit.rows.some((row) => row.actor === authUsers.reader)) {
+  throw new Error('role write audit attribution mismatch');
 }
 await expectFailure("anon cannot execute write RPC", `
   set role anon;
@@ -720,6 +799,60 @@ if (bank.pendingCompensationDays !== 2 || bank.usedCompensationDays !== 0) throw
 await saveCall(authUsers.admin, "2026-10-11", "G");
 bank = await readBank(writeEmployee, "2026-10-11");
 if (bank.pendingCompensationDays !== 1 || bank.usedCompensationDays !== 1) throw new Error("new baseline G cycle mismatch");
+
+// Authorization must use the current manager relationship, not a stale UI snapshot.
+await database.exec(`
+  update public.colaboradores set gestor_id = '20000000-0000-0000-0000-000000000002'
+  where id = '${teamAEmployee}';
+`);
+if ((await readCall(authUsers.manager)).length !== 0 || (await readCall(authUsers.managerB)).length !== 2) {
+  throw new Error('manager reassignment did not update read scope');
+}
+await expectAuthenticatedFailure('old manager after reassignment', authUsers.manager, `
+  select public.salvar_chamada_diaria('${teamAEmployee}', '2026-10-20', 'P', null, null);
+`);
+const transferred = await saveCall(authUsers.managerB, '2026-10-20', 'P', null, null, teamAEmployee);
+if (!transferred.changed) throw new Error('new manager could not write after reassignment');
+
+const managerOptions = await asAuthenticated(authUsers.admin, () => database.query(`
+  select id, nome from public.listar_gestores_quadro();
+`));
+if (managerOptions.rows.length !== 2) throw new Error('manager option RPC mismatch');
+await expectAuthenticatedFailure('GESTOR cannot list administrative manager options', authUsers.manager,
+  'select * from public.listar_gestores_quadro();');
+await expectAuthenticatedFailure('LEITURA cannot list administrative manager options', authUsers.reader,
+  'select * from public.listar_gestores_quadro();');
+await expectAuthenticatedFailure('GESTOR cannot link user manager', authUsers.manager, `
+  select public.vincular_gestor_usuario('${authUsers.unlinkedManager}', '20000000-0000-0000-0000-000000000002');
+`);
+await expectAuthenticatedFailure('RH cannot link ADMIN target', authUsers.rh, `
+  select public.vincular_gestor_usuario('${authUsers.admin}', '20000000-0000-0000-0000-000000000002');
+`);
+await asAuthenticated(authUsers.rh, () => database.exec(`select public.bloquear_usuario('${authUsers.unlinkedManager}');`));
+await expectAuthenticatedFailure('unlinked blocked GESTOR cannot be reactivated', authUsers.rh, `
+  select public.reativar_usuario('${authUsers.unlinkedManager}');
+`);
+await asAuthenticated(authUsers.rh, () => database.exec(`
+  select public.vincular_gestor_usuario('${authUsers.unlinkedManager}', '20000000-0000-0000-0000-000000000002');
+  select public.reativar_usuario('${authUsers.unlinkedManager}');
+`));
+if ((await readCall(authUsers.unlinkedManager)).length !== 2) {
+  throw new Error('RH manager link did not update read scope');
+}
+await asAuthenticated(authUsers.admin, () => database.exec(`
+  select public.vincular_gestor_usuario('${authUsers.unlinkedManager}', '20000000-0000-0000-0000-000000000001');
+`));
+if ((await readCall(authUsers.unlinkedManager)).length !== 0) {
+  throw new Error('ADMIN manager relink did not immediately update read scope');
+}
+const linkAudit = await database.query(`
+  select alterado_por::text as actor from private.perfis_gestor_auditoria
+  where usuario_id = '${authUsers.unlinkedManager}' order by alterado_em;
+`);
+if (linkAudit.rows.length !== 2 || linkAudit.rows[0].actor !== authUsers.rh
+    || linkAudit.rows[1].actor !== authUsers.admin) {
+  throw new Error('manager-link audit attribution mismatch');
+}
 
 console.log(JSON.stringify({
   migrationsApplied: migrations.length,
