@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 type SidebarEntry = [label: string, icon: LucideIcon, href?: string];
 
 const sections: Array<{ label: string; items: SidebarEntry[] }> = [
-  { label: "Visão geral", items: [["Dashboard", LayoutDashboard], ["Banco de Horas", Clock3], ["Quadro Atual", Users], ["Chamada Diária", CalendarDays, "/chamada-diaria"]] },
+  { label: "Visão geral", items: [["Dashboard", LayoutDashboard], ["Banco de Horas", Clock3], ["Quadro Atual", Users, "/quadro-atual"], ["Chamada Diária", CalendarDays, "/chamada-diaria"]] },
   { label: "Planejamento", items: [["Sugestão de Férias", CalendarClock], ["Férias por Gestor e Mês", CalendarDays]] },
   { label: "Análises", items: [["Top 20", ChartNoAxesColumn], ["Top por Gestor", ChartNoAxesColumn], ["Afastados e Outros", ShieldCheck], ["Metodologia", CircleHelp]] },
 ];

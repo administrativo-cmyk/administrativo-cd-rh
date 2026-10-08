@@ -506,6 +506,47 @@ await expectAuthenticatedFailure('anon cannot read daily call', authUsers.selfPe
   `set role anon; select public.ler_chamada_diaria('2026-09-21', '2026-09-01', '2026-09-30'); reset role;`);
 await database.exec('reset role;');
 
+const readWorkforce = async (actor) => (await asAuthenticated(actor, () => database.query(`
+  select public.ler_quadro_atual() as snapshot;
+`))).rows[0].snapshot.employees;
+for (const actor of [authUsers.admin, authUsers.rh, authUsers.reader]) {
+  const rows = await readWorkforce(actor);
+  if (rows.length !== 10 || rows.filter((row) => row.managerId === null).length !== 8
+      || rows.filter((row) => row.bankBalanceMinutes === null).length !== 9
+      || !rows.some((row) => row.situation === 'AFASTADO')
+      || !rows.some((row) => row.id === teamAEmployee)
+      || !rows.some((row) => row.id === teamBEmployee)) {
+    throw new Error('global workforce read scope or complete population mismatch');
+  }
+}
+for (const [actor, ownEmployee, otherEmployee] of [
+  [authUsers.manager, teamAEmployee, teamBEmployee],
+  [authUsers.managerB, teamBEmployee, teamAEmployee],
+]) {
+  const rows = await readWorkforce(actor);
+  if (rows.length !== 1 || rows[0].id !== ownEmployee || rows.some((row) => row.id === otherEmployee)) {
+    throw new Error('GESTOR workforce isolation mismatch');
+  }
+}
+if ((await readWorkforce(authUsers.unlinkedManager)).length !== 0) {
+  throw new Error('unlinked GESTOR obtained workforce rows');
+}
+await expectAuthenticatedFailure('pending cannot read workforce', authUsers.pendingAdminRole,
+  'select public.ler_quadro_atual();');
+await expectFailure('anon cannot read workforce', `
+  set role anon; select public.ler_quadro_atual(); reset role;
+`);
+await database.exec('reset role;');
+const workforceGrants = await database.query(`
+  select has_function_privilege('anon', 'public.ler_quadro_atual()', 'EXECUTE') as anon_execute,
+         has_function_privilege('authenticated', 'public.ler_quadro_atual()', 'EXECUTE') as authenticated_execute,
+         has_table_privilege('authenticated', 'public.colaboradores', 'SELECT') as direct_employee_read;
+`);
+if (workforceGrants.rows[0].anon_execute || !workforceGrants.rows[0].authenticated_execute
+    || workforceGrants.rows[0].direct_employee_read) {
+  throw new Error('workforce read privileges expanded unexpectedly');
+}
+
 const dailyCallGrants = await database.query(`
   select has_function_privilege('anon', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as anon_execute,
          has_function_privilege('authenticated', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as authenticated_execute,
