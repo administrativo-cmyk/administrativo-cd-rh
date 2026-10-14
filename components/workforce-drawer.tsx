@@ -2,20 +2,8 @@
 
 import { BriefcaseBusiness, Building2, CalendarDays, Clock3, Hash, UserRound, X } from "lucide-react";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { formatWorkforceBalance, formatWorkforceDate } from "@/lib/workforce-format";
 import { situationLabels, type WorkforceEmployee } from "@/lib/workforce";
-
-export function formatWorkforceDate(value: string | null): string {
-  if (!value) return "Não informada";
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })
-    .format(new Date(`${value}T12:00:00Z`));
-}
-
-export function formatWorkforceBalance(value: number | null): string {
-  if (value === null) return "Sem extrato";
-  const sign = value < 0 ? "−" : value > 0 ? "+" : "";
-  const minutes = Math.abs(value);
-  return `${sign}${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
 
 function Info({ icon: Icon, label, value }: { icon: typeof Hash; label: string; value: string }) {
   return <div className="flex gap-2.5"><Icon size={16} className="mt-0.5 shrink-0 text-slate-400" /><div className="min-w-0"><span className="block text-xs text-slate-500">{label}</span><b className="block break-words text-sm font-medium leading-snug">{value}</b></div></div>;

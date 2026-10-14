@@ -547,6 +547,60 @@ if (workforceGrants.rows[0].anon_execute || !workforceGrants.rows[0].authenticat
   throw new Error('workforce read privileges expanded unexpectedly');
 }
 
+const readTimeBank = async (actor, date = '2026-09-21') => (await asAuthenticated(actor, () => database.query(`
+  select public.ler_banco_horas_atual('${date}') as snapshot;
+`))).rows[0].snapshot;
+for (const actor of [authUsers.admin, authUsers.rh, authUsers.reader]) {
+  const snapshot = await readTimeBank(actor);
+  const rows = snapshot.employees;
+  if (snapshot.asOfDate !== '2026-09-21' || rows.length !== 10
+      || rows.filter((row) => row.managerId === null).length !== 8
+      || rows.filter((row) => row.measuredMinutes === null).length !== 9
+      || !rows.some((row) => row.situation === 'AFASTADO')
+      || !rows.some((row) => row.id === teamAEmployee)
+      || !rows.some((row) => row.id === teamBEmployee)) {
+    throw new Error('global time-bank read scope or full-population mismatch');
+  }
+}
+for (const [actor, ownEmployee, otherEmployee] of [
+  [authUsers.manager, teamAEmployee, teamBEmployee],
+  [authUsers.managerB, teamBEmployee, teamAEmployee],
+]) {
+  const rows = (await readTimeBank(actor)).employees;
+  if (rows.length !== 1 || rows[0].id !== ownEmployee
+      || rows.some((row) => row.id === otherEmployee)) {
+    throw new Error('GESTOR time-bank isolation mismatch');
+  }
+}
+if ((await readTimeBank(authUsers.unlinkedManager)).employees.length !== 0) {
+  throw new Error('unlinked GESTOR obtained time-bank rows');
+}
+const scopedBank = (await readTimeBank(authUsers.manager)).employees[0];
+const scopedCall = (await readCall(authUsers.manager))[0];
+if (scopedBank.measuredMinutes !== scopedCall.balanceMinutes
+    || scopedBank.measuredDays !== scopedCall.balanceDays
+    || scopedBank.usedCompensationDays !== scopedCall.usedCompensationDays
+    || scopedBank.pendingCompensationDays !== scopedCall.pendingCompensationDays
+    || scopedBank.replacementDays !== scopedCall.replacementDays) {
+  throw new Error('time-bank and Daily Call differ for same employee and date');
+}
+await expectAuthenticatedFailure('pending cannot read time bank', authUsers.pendingAdminRole,
+  "select public.ler_banco_horas_atual('2026-09-21');");
+await expectFailure('anon cannot read time bank', `
+  set role anon; select public.ler_banco_horas_atual('2026-09-21'); reset role;
+`);
+await database.exec('reset role;');
+const timeBankGrants = await database.query(`
+  select has_function_privilege('anon', 'public.ler_banco_horas_atual(date)', 'EXECUTE') as anon_execute,
+         has_function_privilege('authenticated', 'public.ler_banco_horas_atual(date)', 'EXECUTE') as authenticated_execute,
+         has_function_privilege('authenticated', 'private.banco_horas_no_dia(uuid,date)', 'EXECUTE') as direct_helper_execute,
+         has_table_privilege('authenticated', 'public.banco_horas_medicoes', 'SELECT') as direct_measurement_read;
+`);
+if (timeBankGrants.rows[0].anon_execute || !timeBankGrants.rows[0].authenticated_execute
+    || timeBankGrants.rows[0].direct_helper_execute || timeBankGrants.rows[0].direct_measurement_read) {
+  throw new Error('time-bank read privileges expanded unexpectedly');
+}
+
 const dailyCallGrants = await database.query(`
   select has_function_privilege('anon', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as anon_execute,
          has_function_privilege('authenticated', 'public.ler_chamada_diaria(date,date,date)', 'EXECUTE') as authenticated_execute,
@@ -596,6 +650,26 @@ const normalizedCycles = cycles.rows.map((row) => ({
 
 if (JSON.stringify(normalizedCycles) !== JSON.stringify(expectedCycles)) {
   throw new Error(`baseline cycle mismatch: ${JSON.stringify(normalizedCycles)}`);
+}
+
+const conversionBoundaries = await database.query(`
+  select private.converter_saldo_minutos_em_dias(0, 7.3333) as zero,
+         private.converter_saldo_minutos_em_dias(440, 7.3333) as one_day,
+         private.converter_saldo_minutos_em_dias(740, 7.3333) as exact_five_hours,
+         private.converter_saldo_minutos_em_dias(741, 7.3333) as five_hours_one_minute,
+         private.converter_saldo_minutos_em_dias(-740, 7.3333) as negative_exact,
+         private.converter_saldo_minutos_em_dias(-741, 7.3333) as negative_over,
+         private.converter_saldo_minutos_em_dias(240, 4) as four_hour_day,
+         private.converter_saldo_minutos_em_dias(360, 6) as six_hour_day,
+         private.converter_saldo_minutos_em_dias(720, 12) as twelve_hour_day;
+`);
+const expectedConversions = {
+  zero: 0, one_day: 1, exact_five_hours: 1, five_hours_one_minute: 2,
+  negative_exact: -1, negative_over: -2, four_hour_day: 1,
+  six_hour_day: 1, twelve_hour_day: 1,
+};
+if (JSON.stringify(conversionBoundaries.rows[0]) !== JSON.stringify(expectedConversions)) {
+  throw new Error('signed-minute conversion boundary mismatch');
 }
 
 const rls = await database.query(`
@@ -830,6 +904,37 @@ if (negative.replacementDays !== 2 || negative.pendingCompensationDays !== 0
     || zero.balanceMinutes !== 0 || zero.pendingCompensationDays !== 0) {
   throw new Error("G changed negative or zero balance semantics");
 }
+const bankAtCurrentCycle = (await readTimeBank(authUsers.admin, '2026-10-08')).employees;
+for (const [employeeId, daily] of [
+  [writeEmployee, await readBank(writeEmployee, '2026-10-08')],
+  [negativeId, negative],
+  [zeroId, zero],
+  [teamBEmployee, await readBank(teamBEmployee, '2026-10-08')],
+]) {
+  const row = bankAtCurrentCycle.find((item) => item.id === employeeId);
+  if (!row || row.measuredMinutes !== daily.balanceMinutes
+      || row.measuredDays !== daily.balanceDays
+      || row.usedCompensationDays !== daily.usedCompensationDays
+      || row.pendingCompensationDays !== daily.pendingCompensationDays
+      || row.replacementDays !== daily.replacementDays) {
+    throw new Error('positive/negative/zero/no-extract bank and Daily Call mismatch');
+  }
+}
+const positiveBank = bankAtCurrentCycle.find((row) => row.id === writeEmployee);
+const negativeBank = bankAtCurrentCycle.find((row) => row.id === negativeId);
+const zeroBank = bankAtCurrentCycle.find((row) => row.id === zeroId);
+if (positiveBank.measuredMinutes !== 1320 || positiveBank.effectiveDays !== 2
+    || negativeBank.measuredMinutes !== -880 || negativeBank.effectiveDays !== -2
+    || zeroBank.measuredMinutes !== 0 || zeroBank.effectiveDays !== 0) {
+  throw new Error('measured balance changed or G reduced negative/zero balance');
+}
+const historicalMeasurement = await database.query(`
+  select saldo_minutos from public.banco_horas_medicoes
+  where colaborador_id = '${negativeId}';
+`);
+if (historicalMeasurement.rows[0].saldo_minutos !== -880) {
+  throw new Error('G modified the append-only historical measurement');
+}
 await database.exec(`
   insert into public.banco_horas_medicoes
     (colaborador_id, data_medicao, aplica_a_partir_de, jornada_horas_dia, saldo_minutos)
@@ -840,6 +945,14 @@ if (bank.pendingCompensationDays !== 2 || bank.usedCompensationDays !== 0) throw
 await saveCall(authUsers.admin, "2026-10-11", "G");
 bank = await readBank(writeEmployee, "2026-10-11");
 if (bank.pendingCompensationDays !== 1 || bank.usedCompensationDays !== 1) throw new Error("new baseline G cycle mismatch");
+const bankAfterNewBaseline = (await readTimeBank(authUsers.admin, '2026-10-11')).employees
+  .find((row) => row.id === writeEmployee);
+if (bankAfterNewBaseline.measuredMinutes !== 880 || bankAfterNewBaseline.measuredDays !== 2
+    || bankAfterNewBaseline.usedCompensationDays !== 1
+    || bankAfterNewBaseline.pendingCompensationDays !== bank.pendingCompensationDays
+    || bankAfterNewBaseline.effectiveFrom !== '2026-10-10') {
+  throw new Error('new baseline or G contaminated current time-bank cycle');
+}
 
 // Authorization must use the current manager relationship, not a stale UI snapshot.
 await database.exec(`

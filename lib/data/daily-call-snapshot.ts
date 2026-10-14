@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DailyCallSnapshot, Employee, EmployeeSituation, UnitCode } from "@/lib/daily-call-types";
+import { formatSignedMinutes } from "@/lib/domain/bank-hours";
 
 const recordSchema = z.object({
   date: z.string(),
@@ -41,9 +42,7 @@ const situations: Record<"ATIVO" | "FERIAS" | "NOVO_ADMITIDO", EmployeeSituation
 };
 
 export function formatBalanceMinutes(value: number): string {
-  const sign = value < 0 ? "-" : value > 0 ? "+" : "";
-  const minutes = Math.abs(value);
-  return `${sign}${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return formatSignedMinutes(value);
 }
 
 export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {

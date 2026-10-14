@@ -24,6 +24,25 @@ export type CompensationCycleResult = {
 
 const FIVE_HOURS_IN_MINUTES = 5 * 60;
 
+export function convertMinutesToDays(balanceMinutes: number, workdayMinutes: number): number {
+  if (!Number.isInteger(balanceMinutes)) throw new RangeError("balanceMinutes must be an integer");
+  if (!Number.isInteger(workdayMinutes) || workdayMinutes <= 0) {
+    throw new RangeError("workdayMinutes must be a positive integer");
+  }
+  const absolute = Math.abs(balanceMinutes);
+  const wholeDays = Math.floor(absolute / workdayMinutes);
+  const extraDay = absolute % workdayMinutes > FIVE_HOURS_IN_MINUTES ? 1 : 0;
+  const days = wholeDays + extraDay;
+  return days === 0 ? 0 : Math.sign(balanceMinutes) * days;
+}
+
+export function formatSignedMinutes(balanceMinutes: number): string {
+  if (!Number.isInteger(balanceMinutes)) throw new RangeError("balanceMinutes must be an integer");
+  const sign = balanceMinutes < 0 ? "-" : balanceMinutes > 0 ? "+" : "";
+  const absolute = Math.abs(balanceMinutes);
+  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+}
+
 export function convertHoursToDays(balanceHours: number, workdayHours: number): number {
   if (!Number.isFinite(balanceHours)) throw new RangeError("balanceHours must be finite");
   if (!Number.isFinite(workdayHours) || workdayHours <= 0) {
@@ -32,14 +51,7 @@ export function convertHoursToDays(balanceHours: number, workdayHours: number): 
 
   const balanceMinutes = Math.round(Math.abs(balanceHours) * 60);
   const workdayMinutes = Math.round(workdayHours * 60);
-  let days = Math.floor(balanceMinutes / workdayMinutes);
-  const remainderMinutes = balanceMinutes % workdayMinutes;
-
-  // The spreadsheet rule says "ultrapassar 5 horas": exactly 5h does not round up.
-  if (remainderMinutes > FIVE_HOURS_IN_MINUTES) days += 1;
-
-  if (balanceHours < 0 && days > 0) return -days;
-  return days;
+  return convertMinutesToDays(balanceHours < 0 ? -balanceMinutes : balanceMinutes, workdayMinutes);
 }
 
 export function calculateCompensationCycle(input: CompensationCycleInput): CompensationCycleResult {

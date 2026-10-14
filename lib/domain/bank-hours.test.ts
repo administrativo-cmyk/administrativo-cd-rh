@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateCompensationCycle, convertHoursToDays } from "./bank-hours";
+import { calculateCompensationCycle, convertHoursToDays, convertMinutesToDays, formatSignedMinutes } from "./bank-hours";
 import { isOperationalEmployee, type EmployeeEntity, type EmployeeSituationCode } from "./administrative";
 
 describe("convertHoursToDays", () => {
@@ -23,6 +23,30 @@ describe("convertHoursToDays", () => {
 
   it("rejeita jornada inválida", () => {
     expect(() => convertHoursToDays(8, 0)).toThrow(RangeError);
+  });
+});
+
+describe("minutos assinados do banco de horas", () => {
+  it.each([
+    [0, 440, 0], [440, 440, 1], [740, 440, 1], [741, 440, 2],
+    [-440, 440, -1], [-740, 440, -1], [-741, 440, -2],
+    [240, 240, 1], [540, 240, 2], [360, 360, 1],
+    [660, 360, 1], [661, 360, 2], [720, 720, 1],
+    [1020, 720, 1], [1021, 720, 2],
+  ])("converte %i minutos com jornada %i em %i dias", (balance, workday, expected) => {
+    expect(convertMinutesToDays(balance, workday)).toBe(expected);
+  });
+
+  it.each([
+    [0, "00:00"], [480, "+08:00"], [-310, "-05:10"], [740, "+12:20"],
+  ])("formata %i minutos como %s sem arredondar", (balance, expected) => {
+    expect(formatSignedMinutes(balance)).toBe(expected);
+  });
+
+  it("rejeita minutos fracionários ou jornada inválida", () => {
+    expect(() => convertMinutesToDays(1.5, 440)).toThrow(RangeError);
+    expect(() => convertMinutesToDays(440, 0)).toThrow(RangeError);
+    expect(() => formatSignedMinutes(1.5)).toThrow(RangeError);
   });
 });
 
