@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
+import type { Database } from "@/lib/persistence/database.types";
 
 type CookieUpdate = { name: string; value: string; options: CookieOptions };
 
@@ -10,7 +11,7 @@ export async function refreshSupabaseSession(request: NextRequest) {
   const cacheHeaders = new Headers();
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(url, publishableKey, {
+  const supabase = createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

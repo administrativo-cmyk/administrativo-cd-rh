@@ -31,6 +31,11 @@ describe("Chamada real sem gravação", () => {
     expect(screen.getByTestId("period-grid")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
   });
+  it("distingue presença do ponto, falta automática e revisão manual", () => {
+    const employees = (["punch", "automatic_absence", "manual"] as const).map((origin, index) => ({ ...snapshot.employees[0], id: `FICT-${index}`, attendance: { [snapshot.date]: origin === "automatic_absence" ? "I" as const : "P" as const }, attendanceSources: { [snapshot.date]: origin } }));
+    render(<TooltipProvider><TodayTable employees={employees} date={snapshot.date} onSelect={vi.fn()} /></TooltipProvider>);
+    for (const label of ["Pelo ponto", "Falta automática", "Revisão manual"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+  });
 });
 
 describe("controles ADMIN da Chamada Diária", () => {

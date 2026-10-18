@@ -13,6 +13,7 @@
 # testing
 /coverage
 /artifacts/
+/output/playwright/
 
 # next.js
 /.next/
@@ -54,3 +55,14 @@ next-env.d.ts
 # HR source workbooks and reports with personal data (local only)
 /data/private/*
 !/data/private/.gitkeep
+
+# Local monitoring sources, photographs and worker state (personal data)
+/ACESSOS DEFENSE/
+/relogio de ponto/
+/.monitoring-worker/
+/monitoramento.local.json
+
+# Imported operational context must stay local in every checkout.
+/contexto-importado/
+/.importacao-administrativo-cd-rh/
+/AFD*.txt

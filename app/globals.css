@@ -105,3 +105,6 @@ body {
 button, input, select, textarea { outline-offset: 2px; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #3b82f6; }
 * { scrollbar-color: #cbd5e1 transparent; scrollbar-width: thin; }
+
+html[data-density="compact"] main table td,
+html[data-density="compact"] main table th { padding-top: 0.375rem; padding-bottom: 0.375rem; }

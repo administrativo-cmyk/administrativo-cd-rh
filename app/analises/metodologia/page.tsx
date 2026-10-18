@@ -1,0 +1,14 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { AppShell } from "@/components/app-shell";
+import { AnalysisNav } from "@/components/analytics/analysis-nav";
+import { requireApprovedProfile } from "@/lib/auth/server-authorization";
+import { attendanceCodes } from "@/lib/daily-call-types";
+import { attendanceMeta } from "@/lib/daily-call-rules";
+import { methodologySections } from "@/lib/analytics/methodology";
+
+export const metadata: Metadata = { title: "Metodologia | Administrativo CD" };
+export default async function Page() {
+  const profile = await requireApprovedProfile();
+  return <AppShell profile={profile} title="Metodologia" activeLabel="Metodologia"><div className="mx-auto max-w-6xl space-y-5"><header className="max-w-3xl"><Link href="/analises" className="inline-flex min-h-11 items-center text-xs font-bold uppercase tracking-widest text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-700">Análises</Link><h1 className="text-3xl font-bold tracking-tight text-slate-950">Metodologia</h1><p className="mt-3 text-base leading-relaxed text-slate-600">Fontes, bases de cálculo e limites para interpretar os dashboards e as análises do Administrativo CD.</p></header><AnalysisNav selected="metodologia" /><nav aria-label="Seções da metodologia" className="flex flex-wrap gap-x-5 gap-y-2">{methodologySections.map((section) => <a key={section.id} href={`#${section.id}`} className="inline-flex min-h-11 items-center text-sm font-medium text-blue-700 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-blue-700">{section.title}</a>)}</nav>{methodologySections.map((section) => <section id={section.id} key={section.id} aria-labelledby={`${section.id}-title`} className="scroll-mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><h2 id={`${section.id}-title`} className="text-xl font-semibold text-slate-950">{section.title}</h2><div className="mt-4 max-w-4xl space-y-3 text-sm leading-relaxed text-slate-700">{section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div></section>)}<section aria-labelledby="attendance-codes-title" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><h2 id="attendance-codes-title" className="text-xl font-semibold text-slate-950">Códigos da Chamada</h2><dl className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">{attendanceCodes.map((code) => <div key={code} className="flex items-baseline gap-3 text-sm"><dt className="min-w-8 font-bold text-slate-950">{code}</dt><dd className="text-slate-700">{attendanceMeta[code].label}</dd></div>)}<div className="flex items-baseline gap-3 text-sm"><dt className="min-w-8 font-bold text-slate-950">—</dt><dd className="text-slate-700">Sem marcação: ainda não há status salvo.</dd></div></dl></section></div></AppShell>;
+}

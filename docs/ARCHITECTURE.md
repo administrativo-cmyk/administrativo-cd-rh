@@ -1,5 +1,7 @@
 # Arquitetura do Administrativo CD
 
+> Histórico: descreve a fundação inicial com mocks. O estado atual está em [MONITORAMENTO_ENTREGA.md](MONITORAMENTO_ENTREGA.md); autenticação e consultas operacionais já usam Supabase.
+
 ## Estado desta etapa
 
 A interface aprovada continua executando com os 52 colaboradores ficticios em memoria. A fundacao Supabase e local e nao existe cliente remoto instanciado na aplicacao.

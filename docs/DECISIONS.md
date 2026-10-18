@@ -1,5 +1,7 @@
 # Decisoes arquiteturais
 
+> Registro histórico de decisões por etapa. Auditoria, permissões e persistência evoluíram nas migrations posteriores; consulte [MONITORAMENTO_ENTREGA.md](MONITORAMENTO_ENTREGA.md) para a situação local atual.
+
 ## Enums versus tabelas de dominio
 
 Foram usados enums para codigos pequenos, fechados e controlados pelo sistema: situacao do colaborador, codigo da chamada e estados de importacao. Categoria, movimento, origem e textos de RH permanecem `text`, pois podem evoluir sem migration de enum.

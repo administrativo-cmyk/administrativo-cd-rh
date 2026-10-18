@@ -1,10 +1,23 @@
 import { afterAll, describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
-import { mkdtemp, readFile, rm, utimes } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareSnapshots, runDryImport, type Employee } from "./pipeline";
 import { parseArgs, summaryMarkdown } from "../../scripts/import-hr-data";
+import { sourceHash } from "./apply";
+
+it("hash e parsing usam os mesmos bytes mesmo se arquivo original mudar", async () => {
+  const path = await fixture();
+  const bytes = await readFile(path);
+  const hash = sourceHash(bytes);
+  const expected = await runDryImport(bytes);
+  await writeFile(path, "arquivo substituído durante processamento");
+  const actual = await runDryImport(bytes);
+  expect(actual.summary).toEqual(expected.summary);
+  expect(sourceHash(bytes)).toBe(hash);
+  expect(sourceHash(await readFile(path))).not.toBe(hash);
+});
 
 const directories: string[] = [];
 afterAll(async () => {

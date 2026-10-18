@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDailyCall } from "./use-daily-call";
 import type { DailyCallSnapshot } from "@/lib/daily-call-types";
@@ -25,6 +25,37 @@ const reply = (status: string | null, version = "2026-10-06T12:00:00Z", response
 
 describe("sincronização local da Chamada Diária", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", vi.fn()); });
+
+  it("PUT atrasado não desconta G novamente após GET de outro período", async () => {
+    let finishWrite!: (value: Response) => void;
+    const authoritative: DailyCallSnapshot = { ...snapshot, startDate: "2026-09-01", endDate: "2026-09-30",
+      employees: [{ ...employee, attendance: {}, realBank: { ...employee.realBank, usedCompensationDays: 1, pendingCompensationDays: 1 } }] };
+    vi.mocked(fetch).mockImplementation((_url, options) => options?.method === "PUT"
+      ? new Promise((resolve) => { finishWrite = resolve; })
+      : Promise.resolve({ ok: true, json: async () => authoritative } as Response));
+    const { result } = renderHook(() => useDailyCall(date, snapshot));
+    let saving!: Promise<boolean>;
+    act(() => { saving = result.current.saveAttendance(result.current.employees[0], date, "G", null); });
+    act(() => {
+      result.current.updateFilter("startDate", "2026-09-01");
+      result.current.updateFilter("endDate", "2026-09-30");
+    });
+    await waitFor(() => expect(result.current.employees[0].realBank?.usedCompensationDays).toBe(1));
+    await act(async () => { finishWrite(reply("G") as Response); await saving; });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    expect(result.current.employees[0].realBank?.usedCompensationDays).toBe(1);
+    expect(result.current.employees[0].realBank?.pendingCompensationDays).toBe(1);
+  });
+
+  it("preserva última consulta bem-sucedida quando refresh falha", async () => {
+    const loadedAt = "2026-10-06T12:00:00Z";
+    vi.mocked(fetch).mockRejectedValue(new TypeError("offline"));
+    const { result } = renderHook(() => useDailyCall(date, { ...snapshot, loadedAt }));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.lastSuccessfulAt).toBe(loadedAt);
+    expect(result.current.loading).toBe(false);
+  });
 
   it("salva Hoje, mantém o mesmo estado no Período e atualiza métricas", async () => {
     vi.mocked(fetch).mockResolvedValue(reply("P") as Response);

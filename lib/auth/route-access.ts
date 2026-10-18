@@ -32,7 +32,7 @@ export function routeRedirectForAccess(
     return "/";
   }
 
-  if (pathname.startsWith("/usuarios") && !isAdministrativeRole(profile.role)) {
+  if ((pathname.startsWith("/usuarios") || pathname === "/administracao" || pathname.startsWith("/administracao/")) && !isAdministrativeRole(profile.role)) {
     return "/";
   }
 

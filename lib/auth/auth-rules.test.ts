@@ -51,6 +51,14 @@ describe("proteção de rotas", () => {
     expect(routeRedirectForAccess("/usuarios", { status: "APROVADO", role: "RH" })).toBeNull();
     expect(routeRedirectForAccess("/usuarios", { status: "APROVADO", role: "ADMIN" })).toBeNull();
   });
+
+  it("restringe os cadastros organizacionais e mantém dashboards no escopo de cada papel", () => {
+    for (const role of ["GESTOR", "LEITURA"] as const) {
+      expect(routeRedirectForAccess("/administracao/colaboradores", { status: "APROVADO", role })).toBe("/");
+      expect(routeRedirectForAccess("/dashboards/quadro-atual", { status: "APROVADO", role })).toBeNull();
+    }
+    expect(routeRedirectForAccess("/administracao/unidades", { status: "APROVADO", role: "RH" })).toBeNull();
+  });
 });
 
 describe("regras administrativas", () => {

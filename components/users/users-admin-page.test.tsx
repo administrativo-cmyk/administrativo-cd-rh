@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AdministrativeUser, AuthenticatedProfile } from "@/lib/auth/types";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), listManagers: vi.fn(), approve: vi.fn(), linkManager: vi.fn(), block: vi.fn(), reactivate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), listManagers: vi.fn(), approve: vi.fn(), edit: vi.fn(), linkManager: vi.fn(), block: vi.fn(), reactivate: vi.fn() }));
 vi.mock("@/lib/auth/user-admin-service", () => ({ userAdminService: mocks }));
 
 import { UsersAdminPage } from "./users-admin-page";
@@ -48,14 +48,17 @@ describe("vínculo de gestor em /usuarios", () => {
   it("RH pode trocar o vínculo de um GESTOR existente sem gerir ADMIN", async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([
-      { ...target, status_usuario: "APROVADO", papel_usuario: "GESTOR", gestor_id: managerA },
+      { ...target, status_usuario: "APROVADO", papel_usuario: "GESTOR", gestor_id: managerA, updated_at: "2026-10-17T12:00:00Z" },
       { ...target, id: "10000000-0000-4000-8000-000000000003", nome_completo: "Admin Fictício", status_usuario: "APROVADO", papel_usuario: "ADMIN" },
     ]);
     render(<UsersAdminPage profile={actor} />);
-    const selector = await screen.findByRole("combobox", { name: "Gestor do quadro de Usuário Fictício" });
+    await user.click(await screen.findByRole("button", { name: "Editar usuário" }));
+    const selector = screen.getByRole("combobox", { name: "Gestor do quadro" });
     expect(screen.getByText("Sem permissão para gerenciar")).toBeInTheDocument();
     await user.selectOptions(selector, managerB);
-    await user.click(screen.getByRole("button", { name: "Vincular" }));
-    expect(mocks.linkManager).toHaveBeenCalledWith(target.id, managerB);
+    await user.type(screen.getByRole("textbox", { name: "Justificativa da edição" }), "Transferência de equipe confirmada");
+    expect(screen.getByRole("combobox", { name: "Papel do usuário" }).querySelector('option[value="ADMIN"]')).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Salvar edição" }));
+    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ id: target.id, managerId: managerB, expectedUpdatedAt: "2026-10-17T12:00:00Z", role: "GESTOR" }));
   });
 });

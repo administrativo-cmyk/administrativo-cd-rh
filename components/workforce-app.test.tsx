@@ -33,6 +33,16 @@ function profile(role: AuthenticatedProfile["papel_usuario"]): AuthenticatedProf
 }
 
 describe("Quadro Atual somente leitura", () => {
+  it("atualiza drawer pelo UUID quando chegam dados novos", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<WorkforceApp profile={profile("RH")} employees={globalRows} />);
+    await user.click(screen.getByRole("button", { name: "Ver detalhes de Ana Fictícia" }));
+    rerender(<WorkforceApp profile={profile("RH")} employees={[{ ...globalRows[0], name: "Nome atualizado", role: "Função atualizada" }]} />);
+    expect(screen.getByTestId("workforce-drawer")).toHaveTextContent("Nome atualizado");
+    expect(screen.getByTestId("workforce-drawer")).toHaveTextContent("Função atualizada");
+    rerender(<WorkforceApp profile={profile("RH")} employees={[]} />);
+    expect(screen.queryByTestId("workforce-drawer")).not.toBeInTheDocument();
+  });
   it.each(["ADMIN", "RH", "LEITURA"] as const)("%s vê todos os cadastrados, inclusive sem gestor e sem extrato", (role) => {
     render(<WorkforceApp profile={profile(role)} employees={globalRows} />);
     expect(screen.getByRole("region", { name: "Indicadores do quadro" })).toHaveTextContent("No quadro2");

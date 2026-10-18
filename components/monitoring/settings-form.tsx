@@ -1,0 +1,81 @@
+"use client";
+
+import { useState } from "react";
+import { settingSchema } from "@/lib/monitoring/contracts";
+import type { AdminEmployee, AdminSnapshot } from "./admin-types";
+import { Field, inputClass, primaryClass, buttonClass } from "./shared";
+
+export const settingLabels: Record<string, string> = { mapping: "Ponto de acesso", schedule: "Escala da pessoa", policy: "Exceção de indicador", coverage: "Cobertura da fonte", rule: "Regras de cálculo", user_link: "Conta e foto do colaborador", group_snapshot: "Grupos com vigência", evidence: "Confirmação da jornada", manual_event: "Evento manual justificado" };
+const indicators = { outsideOperation: "Fora da operação", cafeteria: "Refeitório", outsideCd: "Fora do CD", lateness: "Atraso" };
+
+export function SettingsForm({ employees, users, today, save, initial, cancel }: { employees: AdminEmployee[]; users: Array<{ id: string; name: string }>; today: string; save: (data: unknown) => Promise<boolean>; initial?: AdminSnapshot["settings"][number] | null; cancel?: () => void }) {
+  const [kind, setKind] = useState(initial?.kind ?? "schedule");
+  const [values, setValues] = useState<Record<string, string>>(() => initialValues(today, initial));
+  const [flags, setFlags] = useState<Record<string, boolean>>(() => ({ exclude: true, ...Object.fromEntries(Object.entries(initial?.payload ?? {}).filter(([, value]) => typeof value === "boolean")) }));
+  const [days, setDays] = useState<number[]>(() => initial?.payload.days as number[] ?? []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const change = (key: string, value: string) => setValues((old) => ({ ...old, [key]: value }));
+  const value = (key: string) => values[key] ?? "";
+  const list = (key: string) => value(key).split(/[,\n]/).map((entry) => entry.trim()).filter(Boolean);
+  const input = (key: string, label: string, type = "text", required = true, placeholder?: string) => <Field label={label}><input className={inputClass} type={type} required={required} readOnly={!!initial && ["target", "pointId"].includes(key)} value={value(key)} onChange={(event) => change(key, event.target.value)} placeholder={placeholder} maxLength={1000} /></Field>;
+  const select = (key: string, label: string, options: Record<string, string>) => <Field label={label}><select className={inputClass} disabled={!!initial && key === "scope"} value={value(key)} onChange={(event) => change(key, event.target.value)}>{Object.entries(options).map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select></Field>;
+  const flag = (key: string, label: string) => <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={!!flags[key]} onChange={(event) => setFlags((old) => ({ ...old, [key]: event.target.checked }))} className="h-4 w-4 accent-blue-700" />{label}</label>;
+  const personKind = ["schedule", "user_link", "group_snapshot", "evidence", "manual_event"].includes(kind) || (kind === "policy" && value("scope") === "person");
+  async function submit() {
+    let payload: unknown;
+    try {
+      if (kind === "mapping") payload = { pointId: value("pointId"), portalId: value("portalId"), area: value("area"), direction: value("direction"), validated: !!flags.validated, eventClasses: list("eventClasses"), effects: Object.fromEntries(["operation", "cafeteria", "perimeter"].flatMap((area) => value(`effect_${area}`) ? [[area, value(`effect_${area}`)]] : [])) };
+      if (kind === "schedule") payload = { name: value("name"), start: value("start"), end: value("end"), days, allowNoBreak: !!flags.allowNoBreak, pairing: value("pairing"), coffeeWindows: list("coffeeWindows").map(window => { const [start, end] = window.split("-").map(part => part.trim()); return { start, end }; }) };
+      if (kind === "policy") payload = { indicator: value("indicator"), scope: value("scope"), exclude: !!flags.exclude };
+      if (kind === "coverage") payload = { area: value("area"), start: value("coverageStart"), end: value("coverageEnd"), sourceIds: list("sourceIds"), declaredComplete: !!flags.declaredComplete, evidence: value("evidence") };
+      if (kind === "rule") payload = { punchRepeatSeconds: Number(value("punchRepeatSeconds")), accessRepeatSeconds: Number(value("accessRepeatSeconds")), initialLookbackSeconds: Number(value("initialLookbackSeconds")), maxJourneyHours: Number(value("maxJourneyHours")), suppressUntypedPunches: !!flags.suppressUntypedPunches };
+      if (kind === "user_link") payload = { userId: value("userId") };
+      if (kind === "group_snapshot") payload = { groups: list("groups"), evidence: value("evidence") };
+      if (kind === "evidence") {
+        const roles = Object.fromEntries(value("punchRoles").split("\n").map((row) => row.trim()).filter(Boolean).map((row) => row.split("=").map((part) => part.trim())));
+        payload = { startConfirmed: !!flags.startConfirmed, endConfirmed: !!flags.endConfirmed, startCoverageConfirmed: !!flags.startCoverageConfirmed, ongoingConfirmed: !!flags.ongoingConfirmed, ...(value("punchCoverageUntil") ? { punchCoverageUntil: value("punchCoverageUntil") } : {}), ...(Object.keys(roles).length ? { punchRoles: roles } : {}) };
+      }
+      if (kind === "manual_event") payload = { at: value("at"), pointId: value("pointId"), sourceId: value("sourceId"), eventClass: value("eventClass"), justification: value("evidence") };
+      const parsed = settingSchema.safeParse({ kind, target: kind === "mapping" ? value("pointId") : kind === "rule" ? "global" : value("target"), validFrom: value("validFrom"), validTo: value("validTo") || null, reason: value("reason"), payload });
+      if (!parsed.success) { setError("Revise os campos obrigatórios, horários, vigência e justificativa (mínimo de cinco caracteres). CPF/IDs não são abreviados."); return; }
+      setBusy(true); setError("");
+      if (await save(parsed.data)) setError("Configuração salva. Jornadas afetadas entram na fila de recálculo.");
+    } catch { setError("Revise os campos. A configuração não foi enviada."); }
+    finally { setBusy(false); }
+  }
+  return <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4" aria-label={initial ? "Editar configuração de Monitoramento" : "Nova configuração de Monitoramento"}>
+    <h3 className="font-semibold">{initial ? `Editar configuração · revisão ${initial.revision ?? 1}` : "Adicionar configuração com vigência"}</h3><p className="text-xs text-slate-600">A edição cria uma revisão e preserva o histórico. Tipo e destino permanecem vinculados ao mesmo cadastro.</p>
+    <Field label="Configuração"><select disabled={!!initial} className={inputClass} value={kind} onChange={(event) => { setKind(event.target.value); setError(""); }}>{Object.entries(settingLabels).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></Field>
+    <div className="grid gap-3 sm:grid-cols-2">
+      {kind === "policy" ? select("scope", "Aplicar a", { group: "Grupo", person: "Pessoa" }) : null}
+      {personKind ? <Field label="Colaborador"><select required disabled={!!initial} className={inputClass} value={value("target")} onChange={(event) => change("target", event.target.value)}><option value="">Selecione</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.employeeNumber}</option>)}</select></Field> : !["mapping", "rule"].includes(kind) ? input("target", kind === "policy" ? "Grupo (nome exato)" : "Identificação da cobertura") : null}
+      {input("validFrom", "Válida a partir de", "date")}{input("validTo", "Válida até (opcional)", "date", false)}
+    </div>
+    {kind === "mapping" ? <div className="grid gap-3 sm:grid-cols-2">{input("pointId", "Nome do ponto de acesso")}{input("portalId", "Portal compartilhado pelos leitores")}{select("area", "Área", { operation: "Operação", cafeteria: "Refeitório", perimeter: "Perímetro" })}{select("direction", "Direção", { entry: "Entrada", exit: "Saída" })}{input("eventClasses", "Eventos autorizados (separados por vírgula)")}{flag("validated", "Orientação física conferida")}{["operation", "cafeteria", "perimeter"].map((area) => <div key={area}>{select(`effect_${area}`, `Efeito adicional: ${{ operation: "operação", cafeteria: "refeitório", perimeter: "perímetro" }[area]}`, { "": "Não altera", inside: "Dentro", outside: "Fora" })}</div>)}</div> : null}
+    {kind === "schedule" ? <div className="space-y-3"><div className="grid gap-3 sm:grid-cols-2">{input("name", "Nome da escala")}{input("start", "Entrada prevista", "time")}{input("end", "Saída prevista", "time")}{select("pairing", "Pareamento de batidas", { explicit: "Papéis confirmados por evento", alternating: "Alternância com início/fim confirmados" })}{input("coffeeWindows", "Janelas de café (opcional, separadas por vírgula)", "text", false, "09:00-09:15, 15:00-15:15")}</div><fieldset><legend className="text-xs font-semibold text-slate-600">Dias da semana</legend><div className="mt-2 flex flex-wrap gap-3">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((label, day) => <label key={day} className="flex min-h-10 items-center gap-1 text-sm"><input type="checkbox" checked={days.includes(day)} onChange={(event) => setDays((old) => event.target.checked ? [...old, day] : old.filter((item) => item !== day))} />{label}</label>)}</div></fieldset>{flag("allowNoBreak", "Escala permite jornada sem intervalo")}</div> : null}
+    {kind === "policy" ? <div>{select("indicator", "Indicador", indicators)}{flag("exclude", "Excluir deste indicador (desmarque para incluir)")}<p className="text-xs text-slate-600">A exceção individual tem prioridade. A regra precisa coincidir com a vigência e com o grupo confirmado.</p></div> : null}
+    {kind === "coverage" ? <div className="space-y-3">{select("area", "Área coberta", { operation: "Operação", cafeteria: "Refeitório", perimeter: "Perímetro" })}<div className="grid gap-3 sm:grid-cols-2">{input("coverageStart", "Início com fuso", "text", true, "2026-10-17T08:00:00-03:00")}{input("coverageEnd", "Fim com fuso", "text", true, "2026-10-17T18:00:00-03:00")}</div>{input("sourceIds", "Fontes cobertas (separadas por vírgula)")}{input("evidence", "Evidência de completude")}{flag("declaredComplete", "Coleta completa confirmada para todos os leitores da área")}</div> : null}
+    {kind === "rule" ? <div className="grid gap-3 sm:grid-cols-2">{input("punchRepeatSeconds", "Repetição de ponto (segundos)", "number")}{input("accessRepeatSeconds", "Repetição de acesso (segundos)", "number")}{input("initialLookbackSeconds", "Janela de estado anterior (segundos)", "number")}{input("maxJourneyHours", "Duração máxima da jornada (horas)", "number")}<div className="sm:col-span-2">{flag("suppressUntypedPunches", "Permitir supressão de ponto sem papel confirmado (exige revisão)")}</div></div> : null}
+    {kind === "user_link" ? <><Field label="Conta de usuário"><select required className={inputClass} value={value("userId")} onChange={(event) => change("userId", event.target.value)}><option value="">Selecione a conta</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></Field><p className="text-xs text-slate-600">Vincula a foto deste colaborador à conta existente. Não cria conta nem altera permissões.</p></> : null}
+    {kind === "group_snapshot" ? <>{input("groups", "Grupos (separados por vírgula)", "text", false)}{input("evidence", "Evidência do vínculo aos grupos")}</> : null}
+    {kind === "evidence" ? <div className="space-y-2">{flag("startConfirmed", "Batida inicial da jornada confirmada")}{flag("endConfirmed", "Batida final da jornada confirmada")}{flag("startCoverageConfirmed", "Coleta completa no início previsto")}{flag("ongoingConfirmed", "Jornada ainda aberta confirmada")}{input("punchCoverageUntil", "Ponto coletado até (com fuso, opcional)", "text", false, "2026-10-17T12:00:00-03:00")}<Field label="Papéis confirmados das batidas (opcional)"><textarea className={inputClass} rows={4} value={value("punchRoles")} onChange={(event) => change("punchRoles", event.target.value)} placeholder="Identificador do evento=start" /></Field><p className="text-xs text-slate-600">Uma linha por evento: identificador=start (entrada), breakStart (saída para descanso), breakEnd (retorno) ou end (saída final).</p></div> : null}
+    {kind === "manual_event" ? <div className="grid gap-3 sm:grid-cols-2">{input("at", "Instante do evento com fuso", "text", true, "2026-10-17T08:00:00-03:00")}{input("pointId", "Ponto de acesso")}{input("sourceId", "Fonte de evidência")}{input("eventClass", "Evento confirmado", "text", true, "Desbloqueio por rosto")}{input("evidence", "Evidência do evento manual")}</div> : null}
+    <Field label="Justificativa"><textarea required minLength={5} maxLength={1000} className={inputClass} rows={2} value={value("reason")} onChange={(event) => change("reason", event.target.value)} /></Field>
+    {error ? <p role="status" className="text-sm text-blue-900">{error}</p> : null}<div className="flex flex-wrap gap-2"><button className={primaryClass} disabled={busy}>{busy ? "Salvando…" : initial ? "Salvar nova revisão" : "Salvar configuração"}</button>{initial && cancel ? <button type="button" className={buttonClass} disabled={busy} onClick={cancel}>Cancelar edição</button> : null}</div>
+  </form>;
+}
+
+function initialValues(today: string, initial?: AdminSnapshot["settings"][number] | null): Record<string, string> {
+  const defaults = { validFrom: today, validTo: "", reason: "", target: "", area: "operation", direction: "entry", eventClasses: "Desbloqueio por rosto", pairing: "explicit", indicator: "outsideOperation", scope: "group", punchRepeatSeconds: "60", accessRepeatSeconds: "10", initialLookbackSeconds: "3600", maxJourneyHours: "18" };
+  if (!initial) return defaults;
+  const p = initial.payload;
+  return { ...defaults, ...Object.fromEntries(Object.entries(p).filter(([, value]) => typeof value === "string" || typeof value === "number").map(([key, value]) => [key, String(value)])),
+    target: initial.target, validFrom: initial.valid_from, validTo: initial.valid_to ?? "", reason: "",
+    eventClasses: Array.isArray(p.eventClasses) ? p.eventClasses.join(", ") : defaults.eventClasses, groups: Array.isArray(p.groups) ? p.groups.join(", ") : "", sourceIds: Array.isArray(p.sourceIds) ? p.sourceIds.join(", ") : "",
+    coffeeWindows: Array.isArray(p.coffeeWindows) ? p.coffeeWindows.map(window => `${window.start}-${window.end}`).join(", ") : "",
+    coverageStart: initial.kind === "coverage" ? String(p.start) : "", coverageEnd: initial.kind === "coverage" ? String(p.end) : "",
+    punchRoles: p.punchRoles && typeof p.punchRoles === "object" ? Object.entries(p.punchRoles).map(([key, role]) => `${key}=${role}`).join("\n") : "",
+    ...Object.fromEntries(Object.entries((p.effects ?? {}) as Record<string, unknown>).map(([key, value]) => [`effect_${key}`, String(value)])),
+  };
+}

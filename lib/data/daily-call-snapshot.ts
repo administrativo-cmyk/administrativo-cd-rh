@@ -7,13 +7,14 @@ const recordSchema = z.object({
   status: z.enum(["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF"]),
   observation: z.string().nullable(),
   updatedAt: z.string().optional(),
+  origin: z.enum(["punch", "automatic_absence", "manual"]).optional(),
 });
 
 const employeeSchema = z.object({
   id: z.string().uuid(),
   employeeNumber: z.string(),
   name: z.string(),
-  unit: z.enum(["CD I", "CD II", "CD FLV"]),
+  unit: z.string().trim().min(1),
   department: z.string().nullable(),
   role: z.string().nullable(),
   situation: z.enum(["ATIVO", "FERIAS", "NOVO_ADMITIDO"]),
@@ -55,10 +56,12 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
       const attendance: Employee["attendance"] = {};
       const observations: Employee["observations"] = {};
       const attendanceVersions: Record<string, string> = {};
+      const attendanceSources: NonNullable<Employee["attendanceSources"]> = {};
       for (const record of row.attendance) {
         attendance[record.date] = record.status;
         if (record.observation) observations[record.date] = record.observation;
         if (record.updatedAt) attendanceVersions[record.date] = record.updatedAt;
+        attendanceSources[record.date] = record.origin ?? "manual";
       }
       const hasMeasurement = row.balanceMinutes !== null;
       if (hasMeasurement && (
@@ -91,6 +94,7 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
         attendance,
         observations,
         attendanceVersions,
+        attendanceSources,
       };
     }),
   };

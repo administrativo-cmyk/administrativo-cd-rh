@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { calculateDailyCallMetrics, countActiveFilters, filterEmployees, filtersForDate, groupEmployeesByManager } from "@/lib/daily-call-selectors";
 import { validPeriod } from "@/lib/data/daily-call-dates";
+import { reportOperationalError } from "@/lib/security/operational-error";
 import type { AttendanceCode, DailyCallFilters, DailyCallSnapshot, Employee } from "@/lib/daily-call-types";
 
 type WriteResult = { changed: boolean; record: { date: string; status: AttendanceCode; observation: string | null; updatedAt: string } | null };
@@ -18,7 +19,11 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const setSelectedEmployee = useCallback((employee: Employee | null) => setSelectedEmployeeId(employee?.id ?? null), []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialSnapshot === null);
+  const [lastSuccessfulAt, setLastSuccessfulAt] = useState(initialSnapshot?.loadedAt ?? null);
+  const queryVersion = useRef(0);
+  const activeRead = useRef<AbortController | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [mutationVersion, setMutationVersion] = useState(0);
   const pendingKeys = useRef(new Set<string>());
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const lastRequestKey = useRef(`${initialDate}|${filters.startDate}|${filters.endDate}|0`);
@@ -36,6 +41,8 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
     if (lastRequestKey.current === requestKey) return;
     lastRequestKey.current = requestKey;
     const abort = new AbortController();
+    activeRead.current = abort;
+    const version = ++queryVersion.current;
     const params = new URLSearchParams({ date: selectedDate, start: filters.startDate, end: filters.endDate });
     Promise.resolve().then(() => {
       if (abort.signal.aborted) return null;
@@ -49,9 +56,23 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
         if (!response.ok) throw new Error("Falha ao consultar Chamada Diária");
         return response.json() as Promise<DailyCallSnapshot>;
       })
-      .then((result) => { if (result) { setSnapshot(result); setSelectedEmployee(null); } })
-      .catch((cause: unknown) => { if (cause instanceof Error && cause.name !== "AbortError") { setSelectedEmployee(null); setError(true); } })
-      .finally(() => { if (!abort.signal.aborted) setLoading(false); });
+      .then((result) => {
+        if (result && !abort.signal.aborted && version === queryVersion.current) {
+          queryVersion.current += 1;
+          setSnapshot(result);
+          setLastSuccessfulAt(result.loadedAt ?? new Date().toISOString());
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!abort.signal.aborted && version === queryVersion.current) {
+          reportOperationalError("daily-call.client-read", cause);
+          setError(true);
+        }
+      })
+      .finally(() => {
+        if (activeRead.current === abort) activeRead.current = null;
+        if (!abort.signal.aborted) setLoading(false);
+      });
     return () => abort.abort();
   }, [selectedDate, filters.startDate, filters.endDate, refreshKey, setSelectedEmployee]);
 
@@ -67,6 +88,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
     if (status === null && observation?.trim()) { toast.error("Selecione um status antes de adicionar observação."); return false; }
     pendingKeys.current.add(key);
     setSavingKeys(new Set(pendingKeys.current));
+    const startedQueryVersion = queryVersion.current;
     try {
       const response = await fetch("/api/daily-call/entry", {
         method: "PUT", headers: { "Content-Type": "application/json" }, cache: "no-store",
@@ -75,19 +97,33 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
       });
       const result: WriteResult & { error?: string } = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar o lançamento.");
+      setMutationVersion((current) => current + 1);
+      // A newer GET may already include this write in its bank aggregate, even
+      // when the written date is absent from its attendance payload. Revalidate
+      // that context instead of applying the same G delta to it a second time.
+      if (startedQueryVersion !== queryVersion.current || activeRead.current) {
+        activeRead.current?.abort();
+        activeRead.current = null;
+        queryVersion.current += 1;
+        setRefreshKey((current) => current + 1);
+        if (result.changed) toast.success("Lançamento salvo.");
+        return true;
+      }
       setSnapshot((current) => current ? { ...current, employees: current.employees.map((item) => {
         if (item.id !== employee.id) return item;
         const previous = item.attendance[date];
         const attendance = { ...item.attendance };
         const observations = { ...item.observations };
         const attendanceVersions = { ...item.attendanceVersions };
+        const attendanceSources = { ...item.attendanceSources };
         if (result.record) {
           attendance[date] = result.record.status;
           if (result.record.observation) observations[date] = result.record.observation;
           else delete observations[date];
           attendanceVersions[date] = result.record.updatedAt;
+          attendanceSources[date] = "manual";
         } else {
-          delete attendance[date]; delete observations[date]; delete attendanceVersions[date];
+          delete attendance[date]; delete observations[date]; delete attendanceVersions[date]; delete attendanceSources[date];
         }
         const bank = item.realBank;
         const currentCode = result.record?.status;
@@ -97,11 +133,12 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
           usedCompensationDays: Math.max(bank.usedCompensationDays + delta, 0),
           pendingCompensationDays: Math.max(bank.balanceDays - bank.usedCompensationDays - delta, 0),
         } : bank;
-        return { ...item, attendance, observations, attendanceVersions, realBank };
+        return { ...item, attendance, observations, attendanceVersions, attendanceSources, realBank };
       }) } : current);
       if (result.changed) toast.success("Lançamento salvo.");
       return true;
     } catch (cause) {
+      reportOperationalError("daily-call.client-write", cause);
       toast.error(cause instanceof Error ? cause.message : "Não foi possível salvar o lançamento.");
       return false;
     } finally {
@@ -111,5 +148,5 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   }, []);
   const isSaving = useCallback((employee: Employee, date: string) => savingKeys.has(`${employee.id}|${date}`), [savingKeys]);
 
-  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, refresh, loading, error, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
+  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, refresh, loading, error, lastSuccessfulAt, mutationVersion, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
 }

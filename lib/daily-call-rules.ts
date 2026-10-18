@@ -7,7 +7,7 @@ export const attendanceMeta: Record<AttendanceStatusCode, AttendanceVisual> = {
   P: { code: "P", label: "Presente", shortLabel: "Presente", className: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
   F: { code: "F", label: "Folga", shortLabel: "Folga", className: "bg-amber-50 text-amber-700 ring-amber-200" },
   A: { code: "A", label: "Atestado", shortLabel: "Atestado", className: "bg-orange-50 text-orange-700 ring-orange-200" },
-  I: { code: "I", label: "Injustificado", shortLabel: "Injustificado", className: "bg-rose-50 text-rose-700 ring-rose-200" },
+  I: { code: "I", label: "Falta injustificada", shortLabel: "Injustificado", className: "bg-rose-50 text-rose-700 ring-rose-200" },
   B: { code: "B", label: "Feriado", shortLabel: "Feriado", className: "bg-violet-50 text-violet-700 ring-violet-200" },
   X: { code: "X", label: "Férias", shortLabel: "Férias", className: "bg-cyan-50 text-cyan-700 ring-cyan-200" },
   H: { code: "H", label: "Hora Extra", shortLabel: "H. extra", className: "bg-indigo-50 text-indigo-700 ring-indigo-200" },

@@ -169,7 +169,7 @@ async function inspectGolden(path: string, employees: Employee[], bank: BankEntr
   };
 }
 
-export async function runDryImport(sourcePath: string, referencePath?: string, previous?: PreviousSnapshot, sourceSnapshotDate?: string): Promise<DryRunResult> {
+export async function runDryImport(sourcePath: string | Buffer, referencePath?: string, previous?: PreviousSnapshot, sourceSnapshotDate?: string): Promise<DryRunResult> {
   const book = await loadWorkbook(sourcePath);
   const quadroTable = book.table("Quadro", ["Código da Filial", "Nome do Departamento", "Chapa", "Nome", "Descrição Seção", "Nome Funcão", "Descrição da Situação", "Data de Admissão"]);
   const bankTable = book.table("Banco de horas", ["FILIAL", "CHAPA", "NOME", "DESCRICAO", "FUNÇÃO", "SITUACAO", "SALDO POSITIVO"]);

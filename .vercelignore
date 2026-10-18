@@ -1,0 +1,21 @@
+# Upload only application source and build inputs. Local RH files, photographs,
+# worker checkpoints, credentials, evidence, and exports never enter the upload.
+/*
+!/app/
+!/components/
+!/hooks/
+!/lib/
+!/public/
+!/vendor/
+!/package.json
+!/pnpm-lock.yaml
+!/pnpm-workspace.yaml
+!/.npmrc
+!/next.config.ts
+!/next-env.d.ts
+!/tsconfig.json
+!/postcss.config.mjs
+!/proxy.ts
+!/vercel.json
+**/*.test.ts
+**/*.test.tsx

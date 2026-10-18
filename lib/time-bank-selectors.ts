@@ -17,7 +17,9 @@ export function timeBankStatusLabel(row: TimeBankEmployee): string {
   if (row.effectiveDays === null) return "Sem extrato";
   if (row.effectiveDays > 0) return "A compensar";
   if (row.effectiveDays < 0) return "A repor";
-  return row.measuredMinutes === 0 ? "Zerado" : "Em dia após G";
+  if (row.measuredMinutes === 0) return "Zerado";
+  if (row.measuredDays === 0) return "Saldo parcial";
+  return row.usedCompensationDays > 0 ? "Em dia após G" : "Saldo parcial";
 }
 
 export function filterTimeBank(rows: TimeBankEmployee[], filters: TimeBankFilters): TimeBankEmployee[] {

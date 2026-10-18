@@ -30,6 +30,13 @@ function snapshot(rows: unknown[], date = "2026-10-05") {
 }
 
 describe("Chamada Diária real, somente leitura", () => {
+  it("aceita novas unidades cadastradas sem perder os registros existentes", () => {
+    const result = snapshot([row(1), { ...row(2), unit: "CD IV" }]);
+    expect(result.employees.map(employee => employee.unit)).toEqual(["CD II", "CD IV"]);
+    expect(filterEmployees(result.employees, { ...filtersForDate(result.date), unit: "CD IV" }, result.date)).toHaveLength(1);
+    expect(() => snapshot([{ ...row(1), unit: " " }])).toThrow();
+  });
+
   it("reconcilia população conceitual 367/355/12 sem converter ausência em zero", () => {
     const people = Array.from({ length: 367 }, (_, index) => row(index, index < 355 ? 440 : null, index < 9 ? null : "Gestor Fictício"));
     const result = snapshot(people);

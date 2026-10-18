@@ -39,6 +39,15 @@ function profile(role: AuthenticatedProfile["papel_usuario"]): AuthenticatedProf
 }
 
 describe("Banco de Horas somente leitura", () => {
+  it("atualiza drawer pelo UUID após refresh e fecha se sair do escopo", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<TimeBankApp profile={profile("RH")} snapshot={snapshot} />);
+    await user.click(screen.getByRole("button", { name: "Ver detalhes de Ana Fictícia" }));
+    rerender(<TimeBankApp profile={profile("RH")} snapshot={{ ...snapshot, employees: [{ ...snapshot.employees[0], name: "Nome atualizado" }] }} />);
+    expect(screen.getByTestId("time-bank-drawer")).toHaveTextContent("Nome atualizado");
+    rerender(<TimeBankApp profile={profile("RH")} snapshot={{ ...snapshot, employees: [] }} />);
+    expect(screen.queryByTestId("time-bank-drawer")).not.toBeInTheDocument();
+  });
   it.each(["ADMIN", "RH", "LEITURA"] as const)("%s vê todos, inclusive sem extrato", (role) => {
     render(<TimeBankApp profile={profile(role)} snapshot={snapshot} />);
     expect(screen.getByRole("region", { name: "Indicadores do banco de horas" })).toHaveTextContent("No quadro2");

@@ -1,5 +1,7 @@
 # Fluxo visual de autenticação
 
+> Histórico da etapa frontend. Para a autenticação real, consulte [AUTH_ARCHITECTURE.md](AUTH_ARCHITECTURE.md); para o estado atual da entrega, [MONITORAMENTO_ENTREGA.md](MONITORAMENTO_ENTREGA.md).
+
 ## Estado atual
 
 A Etapa 2.6 implementa somente a experiência frontend das rotas `/login`, `/cadastro` e `/cadastro/sucesso`. A interface usa `AuthService` como contrato e `MockAuthService` como implementação demonstrativa local.

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { attendanceCodes } from "@/lib/daily-call-types";
 import { validDate } from "@/lib/data/daily-call-dates";
 import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
+import { reportOperationalError } from "@/lib/security/operational-error";
 
 const requestSchema = z.object({
   employeeId: z.string().uuid(),
@@ -41,7 +42,7 @@ export async function PUT(request: Request) {
   if (typeof userId !== "string") return Response.json({ error: "Sessão necessária." }, { status: 401 });
   const { data: profile } = await supabase.from("perfis")
     .select("status_usuario,papel_usuario").eq("id", userId).single();
-  if (!profile || profile.status_usuario !== "APROVADO"
+  if (!profile || !profile.papel_usuario || profile.status_usuario !== "APROVADO"
     || !["ADMIN", "RH", "GESTOR"].includes(profile.papel_usuario)) {
     return Response.json({ error: "Acesso não autorizado." }, { status: 403 });
   }
@@ -59,7 +60,8 @@ export async function PUT(request: Request) {
     const message = status === 409 ? "Este lançamento foi alterado por outro usuário. Atualize os dados e tente novamente."
       : status === 400 ? "Lançamento inválido para este colaborador ou data."
         : status === 403 ? "Acesso não autorizado." : "Não foi possível salvar o lançamento.";
-    return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
+    const correlationId = reportOperationalError("daily-call.write", error);
+    return Response.json({ error: message, correlationId }, { status, headers: { "Cache-Control": "no-store" } });
   }
   const result = resultSchema.safeParse(data);
   if (!result.success) return Response.json({ error: "Resposta inválida ao salvar lançamento." }, { status: 503 });

@@ -1,0 +1,211 @@
+import { z } from "zod";
+import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
+import { parseLocalTimestamp } from "./ingestion/validation";
+import {
+  calculateJourney, isEffective, normalizeGroups, RULE_VERSION,
+  type AccessEvent, type AccessPointMapping, type Coverage, type GroupSnapshot, type IndicatorPolicy,
+  type JourneyCalculation, type JourneyCalculationInput, type PunchEvent, type Schedule,
+} from "./domain";
+
+export const reprocessRequestSchema = z.object({
+  employeeId: z.string().uuid(), start: dateSchema, end: dateSchema, reason: z.string().trim().min(5).max(1000),
+}).refine((request) => request.end >= request.start && Date.parse(request.end) - Date.parse(request.start) <= 30 * 86_400_000, "Período máximo: 31 dias");
+export type ReprocessRequest = z.infer<typeof reprocessRequestSchema>;
+
+const canonicalEventSchema = z.object({
+  key: z.string().min(1), type: z.enum(["punch", "access"]), timestamp: z.string().datetime({ offset: true }),
+  device: z.string(), classification: z.enum(["authorized", "denied", "alarm", "anonymous", "unknown"]),
+  eligible: z.boolean(), precisionSeconds: z.number().positive(),
+  identity: z.object({ type: z.enum(["cpf", "pis", "defense"]), value: z.string() }).nullable(),
+  original: z.record(z.string()).default({}),
+});
+const provenanceSchema = z.object({ fileId: z.string().optional(), row: z.number().int().nonnegative().optional(), sourceId: z.string().optional() });
+const snapshotSchema = z.object({
+  version: z.number().int().nonnegative(),
+  calendar: z.array(z.object({ date: dateSchema, state: z.enum(["unchanged", "work", "off"]), id: z.string().optional(), name: z.string().optional() })).max(370).default([]).refine(rows => new Set(rows.map(row => row.date)).size === rows.length, "Calendário duplicado"),
+  sources: z.array(z.object({ id: z.string(), kind: z.string(), configuration: z.object({ sourceIdentityConfirmed: z.boolean().optional() }).passthrough() })).default([]),
+  events: z.array(z.object({
+    id: z.string().min(1), sourceId: z.string().min(1), payload: canonicalEventSchema, eligible: z.boolean(), conflicted: z.boolean(),
+    provenance: z.union([provenanceSchema, z.array(provenanceSchema)]).optional(),
+  })).max(200_000),
+  settings: z.array(z.object({
+    id: z.string().min(1), kind: z.string(), target: z.string(), valid_from: dateSchema, valid_to: dateSchema.nullable(),
+    payload: z.unknown(), reason: z.string(), created_by: z.string().nullable(), created_at: z.string(), revoked_at: z.string().nullable(),
+  })).max(20_000),
+});
+type RawSnapshot = z.infer<typeof snapshotSchema>;
+type Setting = MonitoringSetting & { id: string; author: string };
+type ScheduleSetting = Extract<MonitoringSetting, { kind: "schedule" }> & { id: string; author: string };
+
+export interface ReprocessedDay {
+  employeeId: string;
+  date: string;
+  version: number;
+  ruleVersion: string;
+  result: JourneyCalculation;
+  summary: MonitoringResultSummary;
+}
+export interface MonitoringResultSummary {
+  workedSeconds: number | null;
+  restSeconds: number;
+  outsideSeconds: number | null;
+  cafeteriaSeconds: number | null;
+  cafeSeconds: number | null;
+  outsideCdSeconds: number | null;
+  unknownSeconds: number;
+  lateSeconds: number | null;
+  late: boolean | null;
+  quality: "complete" | "partial" | "unavailable" | "excluded";
+  coverageRatio: number | null;
+  groups: string[];
+  exclusions: string[];
+  scheduleName: string | null;
+}
+
+function shiftDate(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+function localInstant(date: string, time: string): number {
+  return Date.parse(parseLocalTimestamp(`${date}T${time}:00`, "America/Sao_Paulo"));
+}
+function datesBetween(start: string, end: string): string[] {
+  const dates: string[] = [];
+  for (let date = start; date <= end; date = shiftDate(date, 1)) dates.push(date);
+  return dates;
+}
+function uniqueSetting(settings: Setting[], kind: MonitoringSetting["kind"], employeeId: string, date: string): Setting | null {
+  const matches = settings.filter((setting) => setting.kind === kind && (setting.target === employeeId || (kind === "rule" && setting.target === "global")) && isEffective(setting, date));
+  const personal = matches.filter((setting) => setting.target === employeeId);
+  const chosen = personal.length ? personal : matches;
+  if (chosen.length > 1) throw Object.assign(new Error("MONITORING_CONFIGURATION_CONFLICT"), { code: "MONITORING_CONFIGURATION_CONFLICT" });
+  return chosen[0] ?? null;
+}
+function scheduleFor(settings: Setting[], employeeId: string, date: string, calendar: RawSnapshot["calendar"] = []): ScheduleSetting | null {
+  if (calendar.some(day => day.date === date && day.state === "off")) return null;
+  const setting = uniqueSetting(settings, "schedule", employeeId, date);
+  if (!setting || setting.kind !== "schedule") return null;
+  return setting.payload.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay()) ? setting : null;
+}
+function scheduleTimes(setting: ScheduleSetting, date: string): { start: number; end: number } {
+  return { start: localInstant(date, setting.payload.start), end: localInstant(setting.payload.end <= setting.payload.start ? shiftDate(date, 1) : date, setting.payload.end) };
+}
+function attributionFor(settings: Setting[], employeeId: string, date: string, calendar: RawSnapshot["calendar"]): ScheduleSetting | null {
+  const regular = scheduleFor(settings, employeeId, date, calendar);
+  if (regular || !calendar.some(day => day.date === date && day.state === "off")) return regular;
+  const base = uniqueSetting(settings, "schedule", employeeId, date);
+  return base?.kind === "schedule" ? base : null;
+}
+function windowFor(settings: Setting[], employeeId: string, date: string, setting: ScheduleSetting | null, calendar: RawSnapshot["calendar"] = []): { start: number; end: number } {
+  if (!setting) return { start: localInstant(date, "00:00"), end: localInstant(shiftDate(date, 1), "00:00") };
+  const current = scheduleTimes(setting, date);
+  const previousDate = shiftDate(date, -1);
+  const nextDate = shiftDate(date, 1);
+  const previous = scheduleTimes(attributionFor(settings, employeeId, previousDate, calendar) ?? setting, previousDate);
+  const next = scheduleTimes(attributionFor(settings, employeeId, nextDate, calendar) ?? setting, nextDate);
+  if (previous.end > current.start || next.start < current.end) throw Object.assign(new Error("MONITORING_SCHEDULE_OVERLAP"), { code: "MONITORING_SCHEDULE_OVERLAP" });
+  return { start: Math.floor((previous.end + current.start) / 2), end: Math.floor((current.end + next.start) / 2) };
+}
+function seconds(value: number | null): number | null { return value === null ? null : value / 1000; }
+function provenanceFor(event: RawSnapshot["events"][number]) {
+  const occurrences = (Array.isArray(event.provenance) ? event.provenance : event.provenance ? [event.provenance] : []).map((item) => ({ ...item, sourceId: item.sourceId ?? event.sourceId }));
+  return { sourceId: event.sourceId, fileId: occurrences[0]?.fileId, row: occurrences[0]?.row, occurrences };
+}
+
+export function summarizeCalculation(result: JourneyCalculation, groups: string[], scheduleName: string | null): MonitoringResultSummary {
+  const metrics = [result.outsideOperation, result.cafeteria, result.outsideCd];
+  const hasKnown = result.workMs !== null || metrics.some((metric) => metric.milliseconds !== null) || result.lateness.totalMs !== null;
+  const quality = result.outsideOperation.quality === "excluded" ? "excluded" : !hasKnown ? "unavailable" : result.journey.status !== "complete" || metrics.some((metric) => ["partial", "unavailable"].includes(metric.quality)) || result.lateness.quality === "unavailable" ? "partial" : "complete";
+  return {
+    workedSeconds: seconds(result.workMs), restSeconds: result.restMs / 1000,
+    outsideSeconds: seconds(result.outsideOperation.milliseconds), cafeteriaSeconds: seconds(result.cafeteria.milliseconds),
+    cafeSeconds: seconds(result.coffeeDuringWorkMs), outsideCdSeconds: seconds(result.outsideCd.milliseconds),
+    unknownSeconds: result.outsideOperation.unknownMs / 1000, lateSeconds: seconds(result.lateness.totalMs), late: result.lateness.over15Minutes,
+    quality, coverageRatio: result.outsideOperation.coverageRatio, groups,
+    exclusions: [...metrics, result.lateness].flatMap((metric) => metric.eligibility.state === "excluded" ? metric.eligibility.reasons : []), scheduleName,
+  };
+}
+
+/** Validate the DB envelope at the boundary; never infer trusted evidence from observed timestamps. */
+export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequest, referenceAt: number): ReprocessedDay[] {
+  reprocessRequestSchema.parse(request);
+  if (!Number.isSafeInteger(referenceAt)) throw new Error("INVALID_REFERENCE");
+  const snapshot: RawSnapshot = snapshotSchema.parse(raw);
+  const settings: Setting[] = snapshot.settings.filter((setting) => setting.revoked_at === null).map((setting) => ({
+    ...settingSchema.parse({ kind: setting.kind, target: setting.target, validFrom: setting.valid_from, validTo: setting.valid_to, reason: setting.reason, payload: setting.payload }),
+    id: setting.id, author: setting.created_by ?? "migration",
+  }));
+  const allDates = datesBetween(request.start, request.end);
+  return allDates.map((date) => {
+    const scheduled = scheduleFor(settings, request.employeeId, date, snapshot.calendar);
+    const calendar = snapshot.calendar.find(day => day.date === date);
+    const window = windowFor(settings, request.employeeId, date, attributionFor(settings, request.employeeId, date, snapshot.calendar), snapshot.calendar);
+    if (window.start > referenceAt) throw Object.assign(new Error("MONITORING_FUTURE_PERIOD"), { code: "MONITORING_FUTURE_PERIOD" });
+    const observationWindow = { start: window.start, end: Math.min(window.end, referenceAt) };
+    const active = settings.filter((setting) => isEffective(setting, date));
+    const evidenceSetting = uniqueSetting(settings, "evidence", request.employeeId, date);
+    const ruleSetting = uniqueSetting(settings, "rule", request.employeeId, date);
+    const rule = ruleSetting?.kind === "rule" ? ruleSetting.payload : null;
+    const evidencePayload = evidenceSetting?.kind === "evidence" ? evidenceSetting.payload : null;
+    const evidence = {
+      startConfirmed: evidencePayload?.startConfirmed ?? false, endConfirmed: evidencePayload?.endConfirmed ?? false,
+      startCoverageConfirmed: evidencePayload?.startCoverageConfirmed ?? false, ongoingConfirmed: evidencePayload?.ongoingConfirmed ?? false,
+      punchCoverageUntil: evidencePayload?.punchCoverageUntil ? Date.parse(evidencePayload.punchCoverageUntil) : undefined,
+    };
+    const selectedEvents = snapshot.events.filter((event) => Date.parse(event.payload.timestamp) < window.end && Date.parse(event.payload.timestamp) <= referenceAt);
+    const punchEvents: PunchEvent[] = selectedEvents.filter((event) => event.payload.type === "punch" && event.eligible && event.payload.eligible && !event.conflicted && Date.parse(event.payload.timestamp) >= window.start).map((event) => ({
+      id: event.id, personId: request.employeeId, at: Date.parse(event.payload.timestamp), sourceId: event.sourceId,
+      precision: event.payload.precisionSeconds >= 60 ? "minute" : event.payload.precisionSeconds >= 1 ? "second" : "millisecond",
+      role: evidencePayload?.punchRoles?.[event.id] ?? evidencePayload?.punchRoles?.[event.payload.key],
+      provenance: provenanceFor(event),
+    }));
+    const accessEvents: AccessEvent[] = selectedEvents.filter((event) => event.payload.type === "access").map((event) => ({
+      id: event.id, personId: event.payload.identity ? request.employeeId : null, at: Date.parse(event.payload.timestamp), sourceId: event.sourceId,
+      pointId: event.payload.device, eventClass: event.payload.original.eventName || event.payload.classification,
+      authorized: event.eligible && event.payload.eligible && event.payload.classification === "authorized" && !event.conflicted,
+      identified: event.payload.identity !== null,
+      provenance: provenanceFor(event),
+    }));
+    for (const setting of active) if (setting.kind === "manual_event" && setting.target === request.employeeId) {
+      const at = Date.parse(setting.payload.at);
+      if (at <= referenceAt) accessEvents.push({ id: `manual:${setting.id}`, personId: request.employeeId, at, sourceId: setting.payload.sourceId, pointId: setting.payload.pointId,
+        eventClass: setting.payload.eventClass, authorized: true, identified: true,
+        provenance: { sourceId: setting.payload.sourceId, origin: "manual", justification: setting.payload.justification },
+      });
+    }
+    const mappings: AccessPointMapping[] = active.flatMap((setting) => setting.kind === "mapping" ? [{ ...setting.payload, id: setting.id, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
+    const coverage: Coverage[] = active.flatMap((setting) => setting.kind === "coverage" ? [{ ...setting.payload, start: Date.parse(setting.payload.start), end: Date.parse(setting.payload.end) }] : []);
+    const groupSnapshots: GroupSnapshot[] = active.flatMap((setting) => setting.kind === "group_snapshot" && setting.target === request.employeeId ? [{ ...setting.payload, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
+    const indicatorPolicies: IndicatorPolicy[] = active.flatMap((setting) => setting.kind === "policy" ? [{ id: setting.id, indicator: setting.payload.indicator, subjectType: setting.payload.scope, subject: setting.target,
+      effect: setting.payload.exclude ? "exclude" : "include", reason: setting.reason, author: setting.author, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
+    const times = scheduled ? scheduleTimes(scheduled, date) : null;
+    const schedule: Schedule | null = scheduled && times ? { id: scheduled.id, expectedStart: times.start, expectedEnd: times.end, pairing: scheduled.payload.pairing, allowNoBreak: scheduled.payload.allowNoBreak, maxSpanMs: (rule?.maxJourneyHours ?? 24) * 3_600_000 } : null;
+    const coffeeWindows = scheduled?.payload.coffeeWindows.map((coffee) => {
+      const coffeeDate = scheduled.payload.end <= scheduled.payload.start && coffee.start < scheduled.payload.start ? shiftDate(date, 1) : date;
+      return { start: localInstant(coffeeDate, coffee.start), end: localInstant(coffee.end <= coffee.start ? shiftDate(coffeeDate, 1) : coffeeDate, coffee.end) };
+    });
+    const calculationInput: JourneyCalculationInput = {
+      personId: request.employeeId, operationalDate: date, observationWindow, referenceAt,
+      punchEvents, accessEvents, mappings, coverage, schedule, evidence, coffeeWindows, groupSnapshots, indicatorPolicies,
+      initialLookbackMs: (rule?.initialLookbackSeconds ?? 43_200) * 1000,
+      repetitionPolicy: rule ? { punchWindowMs: rule.punchRepeatSeconds * 1000, accessWindowMs: rule.accessRepeatSeconds * 1000, suppressUntypedPunches: rule.suppressUntypedPunches, version: `${RULE_VERSION}:${ruleSetting!.id}` } : undefined,
+    };
+    const result = calculateJourney(calculationInput);
+    if (calendar && calendar.state !== "unchanged") result.issues.push({ code: calendar.state === "off" ? "CALENDAR_NON_WORKING_DAY" : "CALENDAR_WORKING_OVERRIDE", eventIds: [], detail: calendar.name });
+    const conflictingPunches = selectedEvents.filter((event) => event.payload.type === "punch" && event.conflicted && Date.parse(event.payload.timestamp) >= window.start);
+    const unconfirmedSources = punchEvents.filter((event) => !snapshot.sources.some((source) => source.id === event.sourceId && source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true));
+    if (conflictingPunches.length || unconfirmedSources.length) {
+      if (conflictingPunches.length) result.issues.push({ code: "CONFLICTED_PUNCH_EVENTS_REQUIRE_REVIEW", eventIds: conflictingPunches.map((event) => event.id) });
+      if (unconfirmedSources.length) result.issues.push({ code: "SOURCE_IDENTITY_UNCONFIRMED", eventIds: unconfirmedSources.map((event) => event.id) });
+      // A removed conflicting punch can change parity. All dependent intervals must stay unavailable.
+      const unavailable = calculateJourney({ ...calculationInput, evidence: { startConfirmed: false, endConfirmed: false, startCoverageConfirmed: false } });
+      unavailable.issues.push(...result.issues.filter((issue) => ["CONFLICTED_PUNCH_EVENTS_REQUIRE_REVIEW", "SOURCE_IDENTITY_UNCONFIRMED", "CALENDAR_NON_WORKING_DAY", "CALENDAR_WORKING_OVERRIDE"].includes(issue.code)));
+      return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result: unavailable,
+        summary: summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null) };
+    }
+    return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
+      summary: summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null) };
+  });
+}
+
+/** Same pure adapter for a queued job. Reference time remains explicit and testable. */
+export const buildReprocessResults = reprocessMonitoringSnapshot;

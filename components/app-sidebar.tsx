@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 type SidebarEntry = [label: string, icon: LucideIcon, href?: string];
 
 const sections: Array<{ label: string; items: SidebarEntry[] }> = [
-  { label: "Visão geral", items: [["Dashboard", LayoutDashboard], ["Banco de Horas", Clock3, "/banco-de-horas"], ["Quadro Atual", Users, "/quadro-atual"], ["Chamada Diária", CalendarDays, "/chamada-diaria"]] },
-  { label: "Planejamento", items: [["Sugestão de Férias", CalendarClock], ["Férias por Gestor e Mês", CalendarDays]] },
-  { label: "Análises", items: [["Top 20", ChartNoAxesColumn], ["Top por Gestor", ChartNoAxesColumn], ["Afastados e Outros", ShieldCheck], ["Metodologia", CircleHelp]] },
+  { label: "Visão geral", items: [["Dashboards", LayoutDashboard, "/dashboards"], ["Monitoramento", ShieldCheck, "/monitoramento"], ["Banco de Horas", Clock3, "/banco-de-horas"], ["Quadro Atual", Users, "/quadro-atual"], ["Chamada Diária", CalendarDays, "/chamada-diaria"]] },
+  { label: "Planejamento", items: [["Sugestão de Férias", CalendarClock, "/planejamento/ferias"], ["Férias por Gestor e Mês", CalendarDays, "/planejamento/calendario"]] },
+  { label: "Análises", items: [["Top 20", ChartNoAxesColumn, "/analises/top-20-banco-horas"], ["Top por Gestor", ChartNoAxesColumn, "/analises/top-por-gestor"], ["Afastados e Outros", ShieldCheck, "/analises/afastados-e-outros"], ["Metodologia", CircleHelp, "/analises/metodologia"]] },
 ];
 
 export function AppSidebar({
@@ -46,9 +46,12 @@ export function AppSidebar({
         {showUsers ? <div className="mb-3">
           <p className={cn("px-2.5 pb-1.5 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500", collapsed && "lg:sr-only")}>Administração</p>
           <SidebarItem label="Usuários" icon={Users} href="/usuarios" active={activeLabel === "Usuários"} collapsed={collapsed} onClick={onMobileClose} />
+          <SidebarItem label="Cadastros" icon={Users} href="/administracao" active={activeLabel === "Cadastros"} collapsed={collapsed} onClick={onMobileClose} />
+          <SidebarItem label="Escalas e calendário" icon={CalendarDays} href="/planejamento/escalas" active={activeLabel === "Escalas e calendário"} collapsed={collapsed} onClick={onMobileClose} />
+          <SidebarItem label="Histórico de alterações" icon={Clock3} href="/administracao/auditoria" active={activeLabel === "Histórico de alterações"} collapsed={collapsed} onClick={onMobileClose} />
         </div> : null}
       </nav>
-      <div className="border-t border-white/10 p-2.5"><SidebarItem label="Configurações" icon={Settings} collapsed={collapsed} /></div>
+      <div className="border-t border-white/10 p-2.5"><SidebarItem label="Configurações" icon={Settings} href="/configuracoes" active={activeLabel === "Configurações"} collapsed={collapsed} onClick={onMobileClose} /></div>
     </aside>
   </>;
 }

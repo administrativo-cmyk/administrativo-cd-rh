@@ -1,5 +1,7 @@
 "use client";
 
+import { EmployeeAvatar } from "@/components/employee-avatar";
+
 import { BriefcaseBusiness, Building2, CalendarDays, Clock3, Hash, UserRound, X } from "lucide-react";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatWorkforceDate } from "@/lib/workforce-format";
@@ -25,7 +27,7 @@ export function TimeBankDrawer({ employee, onClose }: { employee: TimeBankEmploy
 
   return <Sheet open onOpenChange={(open) => !open && onClose()}><SheetContent data-testid="time-bank-drawer" showCloseButton={false} className="w-full overflow-y-auto bg-white p-0 sm:max-w-[540px]">
     <SheetClose aria-label="Fechar painel" className="absolute right-4 top-4 z-10 grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100"><X size={17} /></SheetClose>
-    <SheetHeader className="border-b border-slate-200 p-5"><div className="flex items-center gap-4 pr-8"><span className="grid h-13 w-13 shrink-0 place-items-center rounded-xl bg-slate-900 text-white"><UserRound size={24} /></span><div className="min-w-0"><SheetTitle className="truncate text-xl">{employee.name}</SheetTitle><SheetDescription className="truncate">{employee.role ?? "Função não informada"} · {employee.unit}</SheetDescription></div></div></SheetHeader>
+    <SheetHeader className="border-b border-slate-200 p-5"><div className="flex items-center gap-4 pr-8"><EmployeeAvatar name={employee.name} employeeId={employee.id} size={52} /><div className="min-w-0"><SheetTitle className="truncate text-xl">{employee.name}</SheetTitle><SheetDescription className="truncate">{employee.role ?? "Função não informada"} · {employee.unit}</SheetDescription></div></div></SheetHeader>
     <div className="space-y-5 p-4 sm:p-5">
       <section><h3 className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Dados do colaborador</h3><div className="grid gap-3 rounded-xl border border-slate-200 p-3.5 sm:grid-cols-2">
         <Info icon={Hash} label="Matrícula" value={employee.employeeNumber} />

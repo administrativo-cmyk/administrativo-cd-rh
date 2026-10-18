@@ -1,5 +1,7 @@
 # Modelo de dados
 
+> Modelo da etapa inicial. As migrations posteriores são a referência executável. O Monitoramento e suas permissões estão descritos em [MONITORAMENTO_ENTREGA.md](MONITORAMENTO_ENTREGA.md).
+
 ## Relacionamentos
 
 ```mermaid

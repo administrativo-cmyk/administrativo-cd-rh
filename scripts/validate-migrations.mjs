@@ -1008,8 +1008,63 @@ if (linkAudit.rows.length !== 2 || linkAudit.rows[0].actor !== authUsers.rh
   throw new Error('manager-link audit attribution mismatch');
 }
 
+// Integrity regressions: direct authorized RPC calls must enforce the same
+// domain as HTTP. Future finite dates remain valid for legitimate planning.
+for (const invalidDate of ['infinity', '-infinity']) {
+  await expectAuthenticatedFailure('non-finite attendance RPC', authUsers.admin, `
+    select public.salvar_chamada_diaria('30000000-0000-0000-0000-000000000001', '${invalidDate}', 'P', null, null);
+  `);
+  await expectAuthenticatedFailure('non-finite read RPC', authUsers.admin, `
+    select public.ler_chamada_diaria('${invalidDate}', '2026-10-01', '2026-10-31');
+  `);
+  await expectAuthenticatedFailure('non-finite bank RPC', authUsers.admin, `
+    select public.ler_banco_horas_atual('${invalidDate}');
+  `);
+  await expectFailure('non-finite direct attendance', `
+    insert into public.chamada_diaria(colaborador_id, data, status)
+    values ('30000000-0000-0000-0000-000000000001', '${invalidDate}', 'P');
+  `);
+}
+const futureCall = await saveCall(authUsers.admin, '2035-01-01', 'P');
+if (!futureCall.changed) throw new Error('future finite planning date was rejected');
+const outsidePeriod = await asAuthenticated(authUsers.admin, () => database.query(`
+  select public.ler_chamada_diaria('2035-01-01', '2026-09-01', '2026-09-30') as snapshot;
+`));
+const futureEmployee = outsidePeriod.rows[0].snapshot.employees.find((row) => row.id === '30000000-0000-0000-0000-000000000001');
+if (!futureEmployee.attendance.some((record) => record.date === '2035-01-01' && record.status === 'P')) {
+  throw new Error('selected date outside the loaded period was omitted');
+}
+await expectFailure('baseline hash cannot be null', `
+  insert into public.lotes_importacao(tipo, fonte, nome_arquivo, data_referencia, status, source_hash, started_at, completed_at)
+  values ('EXCEL', 'BASELINE_RH', 'Banco de dados RH.xlsx', '2026-09-28', 'CONCLUIDO', null, now(), now());
+`);
+await expectFailure('baseline incomplete state cannot impersonate completion', `
+  insert into public.lotes_importacao(tipo, fonte, nome_arquivo, data_referencia, status, source_hash, started_at, completed_at)
+  values ('EXCEL', 'BASELINE_RH', 'Banco de dados RH.xlsx', '2026-09-28', 'PROCESSANDO', repeat('A', 64), now(), now());
+`);
+for (const search of ['000000', '04', 'prefix00000000004']) {
+  const partialCpf = await asAuthenticated(authUsers.admin, () => database.query(`
+    select id from public.listar_usuarios(null, null, '${search}');
+  `));
+  if (partialCpf.rows.length) throw new Error('partial CPF search disclosed a masked identifier');
+}
+const formattedCpf = await asAuthenticated(authUsers.admin, () => database.query(`
+  select id from public.listar_usuarios(null, null, '000.000.000-04');
+`));
+if (formattedCpf.rows.length !== 1) throw new Error('exact formatted CPF search failed');
+
+// Monitoring has its own fixtures and transaction; run alongside base checks.
+const monitoringTests = path.resolve('supabase/tests/monitoring.sql');
+try {
+  const monitoringSql = await readFile(monitoringTests, 'utf8');
+  await database.exec(monitoringSql);
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+
 console.log(JSON.stringify({
   migrationsApplied: migrations.length,
+  integrityRegressionsVerified: true,
   referenceUnitsVerified: referenceUnits.rows,
   constraintsVerified: 4,
   approvedAdminsRemainingAfterBlockTest: remainingAdmins.rows[0].count,

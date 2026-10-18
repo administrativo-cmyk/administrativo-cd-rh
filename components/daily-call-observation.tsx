@@ -15,13 +15,12 @@ export function DailyCallObservation({ label, value, status, readOnly, saving, o
   async function commit() {
     const normalized = draft.trim();
     if (normalized === value) { setEdited(null); return; }
-    if (!status || !onSave) {
-      setEdited(null);
-      if (!readOnly) void onSave?.(normalized);
-      return;
+    if (readOnly || !onSave) return;
+    try {
+      if (await onSave(normalized)) setEdited(null);
+    } catch {
+      // Keep the local draft available for retry after network failures.
     }
-    await onSave(normalized);
-    setEdited(null);
   }
   return <label className="relative block">
     <MessageSquareText size={14} className="absolute left-2.5 top-2.5 text-slate-400" />

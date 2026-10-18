@@ -1,0 +1,179 @@
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
+import { PGlite } from "@electric-sql/pglite";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { planningSnapshotSchema, suggestionResultSchema } from "./contracts";
+import { reprocessMonitoringSnapshot } from "@/lib/monitoring/reprocess";
+const admin = "db000000-0000-4000-8000-000000000001", manager = "db000000-0000-4000-8000-000000000002", reader = "db000000-0000-4000-8000-000000000003";
+const team = "dc000000-0000-4000-8000-000000000001", person = "dd000000-0000-4000-8000-000000000001", person2 = "dd000000-0000-4000-8000-000000000002";
+let db: PGlite;
+async function guarded<T>(action: () => Promise<T>) { await db.exec("savepoint action_guard"); try { const result=await action(); await db.exec("release savepoint action_guard"); return result; } catch(error) { await db.exec("rollback to savepoint action_guard;release savepoint action_guard"); throw error; } }
+async function rpc(action: string, data: unknown = {}) { return guarded(async () => (await db.query<{ value: unknown }>("select public.schedule_planning($1,$2::jsonb) value", [action, JSON.stringify(data)])).rows[0].value as Record<string, unknown>); }
+async function administration(entity: string, action: string, data: unknown) { return guarded(async () => (await db.query<{ value: Record<string, unknown> }>("select public.administration($1,$2,$3::jsonb) value", [entity, action, JSON.stringify(data)])).rows[0].value); }
+async function actor(id = admin) { await db.exec(`set local role authenticated; select set_config('request.jwt.claim.sub','${id}',true);`); }
+const schedule = { name: "Diurno teste", start: "08:00", end: "17:00", days: [0,1,2,3,4,5,6], allowNoBreak: false, pairing: "alternating", coffeeWindows: [] };
+async function template() { return (await rpc("save", { kind: "template", name: "Modelo teste", scope: "global", target: null, validFrom: "2020-01-01", validTo: "2099-12-31", payload: schedule, reason: "Modelo sintético confirmado" })).record as Record<string, string>; }
+async function calendar(working: boolean, model?: Record<string, string>, scope = "global", target: string | null = null) { return rpc("save", { kind: "calendar", name: "Calendário teste", scope, target, validFrom: "2026-10-01", validTo: "2026-10-01", payload: working ? { working, templateId: model!.id, expectedTemplateUpdatedAt: model!.updatedAt } : { working }, reason: "Exceção sintética confirmada" }); }
+beforeAll(async () => {
+  db = new PGlite();
+  await db.exec("create role anon nologin;create role authenticated nologin;create role service_role nologin;create schema auth;create table auth.users(id uuid primary key default gen_random_uuid(),email text unique,raw_user_meta_data jsonb not null default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;");
+  for (const file of (await readdir(path.resolve("supabase/migrations"))).filter(file => file.endsWith(".sql")).sort()) {
+    if (file.startsWith("20261018021801")) await db.exec(`insert into public.gestores(id,nome) values('${team}','Equipe sintética');insert into public.colaboradores(id,matricula,nome,unidade_id,gestor_id,setor,funcao,categoria,admissao) values('${person}','PLAN-A','Pessoa A',(select id from public.unidades limit 1),'${team}','Expedição',' Operador  CD ','Equipe','2020-01-01'),('${person2}','PLAN-B','Pessoa B',(select id from public.unidades limit 1),'${team}','  expedicao  ','operador cd','EQUIPE','2020-01-01');`);
+    try { await db.exec(await readFile(path.join("supabase/migrations",file),"utf8")); } catch(error) { throw new Error(`${file}: ${(error as Error).message}`); }
+  }
+  await db.exec(`insert into auth.users(id,email,raw_user_meta_data) select x.id::uuid,encode(sha256(convert_to(x.cpf,'UTF8')),'hex')||'@auth.administrativo-cd.invalid',jsonb_build_object('nome_completo','Perfil sintético','cpf_normalizado',x.cpf) from (values('${admin}','88899900001'),('${manager}','88899900002'),('${reader}','88899900003'))x(id,cpf);update public.perfis set status_usuario='APROVADO',aprovado_em=now(),papel_usuario=case id when '${admin}'::uuid then 'ADMIN'::public.papel_usuario when '${manager}'::uuid then 'GESTOR'::public.papel_usuario else 'LEITURA'::public.papel_usuario end,gestor_id=case when id='${manager}' then '${team}'::uuid end where id in ('${admin}','${manager}','${reader}');`);
+}, 60000);
+beforeEach(async () => { await db.exec("begin"); await actor(); });
+afterEach(async () => { await db.exec("rollback"); });
+afterAll(async () => { await db.close(); });
+describe("catálogos e planejamento reais em banco isolado", () => {
+  it("migra grafias equivalentes uma vez e preserva os valores originais", async () => {
+    await db.exec("reset role");
+    const result = (await db.query<{ catalogs: number; aliases: number; original: string; ids: number }>(`select (select count(*)::int from private.canonical_catalog where kind='department') catalogs,(select count(*)::int from private.canonical_catalog_alias where kind='department') aliases,(select department from private.employee_catalog_legacy where employee_id='${person2}') original,(select count(distinct department_catalog_id)::int from public.colaboradores where id in ('${person}','${person2}')) ids`)).rows[0];
+    expect(result).toEqual({ catalogs: 1, aliases: 2, original: "  expedicao  ", ids: 1 });
+  });
+  it("aplica CAS, evita duplicidade por acento e protege catálogo referenciado", async () => {
+    const row = (await administration("department","list",{})).rows as Array<Record<string,string>>;
+    await expect(administration("department","save",{ name:"EXPEDICAO",reason:"Duplicidade teste" })).rejects.toThrow("DUPLICATE");
+    await expect(administration("department","save",{ name:"Expedic\u0327a\u0303o",reason:"Unicode equivalente" })).rejects.toThrow("DUPLICATE");
+    await expect(administration("department","archive",{id:row[0].id,expectedUpdatedAt:row[0].updatedAt,reason:"Arquivar teste"})).rejects.toThrow("REFERENCED");
+    const updated = (await administration("department","save",{id:row[0].id,expectedUpdatedAt:row[0].updatedAt,name:"Expedição central",reason:"Renomear teste"})).record as Record<string,string>;
+    expect(updated.name).toBe("Expedição central");
+    await expect(administration("department","save",{id:row[0].id,expectedUpdatedAt:row[0].updatedAt,name:"Stale",reason:"Versão teste"})).rejects.toThrow("STALE");
+  });
+  it("nega mutações a leitura/gestor e bloqueia acesso bruto e anônimo", async () => {
+    await actor(reader); await expect(template()).rejects.toThrow("FORBIDDEN");
+    await actor(manager); await expect(template()).rejects.toThrow("FORBIDDEN");
+    const privileges=(await db.query<{raw:boolean;anon:boolean}>("select has_table_privilege('authenticated','private.planning_configurations','select') raw,has_function_privilege('anon','public.schedule_planning(text,jsonb)','execute') anon")).rows[0];
+    expect(privileges).toEqual({raw:false,anon:false});
+  });
+  it("atribui modelo em lote atômico e rejeita concorrência/overlap", async () => {
+    const model=await template();const snapshot=planningSnapshotSchema.parse(await rpc("list"));
+    const data={templateId:model.id,expectedTemplateUpdatedAt:model.updatedAt,employeeIds:[person,person2],expectedRosterVersion:snapshot.rosterVersion,validFrom:"2026-10-01",validTo:"2026-10-31",reason:"Atribuição teste"};
+    expect((await rpc("assign",data)).assigned).toBe(2);
+    await expect(rpc("assign",{...data,expectedRosterVersion:"stale"})).rejects.toThrow("STALE");
+    await expect(rpc("assign",data)).rejects.toThrow("VALIDITY_CONFLICT");
+  });
+  it("feriado retira falta automática, preserva manual e chega ao motor", async () => {
+    await calendar(false);
+    await db.exec(`reset role;select set_config('request.jwt.claim.sub','',true);insert into public.chamada_diaria(colaborador_id,data,status,origin) values('${person}','2026-10-01','I','automatic_absence'),('${person2}','2026-10-01','I','manual');`);
+    for(const employeeId of [person,person2]) await db.query("select private.daily_call_apply_import_impl(jsonb_build_object('employeeId',$1::text,'date','2026-10-01','inputVersion',(select version from private.monitoring_revision where id=true)))",[employeeId]);
+    expect((await db.query("select origin from public.chamada_diaria where data='2026-10-01' order by colaborador_id")).rows).toEqual([{origin:"manual"}]);
+    const raw=(await db.query<{value:unknown}>("select private.monitoring_input($1::uuid,'2026-10-01','2026-10-01') value",[person])).rows[0].value;
+    const result=reprocessMonitoringSnapshot(raw,{employeeId:person,start:"2026-10-01",end:"2026-10-01",reason:"Teste integração calendário"},Date.parse("2026-10-05T00:00:00Z"))[0];
+    expect(result.summary.late).toBeNull();expect(result.result.issues.some(issue=>issue.code==="CALENDAR_NON_WORKING_DAY")).toBe(true);
+  });
+  it("exceção pessoal trabalhada vence feriado geral com escala realmente usada", async () => {
+    const model=await template();await calendar(false);await calendar(true,model,"person",person);
+    await db.exec("reset role");
+    const resolution=(await db.query<{value:Record<string,unknown>}>("select private.daily_call_evidence($1::uuid,'2026-10-01') value",[person])).rows[0].value;
+    expect(resolution.expected).toBe(true);expect(resolution.state).not.toBe("automatic_absence");
+    expect((resolution.calendar as {state:string}).state).toBe("work");
+    expect((await db.query<{n:number}>("select count(*)::int n from private.schedule_window_rows($1::uuid,'2026-10-01','2026-10-01')",[person])).rows[0].n).toBe(1);
+  });
+  it("sugere conforme capacidade configurada e aceitar cria só rascunho com CAS", async () => {
+    const policy=(await rpc("save",{kind:"vacation_policy",name:"Política teste",scope:"global",target:null,validFrom:"2020-01-01",validTo:"2099-12-31",reason:"Critérios RH teste",payload:{minimumTenureDays:365,durationDays:5,noticeDays:0,maximumAbsentPercent:50,minimumAvailable:1,includeRequested:true}})).record as Record<string,string>;
+    const input={employeeId:person,policyId:policy.id,start:"2090-01-01",end:"2090-01-10"};
+    const result=suggestionResultSchema.parse(await rpc("suggest",input));expect(result.suggestions.length).toBeGreaterThan(0);expect(result.suggestions[0].minimumOutsidePlannedVacation).toBe(1);
+    await actor(manager);
+    const accepted=await rpc("accept_suggestion",{...input,expectedVersion:result.version,selectedStart:result.suggestions[0].startDate,reason:"Aceite de sugestão teste"});
+    expect((accepted.record as {status:string}).status).toBe("draft");
+    await expect(rpc("accept_suggestion",{...input,expectedVersion:result.version,selectedStart:result.suggestions[0].startDate,reason:"Repetição de sugestão"})).rejects.toThrow("STALE");
+  });
+  it("lote reverte primeira pessoa quando a segunda já possui escala",async()=>{
+    const model=await template();const snapshot=planningSnapshotSchema.parse(await rpc("list"));
+    const input={templateId:model.id,expectedTemplateUpdatedAt:model.updatedAt,expectedRosterVersion:snapshot.rosterVersion,validFrom:"2026-10-01",validTo:"2026-10-31",reason:"Lote atômico teste"};
+    await rpc("assign",{...input,employeeIds:[person2]});
+    await expect(rpc("assign",{...input,employeeIds:[person,person2]})).rejects.toThrow("VALIDITY_CONFLICT");
+    await db.exec("reset role");
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_settings where kind='schedule' and target=$1",[person])).rows[0].n).toBe(0);
+  });
+  it("calendário valida período do modelo e bloqueia restauração sobreposta",async()=>{
+    const model=(await rpc("save",{kind:"template",name:"Restrito",scope:"global",target:null,validFrom:"2026-11-01",validTo:"2026-11-30",payload:schedule,reason:"Vigência teste"})).record as Record<string,string>;
+    await expect(calendar(true,model)).rejects.toThrow("INVALID_INPUT");
+    const old=(await calendar(false)).record as Record<string,string>;
+    const archived=(await rpc("archive",{id:old.id,expectedUpdatedAt:old.updatedAt,reason:"Arquivar teste"})).record as Record<string,string>;
+    await calendar(false);
+    await expect(rpc("restore",{id:old.id,expectedUpdatedAt:archived.updatedAt,reason:"Restaurar teste"})).rejects.toThrow("VALIDITY_CONFLICT");
+  });
+  it("pessoa transferida não recebe dois calendários na mesma prioridade",async()=>{
+    await calendar(false,undefined,"manager",team);
+    await db.exec(`reset role;insert into public.gestores(id,nome) values('dc000000-0000-4000-8000-000000000002','Equipe nova');update public.colaboradores set gestor_id='dc000000-0000-4000-8000-000000000002' where id='${person}';`);
+    await actor();
+    await expect(calendar(false,undefined,"manager","dc000000-0000-4000-8000-000000000002")).rejects.toThrow("VALIDITY_CONFLICT");
+  });
+  it.each([null,"5",1.5])("RPC direta rejeita duração de política inválida %j",async durationDays=>{
+    await expect(rpc("save",{kind:"vacation_policy",name:"Inválida",scope:"global",target:null,validFrom:"2020-01-01",validTo:null,reason:"Política teste",payload:{minimumTenureDays:365,durationDays,noticeDays:0,maximumAbsentPercent:50,minimumAvailable:1,includeRequested:true}})).rejects.toThrow("INVALID_INPUT");
+  });
+  it("gestor cancela proposta própria e não aprova nem consulta outra equipe",async()=>{
+    await actor(manager);
+    const row=(await administration("vacation","save",{employeeId:person,startDate:"2090-01-01",endDate:"2090-01-05",status:"requested",reason:"Proposta própria"})).record as Record<string,string>;
+    await expect(administration("vacation","save",{id:row.id,expectedUpdatedAt:row.updatedAt,employeeId:person,startDate:"2090-01-01",endDate:"2090-01-05",status:"approved",reason:"Aprovação teste"})).rejects.toThrow("VACATION_LOCKED");
+    const cancelled=(await administration("vacation","save",{id:row.id,expectedUpdatedAt:row.updatedAt,employeeId:person,startDate:"2090-01-01",endDate:"2090-01-05",status:"cancelled",reason:"Cancelamento próprio"})).record as Record<string,string>;
+    expect(cancelled.status).toBe("cancelled");
+    await actor();
+    const policy=(await rpc("save",{kind:"vacation_policy",name:"Critério",scope:"global",target:null,validFrom:"2020-01-01",validTo:null,reason:"Política teste",payload:{minimumTenureDays:365,durationDays:5,noticeDays:0,maximumAbsentPercent:50,minimumAvailable:1,includeRequested:true}})).record as Record<string,string>;
+    await db.exec(`reset role;update public.colaboradores set gestor_id=null where id='${person2}';`);await actor(manager);
+    await expect(rpc("suggest",{employeeId:person2,policyId:policy.id,start:"2090-01-01",end:"2090-01-10"})).rejects.toThrow("FORBIDDEN");
+    const snapshot=planningSnapshotSchema.parse(await rpc("list"));expect(snapshot.options.employees.map(row=>row.id)).toEqual([person]);
+  });
+  it("solicitação concorrente consome capacidade e invalida sugestão consultada",async()=>{
+    const policy=(await rpc("save",{kind:"vacation_policy",name:"Critério",scope:"global",target:null,validFrom:"2020-01-01",validTo:null,reason:"Política teste",payload:{minimumTenureDays:365,durationDays:5,noticeDays:0,maximumAbsentPercent:50,minimumAvailable:1,includeRequested:true}})).record as Record<string,string>;
+    const input={employeeId:person,policyId:policy.id,start:"2090-01-01",end:"2090-01-05"};
+    const old=suggestionResultSchema.parse(await rpc("suggest",input));expect(old.suggestions).toHaveLength(1);
+    await administration("vacation","save",{employeeId:person2,startDate:"2090-01-01",endDate:"2090-01-05",status:"requested",reason:"Reserva capacidade"});
+    await expect(rpc("accept_suggestion",{...input,expectedVersion:old.version,selectedStart:"2090-01-01",reason:"Sugestão obsoleta"})).rejects.toThrow("STALE");
+    const current=suggestionResultSchema.parse(await rpc("suggest",input));expect(current.suggestions).toEqual([]);expect(current.blockers).toContain("NO_WINDOW_MATCHES_POLICY");
+    await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from public.chamada_diaria")).rows[0].n).toBe(0);
+  });
+  it("cobertura posterior enfileira exceção trabalhada sem escala regular",async()=>{
+    const model=await template();await calendar(true,model,"person",person);
+    await db.exec(`reset role;insert into public.monitoring_sources(id,kind,timezone,identity_namespace,configuration) values('calendar-afd','afd','America/Sao_Paulo','calendar-afd','{"sourceIdentityConfirmed":true,"declaredCoverage":{"from":"2026-10-01T00:00:00-03:00","to":"2026-10-01T23:59:59-03:00","continuous":true}}');insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by) values('calendar-afd','cpf','12345678909','${person}','2020-01-01','Vínculo sintético','${admin}');delete from public.monitoring_jobs where employee_id='${person}';`);
+    await db.query("select private.monitoring_enqueue($1::uuid,'2026-10-01','2026-10-01','calendar-afd')",[person]);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_jobs where employee_id=$1::uuid and operational_date='2026-10-01'",[person])).rows[0].n).toBe(1);
+    await db.exec(`delete from public.monitoring_jobs where employee_id='${person}'`);
+    await db.query("select private.monitoring_prepare_identity($1::uuid,'calendar-afd','cpf','12345678909','2020-01-01',null)",[person]);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_jobs where employee_id=$1::uuid and operational_date='2026-10-01'",[person])).rows[0].n).toBe(1);
+  });
+  it("calendário invalida também fronteiras vizinhas nas vigências nova e antiga",async()=>{
+    await db.exec(`reset role;insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason) select '${person}',d::date,1,'fixture','{}','{}','Resultado sintético' from generate_series('2026-09-30'::date,'2026-10-04'::date,interval '1 day')d;`);await actor();
+    const row=(await calendar(false)).record as Record<string,string>;
+    await db.exec("reset role");expect((await db.query<{dates:string[]}>("select array_agg(operational_date::text order by operational_date) dates from public.monitoring_results where employee_id=$1::uuid and dirty",[person])).rows[0].dates).toEqual(["2026-09-30","2026-10-01","2026-10-02"]);
+    await db.exec(`delete from public.monitoring_jobs where employee_id='${person}';update public.monitoring_results set dirty=false where employee_id='${person}'`);await actor();
+    await rpc("save",{kind:"calendar",id:row.id,expectedUpdatedAt:row.updatedAt,name:"Data corrigida",scope:"global",target:null,validFrom:"2026-10-03",validTo:"2026-10-03",payload:{working:false},reason:"Corrigir data teste"});await db.exec("reset role");
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_jobs where employee_id=$1::uuid",[person])).rows[0].n).toBe(5);expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_results where employee_id=$1::uuid and dirty",[person])).rows[0].n).toBe(5);
+  });
+  it("catálogo arquivado não pode voltar por alias antigo ou importação direta",async()=>{
+    const first=(await administration("department","save",{name:"Setor antigo",reason:"Cadastro teste"})).record as Record<string,string>;
+    const renamed=(await administration("department","save",{id:first.id,expectedUpdatedAt:first.updatedAt,name:"Setor novo",reason:"Renomear teste"})).record as Record<string,string>;
+    const archived=(await administration("department","archive",{id:first.id,expectedUpdatedAt:renamed.updatedAt,reason:"Arquivar teste"})).record as Record<string,string>;
+    const employee=((await administration("employee","list",{employeeId:person})).rows as Array<Record<string,unknown>>)[0];
+    await expect(administration("employee","save",{...employee,id:person,expectedUpdatedAt:employee.updatedAt,department:" SETOR ANTIGO ",reason:"Alias arquivado"})).rejects.toThrow("INACTIVE_REFERENCE");
+    await db.exec("reset role");await expect(guarded(()=>db.query("update public.colaboradores set setor='Setor antigo' where id=$1::uuid",[person]))).rejects.toThrow("INACTIVE_REFERENCE");await actor();
+    const restored=(await administration("department","restore",{id:first.id,expectedUpdatedAt:archived.updatedAt,reason:"Restaurar teste"})).record as Record<string,string>;
+    expect(restored.active).toBe(true);
+  });
+  it.each([{validTo:null,offUntil:"2026-10-01"},{validTo:"2026-09-30",offUntil:"2026-10-01"},{validTo:"2026-09-30",offUntil:"2026-10-02"}])("feriado não duplica saída noturna: %j",async ({validTo,offUntil})=>{
+    await db.exec("reset role");
+    const overnight={...schedule,start:"22:00",end:"06:00",allowNoBreak:true};
+    await db.query("insert into public.monitoring_settings(kind,target,valid_from,valid_to,payload,reason,created_by) values('schedule',$1,'2026-09-01',$2::date,$3::jsonb,'Noturno sintético',$4::uuid)",[person,validTo,JSON.stringify(overnight),admin]);
+    await db.query("insert into public.monitoring_settings(kind,target,valid_from,payload,reason,created_by) values('evidence',$1,'2026-09-01','{\"startConfirmed\":true,\"endConfirmed\":true,\"startCoverageConfirmed\":false}','Evidência sintética',$2::uuid)",[person,admin]);
+    await db.exec(`insert into public.monitoring_sources(id,kind,timezone,identity_namespace,configuration) values('night-clock','afd','America/Sao_Paulo','night-clock','{"sourceIdentityConfirmed":true}');insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by) values('night-clock','cpf','12345678909','${person}','2020-01-01','Vínculo sintético','${admin}');`);
+    for(const [index,timestamp] of ["2026-09-30T22:00:00-03:00","2026-10-01T06:00:00-03:00",...(offUntil==="2026-10-02"?["2026-10-01T22:00:00-03:00","2026-10-02T06:00:00-03:00"]:[])].entries()){
+      const payload={key:`night-${index}`,type:"punch",timestamp,device:"clock",classification:"authorized",eligible:true,precisionSeconds:1,identity:{type:"cpf",value:"12345678909"},original:{}};
+      await db.query("insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,device,classification,eligible,payload,nsr) values('night-clock',$1,repeat('a',64),'punch','cpf','12345678909',$2::timestamptz,'clock','authorized',true,$3::jsonb,$4)",[payload.key,timestamp,JSON.stringify(payload),String(index).padStart(9,"0")]);
+    }
+    await actor();await rpc("save",{kind:"calendar",name:"Feriado noturno",scope:"global",target:null,validFrom:"2026-10-01",validTo:offUntil,payload:{working:false},reason:"Exceção noturna"});await db.exec("reset role");
+    const evidence=(await db.query<{day:string;value:{state:string;status:string|null;punchIds:string[]}}>("select d::date::text as operational_day,private.daily_call_evidence($1::uuid,d::date)value from generate_series('2026-09-30'::date,'2026-10-01'::date,interval '1 day')d",[person])).rows;
+    expect(evidence[0].value).toMatchObject({state:"present",status:"P"});expect(evidence[0].value.punchIds).toHaveLength(2);if(offUntil==="2026-10-01")expect(evidence[1].value).toMatchObject({state:"not_expected",status:null,punchIds:[]});else{expect(evidence[1].value).toMatchObject({state:"present",status:"P",expected:false});expect(evidence[1].value.punchIds).toHaveLength(2);const next=(await db.query<{value:unknown}>("select private.daily_call_evidence($1::uuid,'2026-10-02')value",[person])).rows[0].value;expect(next).toMatchObject({state:"not_expected",status:null,punchIds:[]});}
+    const input=(await db.query<{value:unknown}>("select private.monitoring_input($1::uuid,'2026-09-30','2026-10-01')value",[person])).rows[0].value;
+    const result=reprocessMonitoringSnapshot(input,{employeeId:person,start:"2026-09-30",end:"2026-10-01",reason:"Noturno com feriado"},Date.parse("2026-10-05T00:00:00Z"));
+    expect(result[0].summary.workedSeconds).toBe(8*3600);expect(result[0].result.journey.retainedPunchIds).toHaveLength(2);if(offUntil==="2026-10-01")expect(result[1].result.journey.retainedPunchIds).toHaveLength(0);expect(result[1].summary.late).toBeNull();
+  });
+  it("renomear calendário não reescreve histórico de membros da equipe",async()=>{
+    const row=(await calendar(false,undefined,"manager",team)).record as Record<string,string>;
+    await db.exec(`reset role;update public.colaboradores set gestor_id=null where id='${person}'`);await actor();
+    const renamed=await rpc("save",{id:row.id,expectedUpdatedAt:row.updatedAt,kind:"calendar",name:"Nome corrigido",scope:"manager",target:team,validFrom:"2026-10-01",validTo:"2026-10-01",payload:{working:false},reason:"Correção apenas textual"});
+    expect((renamed.record as {memberCount:number}).memberCount).toBe(2);await db.exec("reset role");expect((await db.query<{state:string}>("select private.calendar_resolution($1::uuid,'2026-10-01')->>'state' state",[person])).rows[0].state).toBe("off");
+  });
+});

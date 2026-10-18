@@ -85,9 +85,8 @@ function cliJson(output: string): unknown {
   return JSON.parse(firstLine) as unknown;
 }
 
-async function applyBaseline(source: string, result: Awaited<ReturnType<typeof runDryImport>>): Promise<void> {
+async function applyBaseline(source: string, hash: string, result: Awaited<ReturnType<typeof runDryImport>>): Promise<void> {
   if (basename(source) !== "Banco de dados RH.xlsx") throw new Error("Fonte oficial inválida para --apply");
-  const hash = sourceHash(await readFile(source));
   if (hash !== BASELINE_SOURCE_HASH) throw new Error("SHA-256 divergente; --apply bloqueado");
   assertBaselinePlan(result);
   const projects = cliJson(await supabaseCli(["projects", "list", "--output-format", "json"]));
@@ -176,10 +175,12 @@ async function main(): Promise<void> {
   const reference = args.reference ? await requirePrivateFile(args.reference, privateRoot) : undefined;
   const previousPath = args.previous ? await requirePrivateFile(args.previous, privateRoot) : undefined;
   const previous = previousPath ? JSON.parse(await readFile(previousPath, "utf8")) as PreviousSnapshot : undefined;
-  const result = await runDryImport(source, reference, previous, args.referenceDate);
+  const bytes = await readFile(source);
+  const hash = sourceHash(bytes);
+  const result = await runDryImport(bytes, reference, previous, args.referenceDate);
 
   if (args.apply) {
-    await applyBaseline(source, result);
+    await applyBaseline(source, hash, result);
     return;
   }
 

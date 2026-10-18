@@ -1,4 +1,5 @@
-import type { AccessRequestStatus, AdministrativeUser, UserRole } from "@/lib/auth/types";
+import type { AccessRequestStatus, UserRole } from "@/lib/auth/types";
+import type { UserEditInput, VersionedAdministrativeUser } from "@/lib/administration/users-contracts";
 import { createClient } from "@/lib/supabase/client";
 
 export type UserFilters = {
@@ -14,14 +15,12 @@ function requireSuccess(error: { message: string } | null): void {
 }
 
 export const userAdminService = {
-  async list(filters: UserFilters): Promise<AdministrativeUser[]> {
-    const { data, error } = await createClient().rpc("listar_usuarios", {
-      p_status: filters.status,
-      p_papel: filters.role,
-      p_busca: filters.search.trim() || null,
-    });
-    requireSuccess(error);
-    return (data ?? []) as AdministrativeUser[];
+  async list(filters: UserFilters): Promise<VersionedAdministrativeUser[]> {
+    return await administrativeRequest("list", filters) as VersionedAdministrativeUser[];
+  },
+
+  async edit(data: UserEditInput): Promise<void> {
+    await administrativeRequest("save", data);
   },
 
   async listManagers(): Promise<ManagerOption[]> {
@@ -57,3 +56,10 @@ export const userAdminService = {
     requireSuccess(error);
   },
 };
+
+async function administrativeRequest(action: string, data: unknown): Promise<unknown> {
+  const response = await fetch("/api/administration/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error ?? "Não foi possível concluir a operação administrativa.");
+  return result;
+}

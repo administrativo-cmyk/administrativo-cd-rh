@@ -28,9 +28,10 @@ export function cellValue(cell: ExcelJS.Cell): unknown {
   return unwrap(cell.value);
 }
 
-export async function loadWorkbook(path: string): Promise<LoadedWorkbook> {
+export async function loadWorkbook(source: string | Buffer): Promise<LoadedWorkbook> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(path);
+  if (typeof source === "string") await workbook.xlsx.readFile(source);
+  else await workbook.xlsx.load(source as unknown as ExcelJS.Buffer);
 
   function table(sheetName: string, requiredHeaders: readonly string[]): LocatedTable {
     const sheet = workbook.worksheets.find((item) => normalizedHeader(item.name) === normalizedHeader(sheetName));

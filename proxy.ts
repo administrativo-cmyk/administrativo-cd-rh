@@ -1,9 +1,12 @@
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import type { AuthenticatedProfile } from "@/lib/auth/types";
 import { routeRedirectForAccess } from "@/lib/auth/route-access";
 import { redirectWithSession, refreshSupabaseSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
+  // APIs enforce their own session/role or scoped worker-token contract and return HTTP errors.
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.next();
   const { supabase, response, userId, cookieUpdates, cacheHeaders } = await refreshSupabaseSession(request);
   let profile: Pick<AuthenticatedProfile, "status_usuario" | "papel_usuario"> | null = null;
 

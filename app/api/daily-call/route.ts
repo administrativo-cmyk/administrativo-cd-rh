@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseDailyCallRepository } from "@/lib/data/supabase-daily-call-repository";
 import { validDate, validPeriod } from "@/lib/data/daily-call-dates";
+import { reportOperationalError } from "@/lib/security/operational-error";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase.from("perfis")
     .select("status_usuario,papel_usuario").eq("id", userId).single();
-  if (!profile || profile.status_usuario !== "APROVADO"
+  if (!profile || !profile.papel_usuario || profile.status_usuario !== "APROVADO"
     || !["ADMIN", "RH", "GESTOR", "LEITURA"].includes(profile.papel_usuario)) {
     return Response.json({ error: "Acesso não autorizado." }, { status: 403 });
   }
@@ -26,7 +27,8 @@ export async function GET(request: Request) {
   try {
     const snapshot = await new SupabaseDailyCallRepository().load(date, start, end);
     return Response.json(snapshot, { headers: { "Cache-Control": "private, no-store" } });
-  } catch {
-    return Response.json({ error: "Não foi possível carregar a Chamada Diária." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  } catch (cause) {
+    const correlationId = reportOperationalError("daily-call.read", cause);
+    return Response.json({ error: "Não foi possível carregar a Chamada Diária.", correlationId }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

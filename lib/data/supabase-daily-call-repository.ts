@@ -14,7 +14,7 @@ export class SupabaseDailyCallRepository implements DailyCallReadRepository {
     const { data, error } = await supabase.rpc("ler_chamada_diaria", {
       p_data: date, p_inicio: startDate, p_fim: endDate,
     });
-    if (error) throw new Error(`Não foi possível consultar a Chamada Diária (${error.code}).`);
-    return mapDailyCallSnapshot(data);
+    if (error) throw Object.assign(new Error("Não foi possível consultar a Chamada Diária."), { code: error.code });
+    return { ...mapDailyCallSnapshot(data), loadedAt: new Date().toISOString() };
   }
 }

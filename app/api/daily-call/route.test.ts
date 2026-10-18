@@ -51,6 +51,6 @@ describe("endpoint de leitura da Chamada Diária", () => {
     mocks.load.mockRejectedValue(new Error("banco indisponível"));
     const response = await GET(request());
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "Não foi possível carregar a Chamada Diária." });
+    expect(await response.json()).toEqual({ error: "Não foi possível carregar a Chamada Diária.", correlationId: expect.any(String) });
   });
 });

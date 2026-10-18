@@ -34,6 +34,13 @@ const rows = [
 ];
 
 describe("seletores do Banco de Horas", () => {
+  it("distingue saldo parcial, zero real e compensação aplicada", () => {
+    for (const minutes of [60, -60]) {
+      expect(timeBankStatusLabel(employee({ measuredMinutes: minutes, measuredDays: 0, effectiveDays: 0 }))).toBe("Saldo parcial");
+    }
+    expect(timeBankStatusLabel(employee({ measuredMinutes: 0, measuredDays: 0, effectiveDays: 0 }))).toBe("Zerado");
+    expect(timeBankStatusLabel(employee({ measuredDays: 1, effectiveDays: 0, usedCompensationDays: 1 }))).toBe("Em dia após G");
+  });
   it("separa positivo, zero, negativo e sem extrato sem perder o quadro completo", () => {
     expect(rows.map(classifyTimeBank)).toEqual(["POSITIVO", "NEGATIVO", "ZERO", "SEM_EXTRATO"]);
     expect(timeBankMetrics(rows)).toEqual({

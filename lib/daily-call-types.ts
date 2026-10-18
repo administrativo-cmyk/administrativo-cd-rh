@@ -2,7 +2,9 @@ export const attendanceCodes = ["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF
 
 export type AttendanceStatusCode = (typeof attendanceCodes)[number];
 export type AttendanceCode = AttendanceStatusCode;
-export type UnitCode = "CD I" | "CD II" | "CD FLV";
+export type AttendanceOrigin = "punch" | "automatic_absence" | "manual";
+/** Unit codes come from the authorized organization register. */
+export type UnitCode = string;
 export type EmployeeSituation = "Ativo" | "Férias" | "Novo admitido" | "Afastado";
 export type BankSituation = "Em dia" | "A compensar" | "A repor" | "Sem extrato";
 
@@ -47,6 +49,7 @@ export type Employee = {
   attendance: Record<string, AttendanceStatusCode>;
   observations: Record<string, string>;
   attendanceVersions?: Record<string, string>;
+  attendanceSources?: Record<string, AttendanceOrigin>;
 };
 
 export type DailyCallStatusFilter = "Todos" | "Presente" | "Folga" | "Atestado" | "Injustificado" | "Férias" | "INSS" | "Outros";
@@ -60,4 +63,4 @@ export type DailyCallFilters = {
   endDate: string;
 };
 export type DailyCallMetrics = { collaborators: number; present: number; daysOff: number; absences: number; compensate: number; replace: number };
-export type DailyCallSnapshot = { date: string; startDate: string; endDate: string; employees: Employee[] };
+export type DailyCallSnapshot = { date: string; startDate: string; endDate: string; employees: Employee[]; loadedAt?: string };

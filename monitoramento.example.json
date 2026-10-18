@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "stateDirectory": ".monitoring-worker",
+  "endpoint": "http://127.0.0.1:3000/api/monitoring/ingest",
+  "tokenEnvironmentVariable": "MONITORING_INGEST_TOKEN",
+  "scanIntervalMs": 30000,
+  "stabilityMs": 1500,
+  "maxFileBytes": 83886080,
+  "batchSize": 500,
+  "sources": [
+    {
+      "id": "ponto-legado-cd-jk",
+      "kind": "afd",
+      "identityNamespace": "ponto-legado-cd-jk",
+      "root": "relogio de ponto",
+      "timeZone": "America/Sao_Paulo",
+      "afdProfile": "legacy",
+      "encoding": "latin1",
+      "sourceIdentityConfirmed": false,
+      "recursive": true
+    },
+    {
+      "id": "ponto-iso-cd-jk",
+      "kind": "afd",
+      "identityNamespace": "ponto-iso-cd-jk",
+      "root": "relogio de ponto",
+      "timeZone": "America/Sao_Paulo",
+      "afdProfile": "iso",
+      "encoding": "utf8",
+      "sourceIdentityConfirmed": false,
+      "recursive": true
+    },
+    {
+      "id": "defense-access-cd-jk",
+      "kind": "defense-access",
+      "identityNamespace": "defense-cd-jk",
+      "root": "ACESSOS DEFENSE/Registros de Acesso-2026-10-16-14-54-31",
+      "timeZone": "America/Sao_Paulo",
+      "recursive": true
+    },
+    {
+      "id": "defense-person-cd-jk",
+      "kind": "defense-person",
+      "identityNamespace": "defense-cd-jk",
+      "root": "ACESSOS DEFENSE/Informações Pessoais-2026-10-16-16-45-12",
+      "photoRoot": "ACESSOS DEFENSE/Informações Pessoais-2026-10-16-16-45-12",
+      "timeZone": "America/Sao_Paulo",
+      "recursive": true
+    }
+  ]
+}

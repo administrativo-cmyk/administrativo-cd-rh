@@ -1,0 +1,15 @@
+import { z } from "zod";
+import { attendanceCodes } from "./daily-call-types";
+import { validDate } from "./data/daily-call-dates";
+const date = z.string().refine(validDate);
+export const batchItemSchema = z.object({ employeeId: z.string().uuid(), date, status: z.enum(attendanceCodes), observation: z.string().trim().max(500).nullable() }).strict();
+export const batchDataSchema = z.object({ mode: z.enum(["fill_blank", "replace"]), reason: z.string().trim().min(5).max(500), items: z.array(batchItemSchema).min(1).max(100), expectedVersion: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
+export const batchRequestSchema = z.object({ action: z.enum(["preview", "apply"]), data: batchDataSchema }).strict().refine(value => value.action !== "apply" || Boolean(value.data.expectedVersion));
+export const batchPreviewSchema = z.object({ version: z.string(), eligible: z.number(), total: z.number(), rows: z.array(batchItemSchema.passthrough().extend({ name: z.string(), currentStatus: z.enum(attendanceCodes).nullable(), origin: z.string().nullable(), eligible: z.boolean(), explanation: z.string() })) });
+export type BatchData = z.infer<typeof batchDataSchema>;
+export type BatchPreview = z.infer<typeof batchPreviewSchema>;
+export const attachmentLimit = 2 * 1024 * 1024;
+export const attachmentUploadSchema = z.object({ employeeId: z.string().uuid(), date, fileName: z.string().trim().min(1).max(150).refine(value => !/[\x00-\x1f/\\]/.test(value)), mediaType: z.enum(["application/pdf", "image/png", "image/jpeg"]), content: z.string().max(2796204).regex(/^[A-Za-z0-9+/]+={0,2}$/), description: z.string().trim().min(5).max(500) }).strict();
+export const attachmentMutationSchema = z.object({ action: z.enum(["archive", "restore"]), data: z.object({ id: z.string().uuid(), expectedUpdatedAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(5).max(500) }).strict() }).strict();
+export const attachmentQuerySchema = z.object({ employeeId: z.string().uuid(), date }).strict();
+export type DailyCallAttachment = { id: string; fileName: string; mediaType: string; size: number; description: string; createdAt: string; updatedAt: string; archivedAt: string | null };

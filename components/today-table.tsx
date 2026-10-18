@@ -1,5 +1,7 @@
 "use client";
 
+import { EmployeeAvatar } from "@/components/employee-avatar";
+
 import { MoreHorizontal } from "lucide-react";
 import { AttendanceStatusPicker } from "./attendance-status-picker";
 import { DailyCallObservation } from "./daily-call-observation";
@@ -26,12 +28,12 @@ function EmployeeRow({ employee, date, onSelect, readOnly, onSave, isSaving }: O
   return <tr className="border-b border-slate-100 transition hover:bg-blue-50/35">
     <td className="px-3 py-2.5"><Checkbox aria-label={`Selecionar ${employee.name}`} disabled /></td>
     <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{employee.id}</td>
-    <td className="px-3 py-2.5"><button onClick={() => onSelect(employee)} className="flex items-center gap-2.5 text-left"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-900 text-[10px] font-bold text-white">{initials(employee.name)}</span><span className="min-w-0"><b className="block whitespace-nowrap font-semibold hover:text-blue-600">{employee.name}</b><span className="flex items-center gap-1.5">{employee.situation !== "Ativo" ? <small className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase", employee.situation === "Novo admitido" ? "bg-emerald-50 text-emerald-700" : "bg-cyan-50 text-cyan-700")}>{employee.situation}</small> : null}<small className="max-w-36 truncate text-slate-400">{employee.role}</small></span></span></button></td>
+    <td className="px-3 py-2.5"><button onClick={() => onSelect(employee)} className="flex items-center gap-2.5 text-left"><EmployeeAvatar name={employee.name} employeeId={employee.databaseId} size={32} /><span className="min-w-0"><b className="block whitespace-nowrap font-semibold hover:text-blue-600">{employee.name}</b><span className="flex items-center gap-1.5">{employee.situation !== "Ativo" ? <small className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase", employee.situation === "Novo admitido" ? "bg-emerald-50 text-emerald-700" : "bg-cyan-50 text-cyan-700")}>{employee.situation}</small> : null}<small className="max-w-36 truncate text-slate-400">{employee.role}</small></span></span></button></td>
     <td className="whitespace-nowrap px-3 py-2.5">{employee.unit}</td><td className="whitespace-nowrap px-3 py-2.5">{employee.manager}</td>
     <td className="px-3 py-2.5"><BankHoursBadge employee={employee} display="situation" /></td>
     <td className={cn("whitespace-nowrap px-3 py-2.5 font-semibold", employee.bankDays !== null && employee.bankDays > 0 ? "text-rose-600" : employee.bankDays !== null && employee.bankDays < 0 ? "text-blue-600" : "text-slate-600")}>{employee.bankHours ?? "Sem extrato"}</td>
     <td className="px-3 py-2.5"><BankHoursBadge employee={employee} display="pending" /></td>
-    <td className="px-3 py-2.5"><AttendanceStatusPicker value={employee.attendance[date]} label={`Status de ${employee.name}`} readOnly={readOnly} saving={saving} onChange={(code) => void onSave?.(employee, date, code, employee.observations[date] ?? null)} onClear={() => void onSave?.(employee, date, null, null)} /></td>
+    <td className="px-3 py-2.5"><AttendanceStatusPicker value={employee.attendance[date]} origin={employee.attendanceSources?.[date]} label={`Status de ${employee.name}`} readOnly={readOnly} saving={saving} onChange={(code) => void onSave?.(employee, date, code, employee.observations[date] ?? null)} onClear={() => void onSave?.(employee, date, null, null)} /></td>
     <td className="px-3 py-2.5"><DailyCallObservation label={`Observação de ${employee.name}`} value={employee.observations[date] ?? ""} status={employee.attendance[date]} readOnly={readOnly} saving={saving} onSave={(value) => onSave?.(employee, date, employee.attendance[date] ?? null, value) ?? Promise.resolve(false)} /></td>
     <td className="px-3 py-2.5"><button aria-label={`Mais ações para ${employee.name}`} disabled className="grid h-8 w-8 place-items-center rounded-lg text-slate-300"><MoreHorizontal size={17} /></button></td>
   </tr>;
@@ -42,11 +44,11 @@ export function initials(name: string) { return name.split(" ").map((part) => pa
 function MobileCard({ employee, date, onSelect, readOnly, onSave, saving }: Omit<Props, "employees"> & { employee: Employee; readOnly: boolean; saving: boolean }) {
   return <article className="space-y-3 p-3.5">
     <div className="flex items-start gap-3">
-      <button aria-label={`Abrir detalhes de ${employee.name}`} onClick={() => onSelect(employee)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials(employee.name)}</button>
+      <button aria-label={`Abrir detalhes de ${employee.name}`} onClick={() => onSelect(employee)} className="shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-blue-600"><EmployeeAvatar name={employee.name} employeeId={employee.databaseId} size={36} /></button>
       <div className="min-w-0 flex-1"><button onClick={() => onSelect(employee)} className="block max-w-full truncate text-left font-semibold hover:text-blue-600">{employee.name}</button><p className="truncate text-xs text-slate-500">{employee.id} · {employee.unit} · {employee.manager}</p></div>
       {employee.situation === "Novo admitido" ? <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">NOVO</span> : null}
     </div>
-    <div className="flex items-center justify-between gap-3"><BankHoursBadge employee={employee} /><AttendanceStatusPicker value={employee.attendance[date]} label={`Status de ${employee.name}`} readOnly={readOnly} saving={saving} onChange={(code) => void onSave?.(employee, date, code, employee.observations[date] ?? null)} onClear={() => void onSave?.(employee, date, null, null)} /></div>
+    <div className="flex items-center justify-between gap-3"><BankHoursBadge employee={employee} /><AttendanceStatusPicker value={employee.attendance[date]} origin={employee.attendanceSources?.[date]} label={`Status de ${employee.name}`} readOnly={readOnly} saving={saving} onChange={(code) => void onSave?.(employee, date, code, employee.observations[date] ?? null)} onClear={() => void onSave?.(employee, date, null, null)} /></div>
     <DailyCallObservation label={`Observação de ${employee.name}`} value={employee.observations[date] ?? ""} status={employee.attendance[date]} readOnly={readOnly} saving={saving} onSave={(value) => onSave?.(employee, date, employee.attendance[date] ?? null, value) ?? Promise.resolve(false)} />
   </article>;
 }
