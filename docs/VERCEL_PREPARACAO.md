@@ -1,6 +1,8 @@
-# Preparação da publicação na Vercel
+# Publicação na Vercel
 
-Revisão de 18/10/2026. Projeto remoto `administrativo-cd/administrativo-cd-rh` criado, com `develop` como branch de produção. As quatro configurações sem segredo foram salvas em Production: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`. A credencial privada do Supabase e o token de ingestão aguardam a confirmação específica solicitada ao usuário; seus valores permanecem locais. Ainda não houve publicação nem teste autenticado na Vercel.
+Estado em 18/10/2026: **PUBLICADO** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). O projeto `administrativo-cd/administrativo-cd-rh` usa `develop` como branch de produção. O deployment `dpl_9P5sAagmR8oNxjB3Hsb2SnDVGohM`, commit `43cb175a463e520ec97063100bf03f04f15a7d2f`, ficou **Ready às 05:34:49 BRT**. O build levou **1 minuto e 54 segundos**, com **pnpm 10.28.0** e **Sharp 0.35.4 para Linux**.
+
+As seis variáveis foram salvas em Production após autorização: quatro configurações (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`) e dois segredos de servidor (`MONITORING_SUPABASE_SERVICE_ROLE_KEY` e `MONITORING_INGEST_TOKEN`). Nenhum valor privado aparece neste documento. Sessão RH autenticada e operações reais de CRUD **ainda não foram testadas na Vercel**.
 
 ## Ambiente mínimo
 
@@ -25,9 +27,11 @@ Uma URL de preview ou alias diferente de `APP_ORIGIN` bloqueia mutações por de
 
 Usar o preset Next.js, instalação a partir de `pnpm-lock.yaml` e uma versão de Node compatível com `engines.node` (`>=22.13.0`). A Vercel oferece Node 24.x e 22.x. Fixar a versão do gerenciador no ambiente de build evita diferenças de instalação. Não publicar `node_modules` nem um build nativo produzido no Windows: `sharp` deve ser instalado para o sistema da Vercel. `sharp`, `pdf-lib` e `exceljs` já são dependências diretas.
 
-A rota de fotos passou a importar `sharp` diretamente, permitindo rastreamento de dependências. Nos builds isolados do Windows, o manifesto inclui a junction `node_modules` inteira; a ausência de uma entrada individual chamada `sharp` era um falso negativo, não prova de dependência ausente. A inclusão individual dos arquivos nativos deve ser conferida no build Linux da Vercel.
+A rota de fotos passou a importar `sharp` diretamente, permitindo rastreamento de dependências. Nos builds isolados do Windows, o manifesto inclui a junction `node_modules` inteira; a ausência de uma entrada individual chamada `sharp` era um falso negativo, não prova de dependência ausente. O build publicado instalou **Sharp 0.35.4 para Linux**; o smoke da rota protegida retornou HTTP 401, sem exercitar uma operação autenticada de foto de colaborador.
 
-O worker continua no computador que possui os arquivos. A publicação da interface/API não transfere pastas locais nem cria um observador persistente na Vercel. A troca de endpoint e o encerramento do processo antigo exigem o procedimento de passagem de controle já definido para o runtime.
+O worker continua no computador que possui os arquivos, usando o endpoint local **`http://127.0.0.1:3000`** e o mesmo banco Supabase de produção. A publicação não alterou sua configuração ou seus processos. A interface/API publicada não transfere pastas locais nem cria um observador persistente na Vercel. Uma eventual troca de endpoint exige o procedimento de passagem de controle já definido para o runtime.
+
+Na auditoria operacional de 18/10/2026, foi observado **um reinício inesperado às 05:09:06 BRT**, com recuperação automática em **6,7 segundos** e sem duplicação de worker. Supervisor e servidor permaneceram ativos; às 05:35 BRT havia um único worker e saúde `ready`. A causa não foi determinada. Evidência local: `.monitoring-worker/runtime/events.jsonl`; stdout/stderr dos filhos não são preservados pelo supervisor atual.
 
 ## Limites de transporte
 
@@ -63,6 +67,12 @@ Ficam fora do upload: `.env*`, planilhas RH, `data`, `ACESSOS DEFENSE`, `relogio
 - Smoke desse release, numa porta própria encerrada ao final: saúde válida, login HTTP 200, anexos anônimos HTTP 401 e ingestão de foto sem token HTTP 401. Foram examinados 96 arquivos do cliente contra os 2 segredos configurados, sem ocorrência. Evidência local ignorada: `artifacts/isolated-build/vercel-release-smoke.json`. Nenhum runtime foi promovido ou reiniciado, e nenhuma mutação remota foi feita.
 - Validação sintética PGlite aplicou 32 migrations e passou em repetição, renomeação, retomada parcial, alteração de tamanho de lote, concorrência serializada e fila. Nenhum acesso ao banco remoto.
 - A fixture de expansão usa 2.000 linhas e um CSV abaixo de 4.300.000 bytes; a prévia excedente é recusada antes da RPC. As verificações não aplicam medições nem vínculos reais.
+
+## Evidências da publicação
+
+O smoke de produção em **2026-10-18T08:35:12.372Z** passou nos **dez checks** registrados em `artifacts/complementary-validation/vercel-production-smoke.json`, arquivo local ignorado pelo Git. Foram confirmados saúde e login HTTP 200, redirecionamento da página protegida, bloqueios de anexos/Banco de Horas/fotos/Chamada sem sessão e rejeição de origem inválida. O token de servidor e o acesso Supabase foram exercitados com RPC **somente leitura, `sources: []`**, sem importar dados. A amostra de **12 assets do cliente** não continha os valores dos segredos de servidor conhecidos.
+
+No navegador, o login publicado carregou **duas imagens, sem erros no console**. Isso confirma a página pública e os controles avaliados; **não comprova sessão RH autenticada nem CRUD real na Vercel**, que permanecem sem teste.
 
 ## Referências verificadas
 

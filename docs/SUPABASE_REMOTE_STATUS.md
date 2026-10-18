@@ -1,6 +1,6 @@
 # Supabase remoto — Administrativo CD
 
-> Estado conferido em **18/10/2026: banco de produção ativado e auditado com 32 migrations**, última versão `20261018022234`. As seis migrations complementares foram aplicadas após autorização; dez fingerprints preservados, 384 colaboradores, 356 medições de Banco de Horas e 299 fotos. O runtime local e a tarefa de logon estão ativados e verificados; a publicação Vercel continua pendente. Evidências desta execução: [CRUD_COMPLEMENTAR_VALIDACAO.md](CRUD_COMPLEMENTAR_VALIDACAO.md). O histórico abaixo mantém os números de cada etapa.
+> Estado conferido em **18/10/2026: banco de produção ativado e auditado com 32 migrations**, última versão `20261018022234`. As seis migrations complementares foram aplicadas após autorização; dez fingerprints preservados, 384 colaboradores, 356 medições de Banco de Horas e 299 fotos. Runtime local e tarefa de logon ativados; aplicação **PUBLICADA** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). Sessão RH autenticada e CRUD reais ainda não foram testados na Vercel. Evidências: [CRUD_COMPLEMENTAR_VALIDACAO.md](CRUD_COMPLEMENTAR_VALIDACAO.md). O histórico abaixo mantém os números de cada etapa.
 
 ## Destino autorizado
 
@@ -30,11 +30,15 @@ Manifest, pacote e evidências reais permanecem locais e ignorados pelo Git, em 
 
 A suíte local final passou com **751/751 testes em 93 arquivos**. O build Webpack terminou com **exit 0** na release `validated-i1dOqr`. Essas evidências validam o código local; a aplicação das migrations e a preservação dos dados são comprovadas separadamente pelas auditorias remotas acima.
 
-O projeto Vercel **`administrativo-cd/administrativo-cd-rh` foi criado**, usando `develop` como branch de produção, mas **a publicação ainda não ocorreu**. O segredo de servidor aguarda autorização específica.
+O projeto Vercel **`administrativo-cd/administrativo-cd-rh` está publicado** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app), usando **`develop`** como branch de produção. Deployment **`dpl_9P5sAagmR8oNxjB3Hsb2SnDVGohM`**, commit **`43cb175a463e520ec97063100bf03f04f15a7d2f`**, **Ready em 18/10/2026 às 05:34:49 BRT**. Build de **1 minuto e 54 segundos**, **pnpm 10.28.0** e **Sharp 0.35.4 para Linux**. As seis variáveis de Production, quatro configurações e dois segredos de servidor, foram salvas após autorização específica.
 
-O runtime local foi ativado na release de produção **`validated-i1dOqr`**, restrita a **`127.0.0.1:3000`**. A tarefa de logon **`Administrativo CD - Importador` está `Running`**. A evidência de **2026-10-18T04:21:47.3501283Z** registra supervisor **46284**, servidor **25740** e **um worker**, PID **24256**, após recuperação real do PID **38032 em 10 segundos**. O health respondeu `ready`. Os PIDs são um retrato dessa verificação. Evidência: `artifacts/complementary-validation/runtime-activation.json`, local e ignorada pelo Git.
+Às **2026-10-18T08:35:12.372Z**, os **dez checks** de `artifacts/complementary-validation/vercel-production-smoke.json` passaram, incluindo token de servidor e RPC Supabase somente leitura com `sources: []`. A amostra de **12 assets do cliente** não continha valores dos segredos de servidor conhecidos. O login no navegador carregou **duas imagens, sem erros no console**. **Sessão RH autenticada e CRUD reais na Vercel não foram testados**.
 
-Na interface autenticada, o Quadro apresentou **384 colaboradores** e o Monitoramento carregou sem falha. A primeira página confirmou **15 fotos carregadas e zero quebradas**; as demais imagens com carregamento sob demanda não foram validadas nessa amostra. Essa verificação local é separada da publicação Vercel, ainda pendente.
+O runtime local foi ativado na release de produção **`validated-i1dOqr`**, restrita a **`127.0.0.1:3000`**. A tarefa de logon **`Administrativo CD - Importador` está `Running`**. A evidência de **2026-10-18T04:21:47.3501283Z** registra **um worker**, após teste real de recuperação em **10 segundos**, e health `ready`. Evidência: `artifacts/complementary-validation/runtime-activation.json`, local e ignorada pelo Git. O worker continua usando o endpoint local e o mesmo banco Supabase de produção; configuração e processos não foram alterados pela publicação.
+
+O registro operacional posterior mostrou **um reinício inesperado às 05:09:06 BRT**, recuperado automaticamente em **6,7 segundos**, sem interromper supervisor ou servidor. Às 05:35 BRT havia um único worker e saúde `ready`. A causa não foi determinada; o supervisor atual não preserva stdout/stderr dos filhos. Evidência local: `.monitoring-worker/runtime/events.jsonl`.
+
+Na interface local autenticada, o Quadro apresentou **384 colaboradores** e o Monitoramento carregou sem falha. A primeira página confirmou **15 fotos carregadas e zero quebradas**; as demais imagens com carregamento sob demanda não foram validadas nessa amostra. Essa verificação local é separada dos testes públicos da Vercel.
 
 ## Ativação autorizada em 17/10/2026
 
