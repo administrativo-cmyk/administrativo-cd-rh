@@ -66,6 +66,59 @@ beforeAll(async () => {
 afterAll(async () => { if (db) await db.close(); });
 
 describe("Chamada importada: migration completa em PostgreSQL local", () => {
+  it.each([-60, 480, 481])("horário estimado não presume falta ou folga com saldo %i", async balance => {
+    const f = await fixture(balance);
+    await db.query("update public.monitoring_settings set payload=payload||'{\"estimated\":true,\"weeklyRosterConfirmed\":false}' where target=$1", [f.employeeId]);
+    expect(await f.apply()).toMatchObject({ status: null, state: "blocked" });
+    const evidence = await value<{ blockers: string[] }>("select private.daily_call_evidence($1::uuid,$2::date) as value", [f.employeeId, day]);
+    expect(evidence.blockers).toContain("WEEKLY_ROSTER_UNCONFIRMED");
+    await f.punch();
+    expect(await f.apply()).toMatchObject({ status: "P", origin: "punch" });
+    await f.resolve("I");
+    expect(await f.apply()).toMatchObject({ status: "I", origin: "manual" });
+  });
+  it("horário noturno estimado atribui a saída ao dia anterior sem criar presença no dia seguinte", async () => {
+    const f = await fixture();
+    await db.query("update public.monitoring_settings set payload=payload||'{\"start\":\"22:00\",\"end\":\"06:00\",\"estimated\":true,\"weeklyRosterConfirmed\":false}' where target=$1", [f.employeeId]);
+    const next = await value<string>("select ($1::date+1)::text as value", [day]);
+    await f.punch(`${next}T02:00:00-03:00`);
+    expect(await f.apply()).toMatchObject({ status: "P", origin: "punch" });
+    const following = await value<{ status: string | null; punchIds: string[] }>("select private.daily_call_evidence($1::uuid,$2::date) as value", [f.employeeId, next]);
+    expect(following.status).toBeNull();
+    expect(following.punchIds).toEqual([]);
+  });
+  it("dois relógios da mesma pessoa geram uma presença e preservam limpeza manual", async () => {
+    const f = await fixture();
+    await f.punch();
+    const pisSource = `${f.sourceId}-pis`;
+    await db.query("insert into public.monitoring_sources(id,kind,identity_namespace,configuration) values($1,'afd',$1,'{\"sourceIdentityConfirmed\":true}')", [pisSource]);
+    await db.query("insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by) values($1,'pis','12345678900',$2::uuid,$3::date-30,'Cadastro PIS sintético conferido',$4::uuid)", [pisSource, f.employeeId, day, admin]);
+    await db.query("insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload) values($1,'synthetic-pis',repeat('b',64),'punch','pis','12345678900',$2::timestamptz,'authorized',true,'000000001','{}')", [pisSource, `${day}T09:01:00-03:00`]);
+    expect(await f.apply()).toMatchObject({ status: "P", origin: "punch", changed: true });
+    const evidence = await value<{ punchIds: string[] }>("select private.daily_call_evidence($1::uuid,$2::date) as value", [f.employeeId, day]);
+    expect(evidence.punchIds).toHaveLength(2);
+    expect(await value<number>("select count(*)::integer as value from public.chamada_diaria where colaborador_id=$1::uuid and data=$2::date", [f.employeeId, day])).toBe(1);
+    expect(await f.apply()).toMatchObject({ status: "P", changed: false });
+    await f.resolve(null);
+    expect(await f.apply()).toMatchObject({ status: null, state: "pending_manager" });
+  });
+
+  it.each([["cpf", "12345678909"], ["pis", "12345678900"]] as const)("relógio %s preenche P somente após confirmação da fonte, sem presumir escala ou cobertura", async (kind, identifier) => {
+    const f = await fixture();
+    await f.punch();
+    await db.query("update public.monitoring_bindings set identity_type=$2,identity_value=$3 where source_id=$1", [f.sourceId, kind, identifier]);
+    await db.query("update public.monitoring_events set identity_type=$2,identity_value=$3 where source_id=$1", [f.sourceId, kind, identifier]);
+    await db.query("delete from public.monitoring_settings where kind='schedule' and target=$1", [f.employeeId]);
+    await db.query("update public.monitoring_sources set configuration='{\"sourceIdentityConfirmed\":false}'::jsonb where id=$1", [f.sourceId]);
+    expect(await f.apply()).toMatchObject({ status: null, state: "blocked" });
+
+    await db.query("update public.monitoring_sources set configuration='{\"sourceIdentityConfirmed\":true}'::jsonb where id=$1", [f.sourceId]);
+    expect(await f.apply()).toMatchObject({ status: "P", origin: "punch", changed: true });
+    expect(await f.apply()).toMatchObject({ status: "P", origin: "punch", changed: false });
+    const snapshot = await session("authenticated", admin, () => value<{ employees: Array<{ id: string; attendance: Array<{ origin: string }> }> }>("select public.ler_chamada_diaria($1::date,$1::date,$1::date) as value", [day]));
+    expect(snapshot.employees.find(employee => employee.id === f.employeeId)?.attendance[0]).toMatchObject({ origin: "punch" });
+  });
+
   it.each([[-60, "I"], [0, "I"], [480, "I"], [481, null]])("saldo %i e evidência completa => %s", async (balance, status) => {
     const f = await fixture(balance as number);
     expect(await f.apply()).toMatchObject({ status, state: status ? "automatic_absence" : "pending_manager", origin: status ? "automatic_absence" : null });

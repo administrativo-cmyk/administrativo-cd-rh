@@ -16,6 +16,7 @@ const dayPageSize = 8;
 const originLabels = { punch: "Pelo ponto", automatic_absence: "Falta automática", manual: "Revisão manual" };
 const stateLabels: Record<DailyCallWorkflowRow["state"], string> = { present: "Presença identificada", automatic_absence: "Falta automática", manual: "Lançamento manual preservado", pending_manager: "Aguarda decisão do gestor", blocked: "Conferência necessária", not_expected: "Sem jornada prevista" };
 const blockerLabels: Record<string, string> = {
+  WEEKLY_ROSTER_UNCONFIRMED: "Horário estimado; ciclo de trabalho e folga a confirmar",
   ADMISSION_UNKNOWN: "Data de admissão não confirmada", BEFORE_ADMISSION: "Data anterior à admissão", NOT_ACTIVE: "Colaborador fora da situação ativa",
   SCHEDULE_UNKNOWN: "Escala não cadastrada", DAY_OPEN: "Dia ou jornada ainda em aberto", PUNCH_COVERAGE_UNCONFIRMED: "Cobertura do ponto não confirmada",
   SCHEDULE_OVERLAP: "Escalas com jornadas sobrepostas",

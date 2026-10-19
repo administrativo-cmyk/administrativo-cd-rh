@@ -19,7 +19,21 @@ it("prefills revision fields and preserves all coffee windows during editing", a
   await user.type(screen.getByRole("textbox", { name: "Nome da escala" }), "Escala revisada");
   await user.type(screen.getByRole("textbox", { name: "Justificativa" }), "Conferência sintética da escala");
   await user.click(screen.getByRole("button", { name: "Salvar nova revisão" }));
-  expect(save).toHaveBeenCalledWith(expect.objectContaining({ kind: "schedule", target: employeeId, payload: { ...setting.payload, name: "Escala revisada" } }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ kind: "schedule", target: employeeId, payload: { ...setting.payload, name: "Escala revisada", estimated: false, weeklyRosterConfirmed: true } }));
+});
+it("editing an inferred time preserves the pending roster until explicitly confirmed", async () => {
+  const user = userEvent.setup(); const save = vi.fn().mockResolvedValue(true);
+  const inferred = { ...setting, payload: { ...setting.payload, estimated: true, weeklyRosterConfirmed: false } };
+  render(<SettingsForm employees={snapshot.employees} users={[]} today="2026-10-19" initial={inferred} save={save} />);
+  const confirmation = screen.getByRole("checkbox", { name: "Horários e dias de trabalho/folga confirmados" });
+  expect(confirmation).not.toBeChecked();
+  expect(screen.getByText(/O ciclo de folgas permanece pendente/)).toBeInTheDocument();
+  await user.type(screen.getByRole("textbox", { name: "Justificativa" }), "Revisão do horário estimado");
+  await user.click(screen.getByRole("button", { name: "Salvar nova revisão" }));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ estimated: true, weeklyRosterConfirmed: false }) }));
+  await user.click(confirmation);
+  await user.click(screen.getByRole("button", { name: "Salvar nova revisão" }));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ estimated: false, weeklyRosterConfirmed: true }) }));
 });
 it("restoration sends displayed version and justification", async () => {
   const user = userEvent.setup();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scheduledOn, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
 import { parseLocalTimestamp } from "./ingestion/validation";
 import {
@@ -22,6 +23,7 @@ const canonicalEventSchema = z.object({
 const provenanceSchema = z.object({ fileId: z.string().optional(), row: z.number().int().nonnegative().optional(), sourceId: z.string().optional() });
 const snapshotSchema = z.object({
   version: z.number().int().nonnegative(),
+  punchSourceIds: z.array(z.string()).default([]),
   calendar: z.array(z.object({ date: dateSchema, state: z.enum(["unchanged", "work", "off"]), id: z.string().optional(), name: z.string().optional() })).max(370).default([]).refine(rows => new Set(rows.map(row => row.date)).size === rows.length, "Calendário duplicado"),
   sources: z.array(z.object({ id: z.string(), kind: z.string(), configuration: z.object({ sourceIdentityConfirmed: z.boolean().optional() }).passthrough() })).default([]),
   events: z.array(z.object({
@@ -60,6 +62,8 @@ export interface MonitoringResultSummary {
   groups: string[];
   exclusions: string[];
   scheduleName: string | null;
+  expectedWorkSeconds?: number | null;
+  overtimeSeconds?: number | null;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -84,14 +88,14 @@ function scheduleFor(settings: Setting[], employeeId: string, date: string, cale
   if (calendar.some(day => day.date === date && day.state === "off")) return null;
   const setting = uniqueSetting(settings, "schedule", employeeId, date);
   if (!setting || setting.kind !== "schedule") return null;
-  return setting.payload.days.includes(new Date(`${date}T12:00:00Z`).getUTCDay()) ? setting : null;
+  return scheduledOn(setting.payload, date) ? setting : null;
 }
 function scheduleTimes(setting: ScheduleSetting, date: string): { start: number; end: number } {
   return { start: localInstant(date, setting.payload.start), end: localInstant(setting.payload.end <= setting.payload.start ? shiftDate(date, 1) : date, setting.payload.end) };
 }
 function attributionFor(settings: Setting[], employeeId: string, date: string, calendar: RawSnapshot["calendar"]): ScheduleSetting | null {
   const regular = scheduleFor(settings, employeeId, date, calendar);
-  if (regular || !calendar.some(day => day.date === date && day.state === "off")) return regular;
+  if (regular) return regular;
   const base = uniqueSetting(settings, "schedule", employeeId, date);
   return base?.kind === "schedule" ? base : null;
 }
@@ -172,6 +176,20 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
         provenance: { sourceId: setting.payload.sourceId, origin: "manual", justification: setting.payload.justification },
       });
     }
+    // Full declared collection + an unambiguous alternating sequence is independent
+    // evidence. File min/max and the partial export never establish these boundaries.
+    const linkedSources = snapshot.sources.filter(source => snapshot.punchSourceIds.includes(source.id));
+    const fullCollection = snapshot.punchSourceIds.length > 0 && linkedSources.length === snapshot.punchSourceIds.length && linkedSources.every(source => {
+      const coverage = source.configuration.declaredCoverage as {from?:string;to?:string;continuous?:boolean} | undefined;
+      return source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true && coverage?.continuous === true
+        && Date.parse(coverage.from ?? "") <= window.start && Date.parse(coverage.to ?? "") >= window.end;
+    });
+    const sortedPunches = [...punchEvents].sort((a,b)=>a.at-b.at);
+    const autoBoundaries = !evidenceSetting && scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes === 60 && fullCollection && window.end <= referenceAt
+      && sortedPunches.length >= 4 && sortedPunches.length <= 6 && sortedPunches.length % 2 === 0
+      && sortedPunches.every((p,index)=>index===0 || p.at-sortedPunches[index-1].at >= 120_000)
+      && !selectedEvents.some(event=>event.payload.type==="punch" && event.conflicted && Date.parse(event.payload.timestamp)>=window.start);
+    if (autoBoundaries) { evidence.startConfirmed=true; evidence.endConfirmed=true; evidence.startCoverageConfirmed=true; }
     const mappings: AccessPointMapping[] = active.flatMap((setting) => setting.kind === "mapping" ? [{ ...setting.payload, id: setting.id, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
     const coverage: Coverage[] = active.flatMap((setting) => setting.kind === "coverage" ? [{ ...setting.payload, start: Date.parse(setting.payload.start), end: Date.parse(setting.payload.end) }] : []);
     const groupSnapshots: GroupSnapshot[] = active.flatMap((setting) => setting.kind === "group_snapshot" && setting.target === request.employeeId ? [{ ...setting.payload, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
@@ -190,6 +208,11 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       repetitionPolicy: rule ? { punchWindowMs: rule.punchRepeatSeconds * 1000, accessWindowMs: rule.accessRepeatSeconds * 1000, suppressUntypedPunches: rule.suppressUntypedPunches, version: `${RULE_VERSION}:${ruleSetting!.id}` } : undefined,
     };
     const result = calculateJourney(calculationInput);
+    if (autoBoundaries) result.issues.push({code:"JOURNEY_FROM_DECLARED_COMPLETE_AFD",eventIds:punchEvents.map(p=>p.id),detail:"Sequência alternada em coleta integral declarada dos relógios vinculados."});
+    if (scheduled?.payload.estimated && result.lateness.quality !== "excluded") {
+      result.lateness = { ...result.lateness, quality: "unavailable", totalMs: null, excessMs: null, over15Minutes: null,
+        reason: "Horário estimado pelo ponto; atraso exige escala confirmada." };
+    }
     if (calendar && calendar.state !== "unchanged") result.issues.push({ code: calendar.state === "off" ? "CALENDAR_NON_WORKING_DAY" : "CALENDAR_WORKING_OVERRIDE", eventIds: [], detail: calendar.name });
     const conflictingPunches = selectedEvents.filter((event) => event.payload.type === "punch" && event.conflicted && Date.parse(event.payload.timestamp) >= window.start);
     const unconfirmedSources = punchEvents.filter((event) => !snapshot.sources.some((source) => source.id === event.sourceId && source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true));
@@ -203,7 +226,10 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
         summary: summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null) };
     }
     return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
-      summary: summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null) };
+      summary: { ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
+        expectedWorkSeconds: scheduled?.payload.lunchMinutes !== undefined ? (durationMinutes(scheduled.payload.start, scheduled.payload.end)-scheduled.payload.lunchMinutes)*60 : null,
+        overtimeSeconds: scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes !== undefined && result.journey.status === "complete" && result.workMs !== null
+          ? Math.max(0, result.workMs/1000-(durationMinutes(scheduled.payload.start,scheduled.payload.end)-scheduled.payload.lunchMinutes)*60) : null } };
   });
 }
 

@@ -33,6 +33,30 @@ function snapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("horário estimado não cria atraso mesmo com início e cobertura confirmados", () => {
+    const raw = snapshot();
+    const schedule = raw.settings.find(setting => setting.kind === "schedule")!;
+    schedule.payload = { ...(schedule.payload as object), estimated: true, weeklyRosterConfirmed: false };
+    raw.events[0].payload.timestamp = stamp("08:20");
+    const result = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(result.result.lateness).toMatchObject({ quality: "unavailable", totalMs: null, excessMs: null, over15Minutes: null });
+    expect(result.summary.lateSeconds).toBeNull();
+    expect(result.result.lateness.reason).toContain("Horário estimado");
+  });
+
+  it("coleta completa declarada de todos os relógios permite jornada, atraso e extra sem inventar almoço",()=>{
+    const raw=snapshot() as ReturnType<typeof snapshot>&{punchSourceIds:string[]};raw.punchSourceIds=["rep"];
+    raw.sources=[{id:"rep",kind:"afd",configuration:{sourceIdentityConfirmed:true,declaredCoverage:{from:stamp("00:00","2026-10-01"),to:stamp("00:00","2026-10-13"),continuous:true}}}] as unknown as typeof raw.sources;
+    raw.settings=raw.settings.filter(s=>s.kind!=="evidence");
+    const schedule=raw.settings.find(s=>s.kind==='schedule')!;schedule.payload={...(schedule.payload as object),lunchMinutes:60,estimated:false,weeklyRosterConfirmed:true};
+    const result=reprocessMonitoringSnapshot(raw,request,reference)[0];expect(result.result.journey.status).toBe("complete");expect(result.summary.overtimeSeconds).toBe(0);expect(result.summary.expectedWorkSeconds).toBe(8*3600);
+    expect(result.result.issues.some(i=>i.code==='JOURNEY_FROM_DECLARED_COMPLETE_AFD')).toBe(true);
+    raw.events.find(e=>e.id==="p1")!.payload.timestamp=stamp("08:20");raw.events.find(e=>e.id==="p4")!.payload.timestamp=stamp("18:20");
+    const extra=reprocessMonitoringSnapshot(raw,request,reference)[0];expect(extra.summary.lateSeconds).toBe(20*60);expect(extra.summary.overtimeSeconds).toBe(60*60);
+    raw.punchSourceIds.push("missing-clock");expect(reprocessMonitoringSnapshot(raw,request,reference)[0].summary.workedSeconds).toBeNull();
+    raw.punchSourceIds=["rep"];raw.sources[0].configuration={sourceIdentityConfirmed:true,declaredCoverage:{from:stamp("00:00"),to:stamp("12:00"),continuous:true}} as typeof raw.sources[0]['configuration'];
+    expect(reprocessMonitoringSnapshot(raw,request,reference)[0].summary.overtimeSeconds).toBeNull();
+  });
   it("converte snapshot confirmado em resultado e resumo coerentes", () => {
     const result = reprocessMonitoringSnapshot(snapshot(), request, reference)[0];
     expect(result.version).toBe(4);

@@ -176,4 +176,62 @@ describe("catálogos e planejamento reais em banco isolado", () => {
     const renamed=await rpc("save",{id:row.id,expectedUpdatedAt:row.updatedAt,kind:"calendar",name:"Nome corrigido",scope:"manager",target:team,validFrom:"2026-10-01",validTo:"2026-10-01",payload:{working:false},reason:"Correção apenas textual"});
     expect((renamed.record as {memberCount:number}).memberCount).toBe(2);await db.exec("reset role");expect((await db.query<{state:string}>("select private.calendar_resolution($1::uuid,'2026-10-01')->>'state' state",[person])).rows[0].state).toBe("off");
   });
+  async function employeeSchedule(action: string, data: unknown) { return guarded(async () => (await db.query<{ value: Record<string,unknown> }>("select public.employee_schedule($1,$2::jsonb) value", [action,JSON.stringify(data)])).rows[0].value); }
+  const defaultPayload = {name:"Padrão conferido",start:"08:00",end:"18:00",days:[1,2,3,4,5],lunchMinutes:60,weeklyRosterConfirmed:true,estimated:false,allowNoBreak:false,pairing:"alternating",coffeeWindows:[]};
+  async function saveDefault(who=person,from="2026-10-01",payload:Record<string,unknown>=defaultPayload) {
+    const current=await employeeSchedule("get",{employeeId:who,date:from});
+    return employeeSchedule("save",{employeeId:who,date:from,validFrom:from,expectedVersion:current.version,payload,reason:"Alteração sintética do horário"});
+  }
+  it("encarregado altera própria equipe e notifica exclusivamente ADMIN/RH, com auditoria",async()=>{
+    await actor(manager);const result=await saveDefault();expect(result.canEdit).toBe(true);
+    await db.exec("reset role");
+    const notices=(await db.query<{role:string;body:string}>("select audience_role::text role,body from private.workspace_notices order by audience_role")).rows;
+    expect(notices.map(n=>n.role).sort()).toEqual(["ADMIN","RH"]);expect(notices.every(n=>n.body.includes("08:00–18:00")&&n.body.includes("Alteração sintética"))).toBe(true);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='employee_default_schedule'")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from private.workspace_notifications($1,'GESTOR',$2) where key like 'notice:%'",[manager,team])).rows[0].n).toBe(0);
+  });
+  it("nega outra equipe e leitura; transferência invalida versão, replay não duplica aviso",async()=>{
+    await actor(manager);const current=await employeeSchedule("get",{employeeId:person,date:"2026-10-01"});
+    const input={employeeId:person,date:"2026-10-01",validFrom:"2026-10-01",expectedVersion:current.version,payload:defaultPayload,reason:"Alteração sintética do horário"};
+    await employeeSchedule("save",input);await expect(employeeSchedule("save",input)).rejects.toThrow("STALE");
+    await db.exec(`reset role;update public.colaboradores set gestor_id=null where id='${person2}'`);await actor(manager);
+    await expect(employeeSchedule("get",{employeeId:person2,date:"2026-10-01"})).rejects.toThrow("FORBIDDEN");
+    await actor(reader);const read=await employeeSchedule("get",{employeeId:person,date:"2026-10-01"});expect(read.canEdit).toBe(false);await expect(saveDefault()).rejects.toThrow("FORBIDDEN");
+    await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from private.workspace_notices")).rows[0].n).toBe(2);
+  });
+  it("mudança com vigência preserva horário anterior e marca resultados para reapurar",async()=>{
+    await saveDefault();await saveDefault(person,"2026-10-08",{...defaultPayload,start:"09:00",end:"19:00"});
+    const old=await employeeSchedule("get",{employeeId:person,date:"2026-10-07"});const next=await employeeSchedule("get",{employeeId:person,date:"2026-10-08"});
+    expect((old.setting as {payload:typeof defaultPayload}).payload.start).toBe("08:00");expect((next.setting as {payload:typeof defaultPayload}).payload.start).toBe("09:00");
+    await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_settings where kind='schedule' and target=$1 and revoked_at is null",[person])).rows[0].n).toBe(2);
+  });
+  it("12x36 materializa plantão/folga e mantém SQL e motor no mesmo ciclo",async()=>{
+    await saveDefault(person,"2026-10-01",{...defaultPayload,start:"19:00",end:"07:00",days:[0,1,2,3,4,5,6],cycle:{kind:"12x36",anchorDate:"2026-10-01"}} as typeof defaultPayload);
+    await db.exec("reset role");
+    const evidence=(await db.query<{date:string;expected:boolean}>("select d::date::text date,(private.daily_call_evidence($1::uuid,d::date)->>'expected')::boolean expected from generate_series('2026-10-01'::date,'2026-10-03'::date,interval '1 day') d",[person])).rows;
+    expect(evidence.map(e=>e.expected)).toEqual([true,false,true]);
+    const snapshot=(await db.query<{value:{settings:Array<{kind:string;valid_from:string;payload:{days:number[]}}>}}>("select private.monitoring_input($1::uuid,'2026-10-01','2026-10-03') value",[person])).rows[0].value;
+    expect(snapshot.settings.filter(s=>s.kind==='schedule'&&s.valid_from==='2026-10-02')[0].payload.days).toEqual([]);
+    expect(()=>reprocessMonitoringSnapshot(snapshot,{employeeId:person,start:"2026-10-01",end:"2026-10-03",reason:"Ciclo 12x36 real"},Date.parse("2026-10-19T00:00:00Z"))).not.toThrow();
+  });
+  it("valida almoço e ciclo também no RPC, sem depender da tela",async()=>{
+    await expect(saveDefault(person,"2026-10-01",{...defaultPayload,lunchMinutes:0})).rejects.toThrow("INVALID");
+    await expect(saveDefault(person,"2026-10-01",{...defaultPayload,weeklyRosterConfirmed:false,cycle:{kind:"12x36",anchorDate:"2026-10-01"}} as typeof defaultPayload)).rejects.toThrow("INVALID");
+    await actor();await saveDefault();await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from private.workspace_notices")).rows[0].n).toBe(0);
+  });
+
+  it("folga noturna mensal fica pendente até escolher o domingo; sábado permanece folga",async()=>{
+    const payload={...defaultPayload,start:"22:00",end:"06:20",days:[0,1,2,3,4,5],monthlySundayOff:true,monthlySundayOffDates:[]};
+    await saveDefault(person,"2026-10-01",payload);
+    await db.exec("reset role");
+    const check=async(d:string)=>(await db.query<{value:Record<string,unknown>}>("select private.daily_call_evidence($1::uuid,$2::date) value",[person,d])).rows[0].value;
+    expect(await check("2026-10-03")).toMatchObject({expected:false,state:"not_expected"});
+    expect((await check("2026-10-04")).blockers).toContain("WEEKLY_ROSTER_UNCONFIRMED");
+    const raw=(await db.query<{value:unknown}>("select private.monitoring_input($1::uuid,'2026-10-03','2026-10-04') value",[person])).rows[0].value;
+    expect(()=>reprocessMonitoringSnapshot(raw,{employeeId:person,start:"2026-10-03",end:"2026-10-04",reason:"Folga mensal pendente"},Date.parse("2026-10-19T00:00:00Z"))).not.toThrow();
+    await actor();await saveDefault(person,"2026-10-01",{...payload,monthlySundayOffDates:["2026-10-04"]});await db.exec("reset role");
+    expect(await check("2026-10-04")).toMatchObject({expected:false,state:"not_expected"});
+    expect((await check("2026-10-11")).blockers).not.toContain("WEEKLY_ROSTER_UNCONFIRMED");
+  });
+
 });
