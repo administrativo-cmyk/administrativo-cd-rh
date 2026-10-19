@@ -1,10 +1,10 @@
 # Publicação na Vercel
 
-Estado atual: **PUBLICADO** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). O projeto `administrativo-cd/administrativo-cd-rh` usa `develop` como branch de produção. A atualização da importação pela nuvem, commit **`ad9b8fe`**, está **Ready** no deployment **`8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`**. **849 testes e build passaram**; o upload real ainda aguarda teste.
+Estado atual: **PUBLICADO** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). O projeto `administrativo-cd/administrativo-cd-rh` usa `develop` como branch de produção. A atualização da importação pela nuvem, commit **`ad9b8fe`**, está **Ready** no deployment **`8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`**. **849 testes e build passaram** antes da publicação; **um AFD legado real foi enviado e processado de ponta a ponta em produção**.
 
 Registro da publicação inicial em 18/10/2026: deployment `dpl_9P5sAagmR8oNxjB3Hsb2SnDVGohM`, commit `43cb175a463e520ec97063100bf03f04f15a7d2f`, **Ready às 05:34:49 BRT**, build de **1 minuto e 54 segundos**, **pnpm 10.28.0** e **Sharp 0.35.4 para Linux**.
 
-As seis variáveis foram salvas em Production após autorização: quatro configurações (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`) e dois segredos de servidor (`MONITORING_SUPABASE_SERVICE_ROLE_KEY` e `MONITORING_INGEST_TOKEN`). Nenhum valor privado aparece neste documento. A sessão ADMIN foi validada para consulta das fontes e da prontidão da importação; **o upload real e as operações reais de CRUD não foram validados por essa consulta**.
+As seis variáveis foram salvas em Production após autorização: quatro configurações (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`) e dois segredos de servidor (`MONITORING_SUPABASE_SERVICE_ROLE_KEY` e `MONITORING_INGEST_TOKEN`). Nenhum valor privado aparece neste documento. A sessão ADMIN foi validada para consulta das fontes e prontidão; a importação real de AFD legado foi verificada separadamente. **Outras operações reais de CRUD não foram abrangidas por esse teste.**
 
 ## Ambiente mínimo
 
@@ -35,11 +35,17 @@ O worker continua no computador que possui os arquivos, usando o endpoint local 
 
 Na auditoria operacional de 18/10/2026, foi observado **um reinício inesperado às 05:09:06 BRT**, com recuperação automática em **6,7 segundos** e sem duplicação de worker. Supervisor e servidor permaneceram ativos; às 05:35 BRT havia um único worker e saúde `ready`. A causa não foi determinada. Evidência local: `.monitoring-worker/runtime/events.jsonl`; stdout/stderr dos filhos não são preservados pelo supervisor atual.
 
-### Importação pela nuvem — ativada, teste real pendente
+### Importação pela nuvem — AFD legado validado em produção
 
 A atualização publicada acrescenta upload manual de AFD `.txt` e Defense `.xlsx` em **Monitoramento > Importação**, com originais de até **20 MiB** enviados diretamente ao Storage privado. A migration da fila/bucket foi aplicada no Supabase autorizado `kqgtnucqxqqgwdyvhvdd`, totalizando **33 migrations**. Foi conferida **uma única tarefa Cron ativa a cada minuto**. Rodadas Node.js na Vercel usam orçamento de 230 segundos, dentro do máximo de 300 segundos. Reutiliza as variáveis existentes, sem novo segredo de ambiente. Há limite acumulado de **500 MiB** para originais e reservas: objetos armazenados continuam contando após conclusão/cancelamento, sem expurgo automático; reservas falhas ou canceladas sem objeto podem ser liberadas após três horas.
 
-A sessão autenticada ADMIN confirmou **quatro fontes e `automationReady: true`**, liberando o formulário. Saúde e login responderam HTTP 200; `/api/monitoring/cloud/run` respondeu HTTP 401 sem credencial. **O upload real e sua conclusão de ponta a ponta continuam pendentes**, aguardando o primeiro envio real validado. O importador local permanece em uso; nenhuma configuração ou processo foi desligado. O responsável também deve rever o enquadramento comercial do plano Vercel: [Hobby destina-se a uso pessoal e não comercial](https://vercel.com/docs/plans/hobby). Nenhum upgrade ou cobrança foi autorizado por esta implementação. Procedimento, restrições e retenção: [IMPORTACAO_NUVEM.md](IMPORTACAO_NUVEM.md).
+A sessão autenticada ADMIN confirmou **quatro fontes e `automationReady: true`**, liberando o formulário. Saúde e login responderam HTTP 200; `/api/monitoring/cloud/run` respondeu HTTP 401 sem credencial. O recebimento de **AFD legado real** foi confirmado em **18/10/2026 às 23:16:26 BRT**; a navegação seguiu para Dashboards antes do Cron. O disparo ocorreu às **23:17:00 BRT** e o job concluiu às **23:17:03.274 BRT**, com **668/668 linhas, 2/2 lotes, uma tentativa, erro nulo, um original armazenado e HTTP 200 sem timeout**.
+
+Foi reenviado um AFD legado já importado para validar idempotência; nenhum dado novo foi introduzido neste ensaio.
+
+A evidência `artifacts/cloud-validation/live-after.json` preservou as sete contagens canônicas, todas com delta zero: **45.266 eventos, 45.717 ocorrências, quatro arquivos, 353 pessoas de origem, 299 fotos, 325 vínculos e 384 colaboradores**. **AFD ISO e Defense foram cobertos por testes locais, sem ensaio real de produção nesta etapa.** O computador não foi desligado no teste; o runtime local permaneceu intacto.
+
+O responsável deve rever o enquadramento comercial do plano Vercel: [Hobby destina-se a uso pessoal e não comercial](https://vercel.com/docs/plans/hobby). Nenhum upgrade ou cobrança foi autorizado por esta implementação. Procedimento, restrições e retenção: [IMPORTACAO_NUVEM.md](IMPORTACAO_NUVEM.md).
 
 ## Limites de transporte
 

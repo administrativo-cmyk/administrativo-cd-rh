@@ -1,8 +1,16 @@
 # Fila de importação pela nuvem
 
-**Estado atual: publicado e ativado, com teste real de upload pendente.** O commit `ad9b8fe` está publicado na Vercel, deployment `8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`, estado **Ready**. A migration `20261019012323_monitoring_cloud_upload_jobs.sql` foi aplicada no projeto autorizado `kqgtnucqxqqgwdyvhvdd`: **33 migrations no total**, bucket privado com limite de **20 MiB** e **uma única tarefa Cron ativa a cada minuto**.
+**Estado atual: publicado, ativado e validado de ponta a ponta com AFD legado real.** O commit `ad9b8fe` está publicado na Vercel, deployment `8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`, estado **Ready**. A migration `20261019012323_monitoring_cloud_upload_jobs.sql` foi aplicada no projeto autorizado `kqgtnucqxqqgwdyvhvdd`: **33 migrations no total**, bucket privado com limite de **20 MiB** e **uma única tarefa Cron ativa a cada minuto**.
 
-A consulta autenticada ADMIN mostrou **quatro fontes e `automationReady: true`**. Smoke público: saúde/login HTTP 200 e `/api/monitoring/cloud/run` HTTP 401 sem credencial. **849 testes e build passaram.** A validação aguarda o primeiro envio real. A execução completa de um arquivo real pelo runner e sua conclusão no histórico **não estão comprovadas**.
+A consulta autenticada ADMIN mostrou **quatro fontes e `automationReady: true`**. Smoke público: saúde/login HTTP 200 e `/api/monitoring/cloud/run` HTTP 401 sem credencial. **849 testes e build passaram** antes da publicação. **AFD ISO e Defense têm cobertura por testes locais; a validação real de produção desta etapa usou somente AFD legado.**
+
+## Evidência real de produção
+
+Em **18/10/2026, horário de Brasília**, a interface confirmou recebimento às **23:16:26**. A navegação saiu da Importação para Dashboards antes do disparo. O Cron iniciou às **23:17:00**; o runner concluiu às **23:17:03.274**, com HTTP **200**, sem timeout. A auditoria registrou **um job, concluído em uma tentativa**, **668 linhas processadas de 668**, **dois lotes de dois**, erro nulo, lease encerrado e **um original no Storage**.
+
+Foi reenviado um AFD legado já importado para validar idempotência; nenhum dado novo foi introduzido neste ensaio.
+
+As sete contagens canônicas preservaram a base anterior, todas com **delta zero**: eventos **45.266**, ocorrências **45.717**, arquivos **4**, pessoas de origem **353**, fotos **299**, vínculos **325** e colaboradores **384**. Evidência: `artifacts/cloud-validation/live-after.json`, local e ignorada pelo Git. Não houve necessidade de manter a tela de Importação aberta. O computador não foi desligado no ensaio e o runtime local permaneceu intacto.
 
 ## Arquivos e limites
 
