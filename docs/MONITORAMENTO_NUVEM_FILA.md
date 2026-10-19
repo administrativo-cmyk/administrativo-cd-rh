@@ -1,11 +1,13 @@
 # Fila de importação pela nuvem
 
-Implementação local de 18/10/2026. Esta frente não aplicou SQL remoto, não ativou o Cron e não publicou a aplicação.
+**Estado atual: publicado e ativado, com teste real de upload pendente.** O commit `ad9b8fe` está publicado na Vercel, deployment `8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`, estado **Ready**. A migration `20261019012323_monitoring_cloud_upload_jobs.sql` foi aplicada no projeto autorizado `kqgtnucqxqqgwdyvhvdd`: **33 migrations no total**, bucket privado com limite de **20 MiB** e **uma única tarefa Cron ativa a cada minuto**.
+
+A consulta autenticada ADMIN mostrou **quatro fontes e `automationReady: true`**. Smoke público: saúde/login HTTP 200 e `/api/monitoring/cloud/run` HTTP 401 sem credencial. **849 testes e build passaram.** A validação aguarda o primeiro envio real. A execução completa de um arquivo real pelo runner e sua conclusão no histórico **não estão comprovadas**.
 
 ## Arquivos e limites
 
 - Migration nova, gerada pelo CLI: `20261019012323_monitoring_cloud_upload_jobs.sql`.
-- Ativação separada: `supabase/cloud-monitoring-cron.sql`, exclusivamente após o endpoint publicado e validado.
+- Ativação separada aplicada: `supabase/cloud-monitoring-cron.sql`; a tarefa única ativa foi conferida após publicação do endpoint.
 - Bucket privado: `monitoramento-originais`, limite de 20 MiB por objeto. Upload usa token assinado emitido pelo servidor para caminho opaco específico; não passa os bytes pela função Vercel.
 - Até 10 envios ativos por usuário e 100 globalmente. Reserva e originais armazenados têm teto de 500 MiB. O cálculo considera o maior valor entre tamanho declarado e tamanho registrado pelo Storage.
 - Envios cancelados ou falhos sem objeto mantêm a reserva por três horas, cobrindo a validade de duas horas dos tokens de upload e uma margem. Após esse período, reservas vazias deixam de ocupar capacidade. Objetos realmente existentes continuam contabilizados, independentemente do estado do job.
@@ -56,7 +58,7 @@ O banco emite uma capacidade aleatória de 256 bits, guarda apenas SHA-256 e exi
 
 O schema `net` deve permanecer fora dos schemas expostos pela Data API. No Supabase gerenciado, seus objetos e grants pertencem a `supabase_admin`; executar `REVOKE` como `postgres` não remove esses grants. A documentação também alerta que remover os grants PUBLIC das tabelas interrompe o acesso usado pelo próprio pg_net. Portanto, o script não apresenta revogações ineficazes como garantia de isolamento. A segurança não depende do sigilo do cabeçalho na fila HTTP. [Restrição oficial de permissões](https://supabase.com/docs/guides/troubleshooting/revoking-access-to-pg_net-objects-has-no-effect-0bbc16).
 
-`pg_net` aguarda até 240 segundos; runner tem orçamento menor que o limite Vercel. Antes da ativação, conferir a versão/configuração efetiva de `pg_net` e distinguir sucesso SQL do Cron de resposta HTTP concluída. A fila de negócio é persistente; não depende da durabilidade da fila HTTP de `pg_net`.
+`pg_net` aguarda até 240 segundos; runner tem orçamento menor que o limite Vercel. Na validação operacional, distinguir sucesso SQL do Cron de resposta HTTP concluída: a configuração ativa, isoladamente, não prova processamento bem-sucedido. A fila de negócio é persistente; não depende da durabilidade da fila HTTP de `pg_net`.
 
 Recálculos usam a fila existente. Vínculos revogados e fontes desativadas também podem precisar invalidar resultados antigos; o gatilho considera esses casos. A API deve usar a allowlist de fontes também para recálculo, incluindo fontes desativadas nessa operação de invalidação. Desativação continua impedindo nova importação.
 

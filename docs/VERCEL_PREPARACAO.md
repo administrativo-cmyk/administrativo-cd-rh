@@ -1,8 +1,10 @@
 # Publicação na Vercel
 
-Estado em 18/10/2026: **PUBLICADO** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). O projeto `administrativo-cd/administrativo-cd-rh` usa `develop` como branch de produção. O deployment `dpl_9P5sAagmR8oNxjB3Hsb2SnDVGohM`, commit `43cb175a463e520ec97063100bf03f04f15a7d2f`, ficou **Ready às 05:34:49 BRT**. O build levou **1 minuto e 54 segundos**, com **pnpm 10.28.0** e **Sharp 0.35.4 para Linux**.
+Estado atual: **PUBLICADO** em [administrativo-cd-rh.vercel.app](https://administrativo-cd-rh.vercel.app). O projeto `administrativo-cd/administrativo-cd-rh` usa `develop` como branch de produção. A atualização da importação pela nuvem, commit **`ad9b8fe`**, está **Ready** no deployment **`8nW5dZ6FMMpc4ZiR7QmLzwh52HpB`**. **849 testes e build passaram**; o upload real ainda aguarda teste.
 
-As seis variáveis foram salvas em Production após autorização: quatro configurações (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`) e dois segredos de servidor (`MONITORING_SUPABASE_SERVICE_ROLE_KEY` e `MONITORING_INGEST_TOKEN`). Nenhum valor privado aparece neste documento. Sessão RH autenticada e operações reais de CRUD **ainda não foram testadas na Vercel**.
+Registro da publicação inicial em 18/10/2026: deployment `dpl_9P5sAagmR8oNxjB3Hsb2SnDVGohM`, commit `43cb175a463e520ec97063100bf03f04f15a7d2f`, **Ready às 05:34:49 BRT**, build de **1 minuto e 54 segundos**, **pnpm 10.28.0** e **Sharp 0.35.4 para Linux**.
+
+As seis variáveis foram salvas em Production após autorização: quatro configurações (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `APP_ORIGIN` e `MONITORING_INGEST_SOURCE_IDS`) e dois segredos de servidor (`MONITORING_SUPABASE_SERVICE_ROLE_KEY` e `MONITORING_INGEST_TOKEN`). Nenhum valor privado aparece neste documento. A sessão ADMIN foi validada para consulta das fontes e da prontidão da importação; **o upload real e as operações reais de CRUD não foram validados por essa consulta**.
 
 ## Ambiente mínimo
 
@@ -33,11 +35,11 @@ O worker continua no computador que possui os arquivos, usando o endpoint local 
 
 Na auditoria operacional de 18/10/2026, foi observado **um reinício inesperado às 05:09:06 BRT**, com recuperação automática em **6,7 segundos** e sem duplicação de worker. Supervisor e servidor permaneceram ativos; às 05:35 BRT havia um único worker e saúde `ready`. A causa não foi determinada. Evidência local: `.monitoring-worker/runtime/events.jsonl`; stdout/stderr dos filhos não são preservados pelo supervisor atual.
 
-### Novo fluxo de importação pela nuvem — ativação pendente
+### Importação pela nuvem — ativada, teste real pendente
 
-A implementação local acrescenta upload manual de AFD `.txt` e Defense `.xlsx` em **Monitoramento > Importação**, com originais de até **20 MiB** enviados diretamente ao Storage privado. Após confirmação do recebimento, o processamento poderá continuar sem o computador: Supabase Cron a cada minuto e rodadas Node.js na Vercel com orçamento de 230 segundos, dentro do máximo de 300 segundos. Reutiliza as variáveis existentes, sem novo segredo de ambiente. Há limite acumulado de **500 MiB** para originais e reservas: objetos armazenados continuam contando após conclusão/cancelamento, sem expurgo automático; reservas falhas ou canceladas sem objeto podem ser liberadas após três horas. Novos uploads permanecem bloqueados até o servidor confirmar `automationReady: true`.
+A atualização publicada acrescenta upload manual de AFD `.txt` e Defense `.xlsx` em **Monitoramento > Importação**, com originais de até **20 MiB** enviados diretamente ao Storage privado. A migration da fila/bucket foi aplicada no Supabase autorizado `kqgtnucqxqqgwdyvhvdd`, totalizando **33 migrations**. Foi conferida **uma única tarefa Cron ativa a cada minuto**. Rodadas Node.js na Vercel usam orçamento de 230 segundos, dentro do máximo de 300 segundos. Reutiliza as variáveis existentes, sem novo segredo de ambiente. Há limite acumulado de **500 MiB** para originais e reservas: objetos armazenados continuam contando após conclusão/cancelamento, sem expurgo automático; reservas falhas ou canceladas sem objeto podem ser liberadas após três horas.
 
-**Este fluxo ainda não está publicado nem ativado em produção.** O importador local permanece em uso; nenhuma configuração ou processo foi desligado. A ativação e o teste autenticado de ponta a ponta continuam pendentes. O responsável também deve rever o enquadramento comercial do plano Vercel: [Hobby destina-se a uso pessoal e não comercial](https://vercel.com/docs/plans/hobby). Nenhum upgrade ou cobrança foi autorizado por esta implementação. Procedimento, restrições e retenção: [IMPORTACAO_NUVEM.md](IMPORTACAO_NUVEM.md).
+A sessão autenticada ADMIN confirmou **quatro fontes e `automationReady: true`**, liberando o formulário. Saúde e login responderam HTTP 200; `/api/monitoring/cloud/run` respondeu HTTP 401 sem credencial. **O upload real e sua conclusão de ponta a ponta continuam pendentes**, aguardando o primeiro envio real validado. O importador local permanece em uso; nenhuma configuração ou processo foi desligado. O responsável também deve rever o enquadramento comercial do plano Vercel: [Hobby destina-se a uso pessoal e não comercial](https://vercel.com/docs/plans/hobby). Nenhum upgrade ou cobrança foi autorizado por esta implementação. Procedimento, restrições e retenção: [IMPORTACAO_NUVEM.md](IMPORTACAO_NUVEM.md).
 
 ## Limites de transporte
 
@@ -74,7 +76,7 @@ Ficam fora do upload: `.env*`, planilhas RH, `data`, `ACESSOS DEFENSE`, `relogio
 - Validação sintética PGlite aplicou 32 migrations e passou em repetição, renomeação, retomada parcial, alteração de tamanho de lote, concorrência serializada e fila. Nenhum acesso ao banco remoto.
 - A fixture de expansão usa 2.000 linhas e um CSV abaixo de 4.300.000 bytes; a prévia excedente é recusada antes da RPC. As verificações não aplicam medições nem vínculos reais.
 
-## Evidências da publicação
+## Evidências da publicação inicial
 
 O smoke de produção em **2026-10-18T08:35:12.372Z** passou nos **dez checks** registrados em `artifacts/complementary-validation/vercel-production-smoke.json`, arquivo local ignorado pelo Git. Foram confirmados saúde e login HTTP 200, redirecionamento da página protegida, bloqueios de anexos/Banco de Horas/fotos/Chamada sem sessão e rejeição de origem inválida. O token de servidor e o acesso Supabase foram exercitados com RPC **somente leitura, `sources: []`**, sem importar dados. A amostra de **12 assets do cliente** não continha os valores dos segredos de servidor conhecidos.
 
