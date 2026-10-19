@@ -1,4 +1,6 @@
 export const issueLabels: Record<string, string> = {
+  ACCESS_SEQUENCE_ALIGNED: "Divergência de até 5 minutos conciliada somente na sequência analítica; horários originais preservados",
+  ACCESS_SEQUENCE_REVIEW_REQUIRED: "Sequência entre ponto e torniquete exige revisão; nenhum horário foi ajustado",
   JOURNEY_FROM_DECLARED_COMPLETE_AFD: "Jornada apurada por sequência alternada em coleta integral declarada dos relógios vinculados.",
   COFFEE_WINDOWS_NOT_CONFIGURED: "Janela de café não cadastrada.",
   INCOMPLETE_AREA_MAPPING: "Faltam leitores validados de entrada ou saída da área.",

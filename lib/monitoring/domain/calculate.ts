@@ -2,6 +2,7 @@ import { isEffective, resolveEligibility } from "./eligibility";
 import { DEFAULT_REPETITION_POLICY, prepareAccess, preparePunches, RULE_VERSION, type MappedAccess } from "./events";
 import { assertInstant, assertInterval, assertOperationalDate, durationMs, intersectIntervals, normalizeIntervals, operationalDateAt } from "./intervals";
 import { reconstructJourney } from "./journeys";
+import { reconcileAccessSequence } from "./access-sequence";
 import { AREAS, locationTimeline, pairedAreaIntervals, stateIntervals } from "./location";
 import type { Eligibility, Indicator, Interval, JourneyCalculation, JourneyCalculationInput, Lateness, Metric, PairedVisit } from "./types";
 
@@ -59,6 +60,8 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
     journey.provisionalWork = [];
     journey.issues.push({ code: "PUNCH_REPETITION_REVIEW_REQUIRED", eventIds: preparedPunches.issues.flatMap((issue) => issue.eventIds) });
   }
+  const reconciled = reconcileAccessSequence(preparedAccess.events, preparedPunches.events, journey);
+  preparedAccess.events = reconciled.events;
   const workMs = journey.work.length ? durationMs(journey.work) : journey.status === "complete" ? 0 : null;
   if (journey.work.some((interval) => interval.start < input.observationWindow.start || interval.end > input.observationWindow.end)) throw new Error("WORK_OUTSIDE_OBSERVATION_WINDOW");
   const initialReferenceAt = journey.firstEntry ?? input.schedule?.expectedStart ?? input.observationWindow.start;
@@ -115,12 +118,13 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
   const observedCafeteriaOutside = stateIntervals(location.intervals, "cafeteria", "outside", [input.observationWindow]);
   const observedKnown = durationMs([...cafeteriaPairs.pairs, ...observedCafeteriaOutside]);
   const issues = [...preparedPunches.issues, ...preparedAccess.issues, ...journey.issues, ...location.issues, ...cafeteriaPairs.issues, ...perimeterPairs.issues];
+  for (const finding of reconciled.sequence.findings) issues.push({code: finding.reason === "aligned" ? "ACCESS_SEQUENCE_ALIGNED" : "ACCESS_SEQUENCE_REVIEW_REQUIRED", eventIds: [finding.eventId, finding.punchEventId]});
   for (const area of incompleteAreas) issues.push({ code: "INCOMPLETE_AREA_MAPPING", eventIds: [], detail: `Mapa incompleto de entrada/saída: ${area}` });
   if (knownOperation < (workMs ?? 0)) issues.push({ code: "OPERATION_LOCATION_UNKNOWN", eventIds: [] });
   if (!input.schedule) issues.push({ code: "SCHEDULE_MISSING", eventIds: [] });
   if (!input.coffeeWindows?.length) issues.push({ code: "COFFEE_WINDOWS_NOT_CONFIGURED", eventIds: [] });
   return {
-    personId: input.personId, operationalDate: input.operationalDate, ruleVersion: RULE_VERSION, timezone: "America/Sao_Paulo",
+    personId: input.personId, operationalDate: input.operationalDate, ruleVersion: RULE_VERSION, timezone: "America/Sao_Paulo", accessSequence: reconciled.sequence,
     journey, workMs, restMs: durationMs(journey.rest), location: location.intervals, insideOperationMs: durationMs(insideOperation),
     outsideOperation: metric(outsideOperation, knownOperation, workMs, eligibility("outsideOperation"), completeJourney),
     cafeteria: cafeteriaMetric,

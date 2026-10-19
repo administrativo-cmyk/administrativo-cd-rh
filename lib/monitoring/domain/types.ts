@@ -180,4 +180,23 @@ export interface JourneyCalculation {
   lateness: Lateness;
   suppressions: Suppression[];
   issues: Issue[];
+  /** Analytical ordering only. Device timestamps and payroll punches stay unchanged. */
+  accessSequence?: AccessSequence;
+}
+
+export interface AccessSequenceFinding {
+  eventId: string;
+  punchEventId: string;
+  pointId: string;
+  direction: "entry" | "exit";
+  role: "start" | "breakStart" | "breakEnd" | "end";
+  originalAt: Instant;
+  punchAt: Instant;
+  analyticalAt: Instant | null;
+  differenceMs: number;
+  reason: "aligned" | "outsideTolerance" | "ambiguous" | "journeyUnconfirmed" | "manualAccess";
+}
+export interface AccessSequence {
+  toleranceMs: number;
+  findings: AccessSequenceFinding[];
 }

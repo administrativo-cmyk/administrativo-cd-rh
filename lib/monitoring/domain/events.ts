@@ -2,7 +2,7 @@ import { isEffective } from "./eligibility";
 import { assertInstant } from "./intervals";
 import type { AccessEvent, AccessPointMapping, Area, Issue, LocationState, PunchEvent, RepetitionPolicy, Suppression } from "./types";
 
-export const RULE_VERSION = "monitoring-1.2.0";
+export const RULE_VERSION = "monitoring-1.3.0";
 export const DEFAULT_REPETITION_POLICY: RepetitionPolicy = {
   version: "repetition-1.0.0", punchWindowMs: 60_000, accessWindowMs: 10_000, suppressUntypedPunches: false,
 };
