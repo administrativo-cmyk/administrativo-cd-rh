@@ -5,10 +5,11 @@ import type { AfdProfile, CanonicalImportEvent, EventClassification, ImportOccur
 
 const VERSION = "monitoring-import/1.0.0";
 /** Frozen by the server when a cloud job is created; never supplied by a browser. */
-export function ingestionParserVersion(source: Pick<IngestionSource, "kind" | "afdProfile">): string {
+export function ingestionParserVersion(source: Pick<IngestionSource, "kind" | "afdProfile" | "afdIdentityType">): string {
   if (source.kind === "afd") {
     if (source.afdProfile !== "legacy" && source.afdProfile !== "iso") throw new ImportError("INVALID_AFD_PROFILE");
-    return `${VERSION}/afd-${source.afdProfile}`;
+    const defaultIdentity = source.afdProfile === "legacy" ? "pis" : "cpf";
+    return `${VERSION}/afd-${source.afdProfile}${source.afdIdentityType && source.afdIdentityType !== defaultIdentity ? `-${source.afdIdentityType}` : ""}`;
   }
   if (source.kind !== "defense-access" && source.kind !== "defense-person") throw new ImportError("INVALID_SOURCE_CONFIG");
   return `${VERSION}/${source.kind}`;
@@ -43,7 +44,7 @@ export function parseAfd(bytes: Buffer, source: IngestionSource): ParsedImport {
   const profile = detectAfdProfile(text);
   if (!profile) throw new ImportError("AFD_PROFILE_UNRECOGNIZED");
   if (source.afdProfile && source.afdProfile !== profile) { parsed.skipped = true; return parsed; }
-  parsed.parserVersion = `${VERSION}/afd-${profile}`;
+  parsed.parserVersion = ingestionParserVersion({ ...source, afdProfile: profile });
   const lines = text.split(/\r\n|\n|\r/);
   if (lines.length > MAX_ROWS) throw new ImportError("TOO_MANY_ROWS");
   const lastRecord = lines.findLast(line => line.trim() !== "");
@@ -64,7 +65,7 @@ export function parseAfd(bytes: Buffer, source: IngestionSource): ParsedImport {
       if (!/^\d{9}/.test(raw) || raw.length !== (profile === "legacy" ? 38 : 50) || !/^[\da-f]{4}$/i.test(raw.slice(-4))) throw new ImportError("AFD_INVALID_RECORD_LENGTH_OR_CRC_FORMAT");
       const nsr = raw.slice(0, 9);
       const rawIdentifier = profile === "legacy" ? raw.slice(22, 34) : raw.slice(34, 46);
-      const identityType = profile === "legacy" ? "pis" : "cpf";
+      const identityType = source.afdIdentityType ?? (profile === "legacy" ? "pis" : "cpf");
       const value = normalizeIdentifier(rawIdentifier, identityType, true);
       const rawTimestamp = profile === "legacy" ? `${raw.slice(10, 18)}${raw.slice(18, 22)}` : raw.slice(10, 34);
       const timestamp = profile === "legacy"
@@ -78,7 +79,7 @@ export function parseAfd(bytes: Buffer, source: IngestionSource): ParsedImport {
   if (!header) parsed.issues.push({ code: "AFD_HEADER_ABSENT_LAYOUT_UNCONFIRMED", severity: "warning" });
   if (!trailer) parsed.issues.push({ code: "AFD_TRAILER_ABSENT_PARTIAL_EXPORT", severity: "warning" });
   if (!source.sourceIdentityConfirmed) parsed.issues.push({ code: "SOURCE_DEVICE_IDENTITY_UNCONFIRMED", severity: "warning" });
-  parsed.metadata = { profile, header, trailer, punches, checksumStatus: "not_verified" };
+  parsed.metadata = { profile, identityType: source.afdIdentityType ?? (profile === "legacy" ? "pis" : "cpf"), header, trailer, punches, checksumStatus: "not_verified" };
   return parsed;
 }
 

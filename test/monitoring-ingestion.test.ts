@@ -20,6 +20,13 @@ const source = (kind: IngestionSource["kind"], extra: Partial<IngestionSource> =
 const iso = (nsr = 1, time = "2026-10-17T08:00:00-0300", id = CPF) => `${String(nsr).padStart(9, "0")}3${time}0${id}ABCD`;
 const legacy = (nsr = 1) => `${String(nsr).padStart(9, "0")}31710202608000${PIS}ABCD`;
 const tempDirectories: string[] = [];
+it("parses CPF in a legacy AFD using independent identity semantics and an immutable parser version", () => {
+  const bytes = Buffer.from(legacy().replace(`0${PIS}`, `0${CPF}`));
+  const parsed = parseAfd(bytes, source("afd", { afdProfile: "legacy", afdIdentityType: "cpf" }));
+  expect(parsed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy-cpf");
+  expect(parsed.occurrences[0].event?.identity).toEqual({ type: "cpf", value: CPF });
+  expect(parsed.occurrences[0].event?.precisionSeconds).toBe(60);
+});
 async function temporary(): Promise<string> { const path = await mkdtemp(join(tmpdir(), "monitoring-test-")); tempDirectories.push(path); return path; }
 afterEach(async () => { vi.unstubAllGlobals(); await Promise.all(tempDirectories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 

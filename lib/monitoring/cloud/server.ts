@@ -12,7 +12,7 @@ const sourceSchema = z.object({
   id: z.string().min(1).max(80), kind: z.enum(["afd", "defense-access", "defense-person"]),
   timeZone: z.string().min(1), identityNamespace: z.string().min(1), sourceIdentityConfirmed: z.boolean(),
   declaredCoverage: z.object({ from: z.string(), to: z.string(), continuous: z.boolean() }).nullish(),
-  afdProfile: z.enum(["legacy", "iso"]).optional(), encoding: z.enum(["utf8", "latin1"]).optional(),
+  afdProfile: z.enum(["legacy", "iso"]).optional(), afdIdentityType: z.enum(["cpf", "pis"]).optional(), encoding: z.enum(["utf8", "latin1"]).optional(),
 });
 export const cloudJobSchema = z.object({
   autoDetect: z.boolean().default(false), id: z.string().uuid(), sourceId: z.string(), source: sourceSchema,

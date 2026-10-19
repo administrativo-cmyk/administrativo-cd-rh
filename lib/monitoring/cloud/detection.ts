@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
-import { cellText, detectAfdProfile, validateWorkbookArchive } from "../ingestion/parsers";
-import { ImportError, normalizeLabel } from "../ingestion/validation";
+import { cellText, detectAfdProfile, validateWorkbookArchive } from "../ingestion/parsers.ts";
+import { ImportError, normalizeLabel, normalizeIdentifier } from "../ingestion/validation.ts";
 
-export type DetectedImport = { kind: "afd"; afdProfile: "legacy" | "iso" } | { kind: "defense-access" | "defense-person" };
+export type DetectedImport = { kind: "afd"; afdProfile: "legacy" | "iso"; afdIdentityType: "cpf" | "pis" } | { kind: "defense-access" | "defense-person" };
 
 /** Inspect the stored original, never its name or a caller supplied MIME type. */
 export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> {
@@ -29,5 +29,15 @@ export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> 
   // Reject mixed layouts rather than accepting whichever happens to occur first.
   const profiles = new Set(text.split(/\r?\n/).map(line => detectAfdProfile(line)).filter(Boolean));
   if (profiles.size !== 1) throw new ImportError(profiles.size ? "CLOUD_FORMAT_AMBIGUOUS" : "CLOUD_FORMAT_UNKNOWN");
-  return { kind: "afd", afdProfile: [...profiles][0]! };
+  const afdProfile = [...profiles][0]!;
+  let cpfOnly = 0; let pisOnly = 0;
+  const identifiers = new Set(text.split(/\r\n|\n|\r/).filter(line => detectAfdProfile(line) === afdProfile).map(line => afdProfile === "legacy" ? line.slice(22, 34) : line.slice(34, 46)));
+  for (const identifier of identifiers) {
+    let cpf = false; let pis = false;
+    try { normalizeIdentifier(identifier, "cpf", true); cpf = true; } catch { /* Preserve invalid rows for the parser's report. */ }
+    try { normalizeIdentifier(identifier, "pis", true); pis = true; } catch { /* CPF and PIS have independent check digits. */ }
+    if (cpf && !pis) cpfOnly++; if (pis && !cpf) pisOnly++;
+  }
+  if ((!cpfOnly && !pisOnly) || (cpfOnly && pisOnly)) throw new ImportError("CLOUD_IDENTITY_AMBIGUOUS");
+  return { kind: "afd", afdProfile, afdIdentityType: cpfOnly ? "cpf" : "pis" };
 }

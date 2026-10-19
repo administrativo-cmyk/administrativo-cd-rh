@@ -1,4 +1,5 @@
 "use client";
+import { cn } from "@/lib/utils";
 import { useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { dashboardButton, dashboardDate, dashboardInput, dashboardValue } from "@/components/dashboards/format";
@@ -35,9 +36,9 @@ export function MeasurementEditor({ editor, employees, today, onClose, onSave }:
         <label className="text-sm font-medium text-slate-700 sm:col-span-2">Fonte ou documento de conferência<input name="source" maxLength={200} defaultValue={row?.source ?? ""} className={dashboardInput} /></label>
       </div> : row ? <p className="text-sm text-slate-700">Saldo da medição: <strong>{dashboardValue(row.balanceMinutes, "minutes")}</strong>. Os lançamentos manuais da Chamada serão preservados.</p> : null}
       <label className="block text-sm font-medium text-slate-700">Justificativa<textarea name="reason" required minLength={5} maxLength={1000} rows={3} className={dashboardInput} /></label>
-      <p className="text-xs leading-relaxed text-slate-600">A alteração pode mudar os dias a compensar e a repor desde a vigência informada. Decisões automáticas da Chamada serão reenfileiradas para revisão.</p>
+      <p className="text-xs leading-relaxed text-slate-600">Novas medições ativam o cálculo do ponto desde a vigência, inclusive. Dias incompletos ficam pendentes; medições anteriores não são ativadas retroativamente. A alteração pode mudar os dias a compensar e a repor desde a vigência informada. Decisões automáticas da Chamada serão reenfileiradas para revisão.</p>
       {error ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</p> : null}
-      <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={onClose} className={dashboardButton}>Fechar</button><button type="submit" disabled={saving} className={`${dashboardButton} border-blue-700 bg-blue-700 text-white hover:bg-blue-800`}>{saving ? "Salvando…" : editor.mode === "save" ? "Salvar medição" : title}</button></div>
+      <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={onClose} className={dashboardButton}>Fechar</button><button type="submit" disabled={saving} className={cn(dashboardButton, "border-blue-700 bg-blue-700 text-white hover:bg-blue-800 disabled:bg-slate-200 disabled:text-slate-700 disabled:opacity-100")}>{saving ? "Salvando…" : editor.mode === "save" ? "Salvar medição" : title}</button></div>
     </form>
   </DialogContent></Dialog>;
 }

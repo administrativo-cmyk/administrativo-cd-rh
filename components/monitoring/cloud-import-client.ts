@@ -20,6 +20,8 @@ export type CloudReservation = z.infer<typeof cloudUploadReservationSchema>;
 export type CloudPhase = "idle" | "hashing" | "authorizing" | "uploading" | "confirming";
 export const cloudStatusLabels: Record<CloudJob["status"], string> = { uploading: "Aguardando confirmação do envio", queued: "Na fila da nuvem", processing: "Processando na nuvem", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 const errorLabels: Record<string, string> = {
+  CLOUD_IDENTITY_AMBIGUOUS: "Não foi possível distinguir CPF de PIS com segurança. O original foi preservado; solicite a conferência ao administrador.",
+  CLOUD_IDENTITY_TYPE_REQUIRED: "O leitor foi atualizado. Clique em Tentar novamente para identificar CPF/PIS.",
   CLOUD_FORMAT_UNKNOWN: "Conteúdo não reconhecido. Envie a exportação AFD ou Defense original.",
   CLOUD_FORMAT_AMBIGUOUS: "O arquivo mistura formatos. Exporte cada relatório separadamente.",
   CLOUD_ROUTE_AMBIGUOUS: "Mais de uma fonte corresponde ao arquivo. Solicite a revisão da configuração ao administrador.",

@@ -74,21 +74,49 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("routes legacy CPF independently from the PIS clock and freezes the CPF parser version", async () => {
+    await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace) values('cloud-cpf','afd','cloud-cpf');insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis'),('afd','legacy','cloud-cpf','cpf')");
+    await upload(await create("legacy-cpf", admin, { autoDetect: true })); const job = await claim();
+    const routed = (await worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy", afdIdentityType: "cpf" })).job as Job & { sourceId:string; parserVersion:string; source:{afdIdentityType:string;afdProfile:string} };
+    expect(routed.sourceId).toBe("cloud-cpf"); expect(routed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy-cpf");
+    expect(routed.source).toMatchObject({afdIdentityType:"cpf",afdProfile:"legacy"}); expect(routed.leaseToken).toBe(job.leaseToken);
+  });
+  it("preserves one canonical punch across CPF legacy/ISO exports, retains originals and keeps genuine conflicts", async () => {
+    async function ingest(format: "legacy" | "iso", suffix: string, timestamp: string) {
+      const value = batch(hash(suffix)); value.file.parserVersion = `synthetic-${format}-${suffix}`;
+      value.batch.totalRows = 1; value.batch.occurrenceCount = 1;
+      value.occurrences = [{ key: `row-${suffix}`, line: 1, payloadHash: hash(`payload-${suffix}`), original: { record: format }, issues: [], event: {
+        key: "same-clock-nsr", type: "punch", identity: { type: "cpf", value: "12345678909" }, timestamp,
+        device: "cloud-test", classification: "authorized", eligible: true, nsr: "000000001", rawTimestamp: timestamp, rawIdentifier: "012345678909", precisionSeconds: format === "legacy" ? 60 : 1,
+        original: { profile: format, record: `${format}-${suffix}` },
+      } }];
+      return (await db.query<{value:Record<string,unknown>}>("select public.monitoring_ingest($1::jsonb) value",[JSON.stringify(value)])).rows[0].value;
+    }
+    await ingest("legacy", "legacy-first", "2026-10-02T11:00:00Z");
+    expect(await ingest("iso", "iso-refined", "2026-10-02T11:00:37Z")).toMatchObject({ conflicts: 0 });
+    expect(await ingest("legacy", "legacy-reexport", "2026-10-02T11:00:00Z")).toMatchObject({ conflicts: 0 });
+    const records = (await db.query<{count:number;conflicts:number}>("select count(*)::int count,count(*) filter(where conflicted)::int conflicts from public.monitoring_events")).rows[0];
+    expect(records).toEqual({count:1,conflicts:0});
+    expect((await db.query<{at:string}>("select occurred_at::text at from public.monitoring_events")).rows[0].at).toContain("08:00:37");
+    expect((await db.query<{count:number}>("select count(*)::int count from public.monitoring_occurrences")).rows[0].count).toBe(3);
+    expect(await ingest("iso", "real-conflict", "2026-10-02T11:02:00Z")).toMatchObject({ conflicts: 1 });
+    expect((await db.query<{conflicted:boolean}>("select conflicted from public.monitoring_events")).rows[0].conflicted).toBe(true);
+  });
   it("classifies stored originals under a fenced lease before any ingest", async () => {
-    await db.exec("insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test')");
+    await db.exec("insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis')");
     const draft = await create("automatic", admin, { autoDetect: true });
     expect((draft as Job & { autoDetect: boolean }).autoDetect).toBe(true);
     await upload(draft); const job = await claim();
     await expect(persist(job, batch(hash("automatic")))).rejects.toThrow("CLOUD_DETECTION_REQUIRED");
-    await expect(worker("route", { id: job.id, leaseToken: "00000000-0000-4000-8000-000000000000", kind: "afd", afdProfile: "legacy" })).rejects.toThrow("CLOUD_LEASE_LOST");
-    const routed = (await worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy" })).job as Job & { autoDetect: boolean; parserVersion: string };
+    await expect(worker("route", { id: job.id, leaseToken: "00000000-0000-4000-8000-000000000000", kind: "afd", afdProfile: "legacy", afdIdentityType: "pis" })).rejects.toThrow("CLOUD_LEASE_LOST");
+    const routed = (await worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy", afdIdentityType: "pis" })).job as Job & { autoDetect: boolean; parserVersion: string };
     expect(routed.autoDetect).toBe(false); expect(routed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy");
     expect(routed.cursor).toBe(0);
   });
   it("rejects an ambiguous route without changing the frozen job", async () => {
-    await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace) values('second-clock','afd','second-clock');insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test'),('afd','legacy','second-clock')");
+    await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace) values('second-clock','afd','second-clock');insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis'),('afd','legacy','second-clock','pis')");
     await upload(await create("ambiguous", admin, { autoDetect: true })); const job = await claim();
-    await expect(worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy" })).rejects.toThrow("CLOUD_ROUTE_AMBIGUOUS");
+    await expect(worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy", afdIdentityType: "pis" })).rejects.toThrow("CLOUD_ROUTE_AMBIGUOUS");
   });
   it("creates private bucket and confines admin/worker RPCs and raw Storage even with legacy broad policies", async () => {
     const bucket = (await db.query<{ public: boolean; file_size_limit: number }>("select public,file_size_limit from storage.buckets where id='monitoramento-originais'")).rows[0];

@@ -11,7 +11,7 @@ const batchSize = 500;
 const minimumBatchBudgetMs = 5_000;
 
 export type CloudFrozenSource = Readonly<Pick<IngestionSource,
-  "id" | "kind" | "timeZone" | "identityNamespace" | "sourceIdentityConfirmed" | "afdProfile" | "encoding" | "declaredCoverage"
+  "id" | "kind" | "timeZone" | "identityNamespace" | "sourceIdentityConfirmed" | "afdProfile" | "afdIdentityType" | "encoding" | "declaredCoverage"
 >>;
 
 export interface CloudBatchPlan {
@@ -74,6 +74,7 @@ function frozenSource(input: CloudFrozenSource): IngestionSource {
     || !["afd", "defense-access", "defense-person"].includes(input.kind) || typeof input.timeZone !== "string"
     || (input.identityNamespace !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(input.identityNamespace))
     || (input.sourceIdentityConfirmed !== undefined && typeof input.sourceIdentityConfirmed !== "boolean")
+    || (input.afdIdentityType !== undefined && !["cpf", "pis"].includes(input.afdIdentityType))
     || (input.encoding !== undefined && !["utf8", "latin1"].includes(input.encoding))) throw new ImportError("CLOUD_SOURCE_INVALID");
   try { new Intl.DateTimeFormat("en", { timeZone: input.timeZone }); }
   catch { throw new ImportError("INVALID_SOURCE_TIME_ZONE"); }
@@ -83,7 +84,7 @@ function frozenSource(input: CloudFrozenSource): IngestionSource {
     || Date.parse(coverage.to) <= Date.parse(coverage.from))) throw new ImportError("INVALID_DECLARED_COVERAGE");
   // Whitelist the parser configuration. No local root, photo root or URL is accepted.
   return { root: "", id: input.id, kind: input.kind, timeZone: input.timeZone, identityNamespace: input.identityNamespace,
-    sourceIdentityConfirmed: input.sourceIdentityConfirmed, afdProfile: input.afdProfile, encoding: input.encoding,
+    sourceIdentityConfirmed: input.sourceIdentityConfirmed, afdProfile: input.afdProfile, afdIdentityType: input.afdIdentityType, encoding: input.encoding,
     declaredCoverage: coverage ? { ...coverage } : undefined };
 }
 

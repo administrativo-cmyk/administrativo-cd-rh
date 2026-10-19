@@ -58,6 +58,7 @@ export function validateConfig(input: unknown, baseDirectory: string): WorkerCon
     if (source.identityNamespace && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(source.identityNamespace)) throw new ImportError("INVALID_IDENTITY_NAMESPACE");
     if (source.enabled !== undefined && typeof source.enabled !== "boolean") throw new ImportError("INVALID_SOURCE_CONFIG");
     if (source.afdProfile && !["legacy", "iso"].includes(source.afdProfile)) throw new ImportError("INVALID_AFD_PROFILE");
+    if (source.afdIdentityType && !["cpf", "pis"].includes(source.afdIdentityType)) throw new ImportError("INVALID_AFD_IDENTITY_TYPE");
     if (source.encoding && !["utf8", "latin1"].includes(source.encoding)) throw new ImportError("INVALID_SOURCE_ENCODING");
     if ((source.recursive !== undefined && typeof source.recursive !== "boolean") || (source.sourceIdentityConfirmed !== undefined && typeof source.sourceIdentityConfirmed !== "boolean") || (source.photoRoot !== undefined && typeof source.photoRoot !== "string")) throw new ImportError("INVALID_SOURCE_CONFIG");
     try { new Intl.DateTimeFormat("pt-BR", { timeZone: source.timeZone }).format(); } catch { throw new ImportError("INVALID_SOURCE_TIME_ZONE"); }
