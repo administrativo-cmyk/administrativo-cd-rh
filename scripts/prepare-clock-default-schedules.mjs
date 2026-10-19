@@ -12,7 +12,8 @@ if (actors.length !== 1 || !/^[0-9a-f-]{36}$/.test(actors[0].id)) throw new Erro
 const selected = report.filter(row => row.active && ["ATIVO", "NOVO_ADMITIDO", "FERIAS"].includes(row.status) && ["selected","estimated"].includes(row.defaultSchedule?.state));
 const rows = selected.map(row => {
  const p=row.defaultSchedule;
- const validFrom=row.admission>"2026-09-30"?row.admission:"2026-09-30";
+ const firstOperationalDate=p.payload.end<p.payload.start?"2026-09-29":"2026-09-30";
+ const validFrom=row.admission>firstOperationalDate?row.admission:firstOperationalDate;
  return {employeeId:row.id,employeeNumber:row.employeeNumber,name:row.name,admission:row.admission,role:row.role,department:row.department,
  setting:{kind:"schedule",target:row.id,validFrom,validTo:null,payload:p.payload,
  reason:`Padrões e folgas informados pelo usuário em 19/10/2026, com 1h de almoço. ${p.reason}. Amostra completa de 01 a 12/10; 13/10 parcial excluído. Turno noturno pertence à data da entrada. Domingo mensal do noturno exige data confirmada; nenhuma data de folga mensal foi presumida.`}};

@@ -34,3 +34,5 @@ Horário esperado não comprova início ou fim de jornada. O motor aceita confir
 Sem batida, a falta automática exige dia de trabalho confirmado, coleta completa, identidade válida e saldo conhecido até 8h, além das demais proteções existentes. Saldo acima de 8h fica para o gestor. Edições manuais da Chamada são preservadas. Horários ainda estimados e o domingo mensal pendente não autorizam falta automática.
 
 A fila de um período consulta as decisões já processadas; registros com job pendente, resultado invalidado ou sem decisão ficam bloqueados como aguardando reapuração. A consulta de um único dia, a confirmação e a finalização continuam conferindo evidência atual, com os mesmos controles de versão e acesso. Isso evita reexecutar milhares de jornadas apenas para listar o mês.
+
+As saídas na madrugada de 30/09 pertencem à jornada operacional de 29/09. A vigência noturna inclui esse dia anterior, respeitando a admissão. Essas batidas são preservadas e atribuídas uma vez, mas não comprovam início/fim nem cobertura completa do primeiro turno exportado.
