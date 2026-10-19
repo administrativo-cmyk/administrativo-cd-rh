@@ -14,8 +14,9 @@ export async function reprocessCloudDays(signal: AbortSignal, deadline: number) 
   let processed = 0; let failed = 0; let pending = 0;
   if (!sourceIds.length) return { processed, failed, pending };
   const client = workerClient();
+  // Drain while budget remains; a small fixed cap can strand a monthly import for hours.
   // Claim one day at a time: a bounded invocation never leaves an unused group leased for five minutes.
-  for (let index = 0; index < 30 && Date.now() < deadline - 15_000 && !signal.aborted; index++) {
+  for (let index = 0; index < 600 && Date.now() < deadline - 15_000 && !signal.aborted; index++) {
     const claim = await client.rpc("monitoring_worker", { p_action: "claim", p_data: { sourceIds, limit: 1 } }).abortSignal(signal);
     if (claim.error) throw new CloudError("CLOUD_REPROCESS_FAILED");
     const data = claimSchema.parse(claim.data); pending = data.pending;

@@ -27,7 +27,7 @@ export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> 
   const text = bytes.toString("latin1");
   if (text.includes("\0")) throw new ImportError("CLOUD_FORMAT_UNKNOWN");
   // Reject mixed layouts rather than accepting whichever happens to occur first.
-  const profiles = new Set(text.split(/\r?\n/).map(line => detectAfdProfile(line)).filter(Boolean));
+  const profiles = new Set(text.split(/\r\n|\n|\r/).map(line => detectAfdProfile(line)).filter(Boolean));
   if (profiles.size !== 1) throw new ImportError(profiles.size ? "CLOUD_FORMAT_AMBIGUOUS" : "CLOUD_FORMAT_UNKNOWN");
   const afdProfile = [...profiles][0]!;
   let cpfOnly = 0; let pisOnly = 0;

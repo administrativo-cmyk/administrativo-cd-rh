@@ -48,6 +48,11 @@ describe("cloud uploads authorization and contract", () => {
     expect(mocks.sign).toHaveBeenCalledWith(job.objectPath, { upsert: false });
     const body = await result.json(); expect(body.upload.token).toBe("temporary-test-token"); expect(JSON.stringify(body)).not.toContain("server-test-key");
   });
+  it("accepts a new upload without source or format and requires server detection before ingestion", async () => {
+    const result = await POST(request({ fileName: input.fileName, byteLength: input.byteLength, sha256: input.sha256 }));
+    expect(result.status).toBe(201);
+    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_cloud_admin", { p_action: "create", p_data: expect.objectContaining({ autoDetect: true, sourceId: source.id }) });
+  });
   it("history hides storage paths, SHA and frozen configuration", async () => {
     const response = await GET(); expect(response.status).toBe(200); const body = await response.json();
     expect(body.jobs[0]).toMatchObject({ id, bytes: 3, batchesDone: 0 }); expect(JSON.stringify(body)).not.toContain(job.objectPath); expect(JSON.stringify(body)).not.toContain(job.sha256);

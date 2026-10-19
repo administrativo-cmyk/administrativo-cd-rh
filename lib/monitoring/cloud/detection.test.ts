@@ -19,7 +19,7 @@ describe("server import detection from original bytes", () => {
     await expect(detectCloudImport(Buffer.from(legacy + "\n" + legacy.replace(`0${PIS}`, "012345678909")))).rejects.toThrow("CLOUD_IDENTITY_AMBIGUOUS");
   });
   it("rejects mixed, empty, binary and unrelated exports", async () => {
-    for (const value of ["", "unrelated.txt", "\0" + legacy, legacy + "\n" + iso]) await expect(detectCloudImport(Buffer.from(value))).rejects.toThrow();
+    for (const value of ["", "unrelated.txt", "\0" + legacy, legacy + "\n" + iso, legacy + "\r" + iso]) await expect(detectCloudImport(Buffer.from(value))).rejects.toThrow();
   });
   it.each([
     ["defense-person", ["ID", "Nome", "Grupo de pessoas", "Imagem de rosto 1"]],
