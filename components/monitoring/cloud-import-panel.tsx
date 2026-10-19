@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { dashboardButton as button, dashboardInput as input, dashboardInstant } from "@/components/dashboards/format";
 import { cloudActionSchema, cloudError, cloudFileHash, cloudFileLimit, cloudRequest, cloudReservationSchema, cloudSnapshotSchema, cloudStatusLabels, uploadCloudFile, validateCloudFile, type CloudJob, type CloudPhase, type CloudSnapshot } from "./cloud-import-client";
 
@@ -117,7 +118,7 @@ export function CloudImportPanel({ onCompleted }: { onCompleted?: () => void }) 
       {source?.kind === "defense-person" ? <p className="text-sm text-slate-600">A planilha não inclui as imagens. As fotos já cadastradas são mantidas.</p> : null}
       <p className="text-xs text-slate-600">Os originais são preservados. Limite acumulado de 500 MiB, sem exclusão automática; ao atingir o limite, solicite revisão ao administrador.</p>
       {!snapshot.sources.length ? <p className="text-sm text-amber-900">Nenhuma fonte ativa disponível. Cadastre ou ative a fonte em Gerenciar fontes antes de enviar.</p> : null}
-      <div className="flex flex-wrap items-center gap-3"><button type="submit" className={`${button} border-blue-700 bg-blue-700 text-white hover:bg-blue-800`} disabled={busy || confirmation !== null || !snapshot.sources.length || !snapshot.automationReady}>{phase !== "idle" ? "Enviando…" : "Enviar arquivo"}</button>{file ? <span className="min-w-0 break-all text-xs text-slate-600">{file.name} · {bytesLabel(file.size)}</span> : null}</div>
+      <div className="flex flex-wrap items-center gap-3"><button type="submit" className={cn(button, "border-blue-700 bg-blue-700 text-white hover:bg-blue-800 disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 disabled:opacity-100 disabled:hover:bg-slate-200")} disabled={busy || confirmation !== null || !snapshot.sources.length || !snapshot.automationReady}>{phase !== "idle" ? "Enviando…" : "Enviar arquivo"}</button>{file ? <span className="min-w-0 break-all text-xs text-slate-600">{file.name} · {bytesLabel(file.size)}</span> : null}</div>
     </form> : null}
     <div role="status" aria-live="polite" aria-atomic="true" className="mt-3 text-sm text-blue-900">{phase !== "idle" ? phaseLabels[phase] : notice}</div>
     {error || readError ? <p ref={errorRef} tabIndex={-1} role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 outline-none focus-visible:ring-2 focus-visible:ring-rose-600">{error || readError}</p> : null}
