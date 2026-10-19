@@ -8,6 +8,11 @@ const employeeId="30000000-0000-4000-8000-000000000001";
 const filters=filtersSchema.parse({start:"2026-10-08",end:"2026-10-09"});
 const source:MonitoringSnapshot={rows:["2026-10-08","2026-10-09"].map((date,i)=>({employeeId,name:"Ana Sintética",employeeNumber:"123",unit:"CD I",manager:null,managerId:null,date,quality:"partial",dirty:false,computedAt:null,ruleVersion:"test",summary:{workedSeconds:i?null:3600,outsideSeconds:i?null:0,cafeteriaSeconds:null,lateSeconds:null}})),total:2,people:1,pending:0,excluded:0,totals:{},timezone:"America/Sao_Paulo",queriedAt:"2026-10-19T12:00:00Z",start:filters.start,end:filters.end};
 describe("resumo expansível do Monitoramento",()=>{
+ it("soma refeições como contagem e mostra exclusões sem converter em zero",()=>{
+  const rows=source.rows.map((row,i)=>({...row,summary:{...row.summary,mealsWithoutRest:i?2:1,mealQuality:"complete",outsideQuality:"excluded",cafeteriaQuality:"partial",outsideSeconds:null}}));
+  render(<MonitoringResults snapshot={monitoringQueryView({...source,rows},filters)} applied={filters} loading={false} onSort={vi.fn()} onPage={vi.fn()} onDetails={vi.fn()}/>);
+  expect(screen.getByTestId("monitoring-employee-summary")).toHaveTextContent("3 vez(es)");expect(screen.getByTestId("monitoring-employee-summary")).toHaveTextContent("Excluído por regra");expect(screen.getByRole("button",{name:"Ordenar por Refeições sem descanso"})).toBeEnabled();
+ });
  it("mostra uma linha com soma e expande dias com nomes acessíveis",async()=>{
   const user=userEvent.setup(),onDetails=vi.fn();render(<MonitoringResults snapshot={monitoringQueryView(source,filters)} applied={filters} loading={false} onSort={vi.fn()} onPage={vi.fn()} onDetails={onDetails}/>);
   expect(screen.getAllByTestId("monitoring-employee-summary")).toHaveLength(1);expect(screen.getByTestId("monitoring-employee-summary")).toHaveTextContent("1h 00min");expect(screen.getByTestId("monitoring-employee-summary")).toHaveTextContent("1 de 2");

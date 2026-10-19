@@ -3,6 +3,7 @@ import { DEFAULT_REPETITION_POLICY, prepareAccess, preparePunches, RULE_VERSION,
 import { assertInstant, assertInterval, assertOperationalDate, durationMs, intersectIntervals, normalizeIntervals, operationalDateAt } from "./intervals";
 import { reconstructJourney } from "./journeys";
 import { reconcileAccessSequence } from "./access-sequence";
+import { mealsWithoutRest } from "./meals";
 import { AREAS, locationTimeline, pairedAreaIntervals, stateIntervals } from "./location";
 import type { Eligibility, Indicator, Interval, JourneyCalculation, JourneyCalculationInput, Lateness, Metric, PairedVisit } from "./types";
 
@@ -131,7 +132,7 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
     outsideCd: metric(perimeterWork, durationMs([...perimeterWork, ...insidePerimeter]), workMs, eligibility("outsideCd"), completeJourney),
     coffeeDuringWorkMs: !input.coffeeWindows?.length || cafeteriaMetric.milliseconds === null ? null : durationMs(intersectIntervals(cafeteriaWork, input.coffeeWindows)),
     cafeteriaObservedMs: observedKnown === 0 || cafeteriaEligibility.state !== "eligible" ? null : durationMs(cafeteriaPairs.pairs),
-    cafeteriaVisits, outsideOperationEpisodes, betweenOperationExitAndPrincipalEntry,
+    cafeteriaVisits, mealsWithoutRest: mealsWithoutRest(input, journey, preparedPunches.events, cafeteriaVisits, cafeteriaMetric, cafeteriaPairs.issues), outsideOperationEpisodes, betweenOperationExitAndPrincipalEntry,
     lateness: calculateLateness(input, journey.status === "inconsistent" ? null : journey.firstEntry, eligibility("lateness")),
     suppressions: [...preparedPunches.suppressions, ...preparedAccess.suppressions], issues,
   };

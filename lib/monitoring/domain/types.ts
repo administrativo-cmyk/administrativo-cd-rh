@@ -132,6 +132,12 @@ export interface PairedVisit extends Interval {
   classification: "beforePunch" | "duringRest" | "fromOperation" | "withoutPriorOperation" | "other";
   sequenceEventIds: string[];
 }
+export interface MealCount {
+  count: number | null;
+  quality: Quality;
+  eligibility: Eligibility;
+  visits: Array<Interval & { entryEventId: string; exitEventId: string }>;
+}
 export interface Lateness {
   quality: Quality;
   reason: string | null;
@@ -142,6 +148,8 @@ export interface Lateness {
   eligibility: Eligibility;
 }
 export interface JourneyCalculationInput {
+  /** Complete clock collection; used only for partial meal observations between two marks. */
+  punchCollectionComplete?: boolean;
   personId: string;
   operationalDate: string;
   /** Scope includes pre-punch visits and ends at an explicit finite reference. */
@@ -175,6 +183,7 @@ export interface JourneyCalculation {
   coffeeDuringWorkMs: number | null;
   cafeteriaObservedMs: number | null;
   cafeteriaVisits: PairedVisit[];
+  mealsWithoutRest?: MealCount;
   outsideOperationEpisodes: Array<Interval & { kind: "lateOperationEntry" | "departure"; workMs: number }>;
   betweenOperationExitAndPrincipalEntry: Array<Interval & { exitEventId: string; entryEventId: string; label: "interval-between-events" }>;
   lateness: Lateness;

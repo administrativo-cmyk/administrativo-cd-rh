@@ -86,6 +86,9 @@ describe("migration real, seed e adaptador de apuração", () => {
     const [result] = reprocessMonitoringSnapshot(input, request, referenceAt);
     expect(result.summary.quality).toBe("excluded");
     expect(result.summary.outsideSeconds).toBeNull();
+    expect(result.summary.cafeteriaQuality).toBe("excluded");
+    expect(result.summary.mealQuality).toBe("excluded");
+    expect(result.summary.mealsWithoutRest).toBeNull();
     expect(result.summary.late).toBe(true);
     await database.query("select public.monitoring_save_result($1::jsonb)", [JSON.stringify({ ...result, reason: request.reason, actor: adminId })]);
     await database.query("select set_config('request.jwt.claim.sub',$1,false)", [adminId]);
@@ -96,5 +99,20 @@ describe("migration real, seed e adaptador de apuração", () => {
       expect(query.rows[0].value.totals.lateJourneys).toBe(1);
       expect(query.rows[0].value.totals.latenessAssessedJourneys).toBe(1);
     } finally { await database.exec("reset role"); }
+  });
+  it("persiste e soma refeições na consulta autorizada, sem transformar ausência em zero", async () => {
+    const input = await inputSnapshot();
+    const [result] = reprocessMonitoringSnapshot(input, request, referenceAt);
+    result.summary.mealsWithoutRest = 2;
+    result.summary.mealQuality = "partial";
+    await database.query("select public.monitoring_save_result($1::jsonb)", [JSON.stringify({ ...result, reason: request.reason, actor: adminId })]);
+    await database.query("select set_config('request.jwt.claim.sub',$1,false)", [adminId]);
+    await database.exec("set role authenticated");
+    try {
+      const query = await database.query<{value:{totals:{mealsWithoutRest:number|null}}}>("select public.monitoring_query('summary',$1::jsonb) as value",[JSON.stringify({employeeId,start:day,end:day})]);
+      expect(query.rows[0].value.totals.mealsWithoutRest).toBe(2);
+      const empty = await database.query<{value:{totals:{mealsWithoutRest:number|null}}}>("select public.monitoring_query('summary',$1::jsonb) as value",[JSON.stringify({employeeId,start:"2026-10-01",end:"2026-10-01"})]);
+      expect(empty.rows[0].value.totals.mealsWithoutRest).toBeNull();
+    } finally {await database.exec("reset role");}
   });
 });

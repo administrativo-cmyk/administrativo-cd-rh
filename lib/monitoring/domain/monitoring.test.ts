@@ -36,6 +36,53 @@ function input(patch: Partial<JourneyCalculationInput> = {}): JourneyCalculation
   };
 }
 
+describe("refeições sem ponto de descanso", () => {
+  const visit = (start:string,end:string,id="meal",day=date) => [access("cafeteria-entry",start,`${id}-entry`,day),access("cafeteria-exit",end,`${id}-exit`,day)];
+  it("conta visitas pareadas durante trabalho e mantém os intervalos originais", () => {
+    const result = calculateJourney(input({accessEvents: [...visit("10:00","10:20"),...visit("14:00","14:30","meal2")]}));
+    expect(result.mealsWithoutRest).toMatchObject({count:2,quality:"complete"});
+    expect(result.mealsWithoutRest?.visits).toHaveLength(2);expect(result.workMs).toBe(8*60*minute);expect(result.restMs).toBe(60*minute);
+  });
+  it("descanso registrado, mesmo sobre parte da visita, não vira refeição sem descanso", () => {
+    for (const [start,end] of [["12:10","12:40"],["11:55","12:30"],["07:10","07:30"]]) {
+      expect(calculateJourney(input({accessEvents:visit(start,end)})).mealsWithoutRest).toMatchObject({count:0,quality:"complete"});
+    }
+  });
+  it("exclusão individual de operação preserva tempo e contagem do refeitório", () => {
+    const result=calculateJourney(input({accessEvents:visit("14:00","14:30"),indicatorPolicies:[{id:"outside-only",indicator:"outsideOperation",subjectType:"person",subject:personId,effect:"exclude",validFrom:date,reason:"Atividade externa à operação",author:"admin"}]}));
+    expect(result.outsideOperation.quality).toBe("excluded");expect(result.cafeteria.milliseconds).toBe(30*minute);expect(result.mealsWithoutRest?.count).toBe(1);
+  });
+  it("liderança com ou sem acento e cozinha não entram nos dois indicadores", () => {
+    for (const groups of ["LIDERANCA JK","Todos/CD JK/Liderança JK","COZINHA JK"]) {
+      const result=calculateJourney(input({accessEvents:visit("14:00","14:30"),groupSnapshots:[{groups,validFrom:date,evidence:"Grupo conferido na data"}],indicatorPolicies:initialIndicatorPolicies(date,"admin")}));
+      expect(result.outsideOperation.quality).toBe("excluded");expect(result.cafeteria.quality).toBe("excluded");expect(result.mealsWithoutRest).toMatchObject({count:null,quality:"excluded",visits:[]});expect(result.cafeteriaVisits).toHaveLength(1);
+    }
+  });
+  it("grupos sem vigência confirmada deixam o contador pendente", () => {
+    expect(calculateJourney(input({accessEvents:visit("14:00","14:30"),indicatorPolicies:initialIndicatorPolicies(date,"admin")})).mealsWithoutRest?.count).toBeNull();
+  });
+  it("duas batidas em coleta completa permitem observação parcial sem fabricar jornada", () => {
+    const result=calculateJourney(input({punchEvents:punches(["08:00","17:00"]),punchCollectionComplete:true,evidence:{startConfirmed:false,endConfirmed:false,startCoverageConfirmed:false},accessEvents:visit("14:00","14:30")}));
+    expect(result.mealsWithoutRest).toMatchObject({count:1,quality:"partial"});expect(result.workMs).toBeNull();expect(result.journey.rest).toEqual([]);
+  });
+  it("três batidas e fontes incompletas não geram contagem suposta", () => {
+    expect(calculateJourney(input({punchEvents:punches(["08:00","12:00","17:00"]),punchCollectionComplete:true,accessEvents:visit("14:00","14:30")})).mealsWithoutRest?.count).toBeNull();
+    expect(calculateJourney(input({coverage:[],accessEvents:visit("14:00","14:30")})).mealsWithoutRest?.count).toBeNull();
+  });
+  it("saída ausente não vira zero e café cadastrado não entra como refeição", () => {
+    expect(calculateJourney(input({accessEvents:[access("cafeteria-entry","14:00")]})).mealsWithoutRest?.count).toBeNull();
+    const accesses=[...visit("08:10","08:20","coffee"),...visit("14:00","14:30")];
+    expect(calculateJourney(input({accessEvents:accesses})).mealsWithoutRest?.count).toBe(1);
+    expect(calculateJourney(input({accessEvents:accesses,coffeeWindows:[]})).mealsWithoutRest?.count).toBe(2);
+  });
+  it("atribui refeição da madrugada à data operacional do turno noturno", () => {
+    const next="2026-10-06",window={start:at("21:00"),end:at("07:00",next)};
+    const result=calculateJourney(input({observationWindow:window,referenceAt:window.end,punchEvents:[{...punches()[0],at:at("22:00")},...punches().slice(1).map((p,i)=>({...p,at:at(["02:00","03:00","06:00"][i],next)}))],
+      schedule:{id:"night",expectedStart:at("22:00"),expectedEnd:at("06:00",next),pairing:"alternating",allowNoBreak:false},coffeeWindows:[],accessEvents:visit("01:00","01:30","night-meal",next),coverage:input().coverage.map(c=>({...c,...window}))}));
+    expect(result.operationalDate).toBe(date);expect(result.mealsWithoutRest).toMatchObject({count:1,quality:"complete"});
+  });
+});
+
 describe("álgebra temporal", () => {
   it("preserva semifechados, união, subtração e precisão em milissegundos", () => {
     expect(normalizeIntervals([{ start: 2, end: 5 }, { start: 0, end: 2 }])).toEqual([{ start: 0, end: 5 }]);

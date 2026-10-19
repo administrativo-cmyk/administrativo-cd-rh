@@ -55,6 +55,10 @@ export interface MonitoringResultSummary {
   restSeconds: number;
   outsideSeconds: number | null;
   cafeteriaSeconds: number | null;
+  mealsWithoutRest: number | null;
+  mealQuality: string;
+  outsideQuality: string;
+  cafeteriaQuality: string;
   cafeSeconds: number | null;
   outsideCdSeconds: number | null;
   unknownSeconds: number;
@@ -126,6 +130,8 @@ export function summarizeCalculation(result: JourneyCalculation, groups: string[
   return {
     workedSeconds: seconds(result.workMs), restSeconds: result.restMs / 1000,
     outsideSeconds: seconds(result.outsideOperation.milliseconds), cafeteriaSeconds: seconds(result.cafeteria.milliseconds),
+    mealsWithoutRest: result.mealsWithoutRest?.count ?? null, mealQuality: result.mealsWithoutRest?.quality ?? "unavailable",
+    outsideQuality: result.outsideOperation.quality, cafeteriaQuality: result.cafeteria.quality,
     cafeSeconds: seconds(result.coffeeDuringWorkMs), outsideCdSeconds: seconds(result.outsideCd.milliseconds),
     unknownSeconds: result.outsideOperation.unknownMs / 1000, lateSeconds: seconds(result.lateness.totalMs), late: result.lateness.over15Minutes,
     quality, coverageRatio: result.outsideOperation.coverageRatio, groups,
@@ -217,6 +223,7 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     const calculationInput: JourneyCalculationInput = {
       personId: request.employeeId, operationalDate: date, observationWindow, referenceAt,
       punchEvents, accessEvents, mappings, coverage, schedule, evidence, coffeeWindows, groupSnapshots, indicatorPolicies,
+      punchCollectionComplete: fullCollection && Boolean(scheduled && !scheduled.payload.estimated),
       initialLookbackMs: (rule?.initialLookbackSeconds ?? 43_200) * 1000,
       repetitionPolicy: rule ? { punchWindowMs: rule.punchRepeatSeconds * 1000, accessWindowMs: rule.accessRepeatSeconds * 1000, suppressUntypedPunches: rule.suppressUntypedPunches, version: `${RULE_VERSION}:${ruleSetting!.id}` } : undefined,
     };

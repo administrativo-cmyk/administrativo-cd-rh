@@ -1,8 +1,8 @@
 import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnapshot } from "./contracts";
 
-export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds"] as const;
+export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
 export type MonitoringSortKey = typeof monitoringSortKeys[number];
-const metrics = ["workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds", "unknownSeconds"];
+const metrics = ["workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds", "unknownSeconds"];
 const qualityNames: Record<string,string> = {complete:"Completa",partial:"Parcial",unavailable:"Não apurável",pending:"Pendente",excluded:"Excluída por regra",stale:"Recalcular"};
 const collator = new Intl.Collator("pt-BR", {numeric:true,sensitivity:"base"});
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -21,6 +21,10 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
       summary[key] = known.length ? known.reduce((sum,row)=>sum + (row.summary![key] as number),0) : null;
     }
     const assessedDays = metricDays.workedSeconds;
+    for (const [metric,quality] of [["outsideSeconds","outsideQuality"],["cafeteriaSeconds","cafeteriaQuality"],["mealsWithoutRest","mealQuality"]]) {
+      if (days.length && days.every(day => !day.dirty && day.quality !== "stale" && day.summary?.[quality] === "excluded")) summary[quality] = "excluded";
+      else if (metricDays[metric]) summary[quality] = "partial";
+    }
     const dirty = days.some(day=>day.dirty || day.quality === "stale");
     const quality = dirty ? "stale" : days.every(day=>day.quality === "complete") ? "complete"
       : days.every(day=>day.quality === "excluded") ? "excluded" : assessedDays || Object.values(metricDays).some(Boolean) ? "partial"

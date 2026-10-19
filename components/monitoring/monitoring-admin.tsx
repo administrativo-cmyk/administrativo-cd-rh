@@ -110,6 +110,7 @@ export function MonitoringAdmin({ section, today }: { section: "import" | "recon
       <BindingHistory data={data} onSaved={() => { setRefresh(value => value + 1); refreshEmployeePhotos(); }} />
     </> : null}
     {data && section === "settings" ? <>
+      <aside aria-label="Como excluir colaboradores dos indicadores" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950"><h3 className="font-semibold">Quem não trabalha dentro da operação</h3><p className="mt-2">Em Configuração, escolha Exceção de indicador, aplique a Pessoa, selecione o colaborador e Fora da operação. Marque Excluir, informe a vigência e a justificativa, e salve. O refeitório continua sendo apurado.</p><p className="mt-2">Liderança e cozinha ficam excluídas do tempo fora da operação, do tempo de refeitório e das refeições sem descanso, conforme os grupos confirmados na data.</p></aside>
       <SettingsForm key={editing ? `${editing.id}:${editing.updated_at}` : "new"} initial={editing} cancel={() => setEditing(null)} employees={data.employees} users={data.users ?? []} today={today} save={async payload => {
         const saved = await mutation(editing ? "replace_setting" : "setting", editing ? { id: editing.id, expectedUpdatedAt: editing.updated_at, reason: (payload as { reason: string }).reason, setting: payload } : payload);
         if (saved) setEditing(null); return saved;

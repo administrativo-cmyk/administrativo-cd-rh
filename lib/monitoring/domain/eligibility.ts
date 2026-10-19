@@ -18,11 +18,13 @@ export function normalizeGroups(groups: string[] | string): string[] {
 /** Defaults start on an explicitly chosen date; never apply a current group retroactively. */
 export function initialIndicatorPolicies(validFrom: string, author: string): IndicatorPolicy[] {
   assertOperationalDate(validFrom);
-  return ["COZINHA JK", "LIDERANÇA JK"].map((group) => ({
-    id: `initial-outside-operation-${group}`, indicator: "outsideOperation", subjectType: "group", subject: group,
-    effect: "exclude", validFrom, reason: "Exclusão inicial solicitada para tempo fora da operação", author,
-  }));
+  return ["COZINHA JK", "LIDERANÇA JK"].flatMap(group => (["outsideOperation", "cafeteria"] as const).map(indicator => ({
+    id: `initial-${indicator}-${group}`, indicator, subjectType: "group" as const, subject: group,
+    effect: "exclude" as const, validFrom, reason: "Liderança e cozinha excluídas do tempo fora da operação e dos indicadores de refeitório", author,
+  })));
 }
+
+const groupKeys = (groups: string[] | string) => [...new Set(normalizeGroups(groups).map(group => group.normalize("NFD").replace(/[\u0300-\u036f]/g, "")))].sort();
 
 export function resolveEligibility(personId: string, indicator: Indicator, date: string, snapshots: readonly GroupSnapshot[], policies: readonly IndicatorPolicy[]): Eligibility {
   const active = policies.filter((policy) => policy.indicator === indicator && isEffective(policy, date));
@@ -32,10 +34,10 @@ export function resolveEligibility(personId: string, indicator: Indicator, date:
   if (!groupPolicies.length) return { state: "eligible", policyIds: [], reasons: [] };
   const effective = snapshots.filter((snapshot) => isEffective(snapshot, date) && snapshot.evidence.trim());
   if (!effective.length) return { state: "pending", policyIds: [], reasons: ["Histórico de grupos não confirmado na data operacional"] };
-  const versions = new Set(effective.map((snapshot) => normalizeGroups(snapshot.groups).join("\u0000")));
+  const versions = new Set(effective.map((snapshot) => groupKeys(snapshot.groups).join("\u0000")));
   if (versions.size > 1) return { state: "pending", policyIds: [], reasons: ["Snapshots de grupos conflitantes na vigência"] };
-  const groups = normalizeGroups(effective[0].groups);
-  const matched = groupPolicies.filter((policy) => groups.includes(normalizeGroups([policy.subject])[0]));
+  const groups = groupKeys(effective[0].groups);
+  const matched = groupPolicies.filter((policy) => groups.includes(groupKeys([policy.subject])[0]));
   if (!matched.length) return { state: "eligible", policyIds: [], reasons: [] };
   // A group exclusion wins over another group inclusion; personal decisions have already won above.
   const exclusions = matched.filter((policy) => policy.effect === "exclude");

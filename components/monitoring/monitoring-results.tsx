@@ -7,7 +7,13 @@ import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnaps
 import { sortMonitoringRows, type MonitoringSortKey } from "@/lib/monitoring/query-view";
 import { buttonClass, calendarDate, duration, Quality } from "./shared";
 
-const metrics = ["workedSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds"] as const;
+const metrics = ["workedSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
+function metricValue(summary: MonitoringRow["summary"], key: typeof metrics[number]) {
+  const quality = { workedSeconds: "", outsideSeconds: "outsideQuality", cafeteriaSeconds: "cafeteriaQuality", mealsWithoutRest: "mealQuality", lateSeconds: "" }[key];
+  if (quality && summary?.[quality] === "excluded") return "Excluído por regra";
+  if (key === "mealsWithoutRest") return typeof summary?.[key] === "number" ? `${summary[key]} vez(es)` : "Não apurável";
+  return duration(summary?.[key]);
+}
 type Props={snapshot:MonitoringSnapshot;applied:MonitoringFilters;loading:boolean;onSort:(key:MonitoringSortKey)=>void;onPage:(offset:number)=>void;onDetails:(employeeId:string,date:string|null)=>void};
 
 function Person({row}:{row:MonitoringRow}) {
@@ -21,11 +27,11 @@ export function MonitoringResults({snapshot,applied,loading,onSort,onPage,onDeta
   const byEmployee=new Map<string,MonitoringRow[]>();
   for(const row of snapshot.rows)byEmployee.set(row.employeeId,[...byEmployee.get(row.employeeId)??[],row]);
   const orderBy=applied.orderBy??"name",direction=applied.direction??"asc";
-  const headers:Array<[MonitoringSortKey,string]>=[["name","Colaborador / unidade"],["date",grouped?"Dias apurados":"Data operacional"],["quality","Qualidade"],["workedSeconds","Trabalho"],["outsideSeconds","Fora operação"],["cafeteriaSeconds","Refeitório"],["lateSeconds","Atraso"]];
+  const headers:Array<[MonitoringSortKey,string]>=[["name","Colaborador / unidade"],["date",grouped?"Dias apurados":"Data operacional"],["quality","Qualidade"],["workedSeconds","Trabalho"],["outsideSeconds","Fora operação"],["cafeteriaSeconds","Refeitório"],["mealsWithoutRest","Refeições sem descanso"],["lateSeconds","Atraso"]];
   const dayRow=(row:MonitoringRow,child=false)=><tr key={`${row.employeeId}|${row.date}`} className={child?"bg-slate-50/70 hover:bg-blue-50/40":"hover:bg-slate-50"}>
     <td className="px-4 py-3">{child?<span className="pl-12 text-xs font-medium text-slate-600">Jornada individual</span>:<Person row={row}/>}</td>
     <td className="whitespace-nowrap px-4 py-3">{calendarDate(row.date)}</td><td className="px-4 py-3"><Quality value={row.quality}/></td>
-    {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}>{row.dirty?"Recalcular":duration(row.summary?.[key])}</td>)}
+    {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}>{row.dirty?"Recalcular":metricValue(row.summary,key)}</td>)}
     <td className="px-4 py-3"><button className={buttonClass} onClick={()=>onDetails(row.employeeId,row.date)} aria-label={`Detalhes de ${row.name}${child?` em ${calendarDate(row.date)}`:""}`}>Ver detalhes</button></td>
   </tr>;
   const groupRow=(group:MonitoringGroup)=>{
@@ -36,7 +42,7 @@ export function MonitoringResults({snapshot,applied,loading,onSort,onPage,onDeta
         <th scope="row" className="px-4 py-3 text-left font-normal"><div className="flex items-center gap-2"><button type="button" className={`${buttonClass} h-11 w-11 shrink-0 p-0`} aria-expanded={open} aria-controls={id} aria-label={`${open?"Recolher":"Expandir"} dias de ${group.name}`} onClick={()=>setExpanded(current=>{const next=new Set(current);if(next.has(group.employeeId))next.delete(group.employeeId);else next.add(group.employeeId);return next;})}>{open?<Minus size={16} aria-hidden/>:<Plus size={16} aria-hidden/>}</button><Person row={group}/></div></th>
         <td className="px-4 py-3"><b>{group.assessedDays} de {group.totalDays}</b><span className="mt-1 block text-xs text-slate-500">dias com trabalho apurado</span></td>
         <td className="px-4 py-3"><Quality value={group.quality}/>{group.pendingDays?<span className="mt-1 block text-xs text-amber-900">{group.pendingDays} dia(s) pendente(s)</span>:null}</td>
-        {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}><b>{duration(group.summary?.[key])}</b><span className="mt-1 block text-xs text-slate-500">{group.metricDays[key]??0} de {group.totalDays} dias</span></td>)}
+        {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}><b>{metricValue(group.summary,key)}</b><span className="mt-1 block text-xs text-slate-500">{group.metricDays[key]??0} de {group.totalDays} dias</span></td>)}
         <td className="px-4 py-3"><button className={buttonClass} aria-label={`Histórico de ${group.name} no período`} onClick={()=>onDetails(group.employeeId,group.firstDate)}>Ver histórico</button></td>
       </tr>
     </tbody><tbody id={id} hidden={!open} aria-label={`Dias de ${group.name}`} className="divide-y divide-slate-100">{open?days.map(row=>dayRow(row,true)):null}</tbody></Fragment>;
