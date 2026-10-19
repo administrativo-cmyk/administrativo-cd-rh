@@ -165,4 +165,11 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     const audit = await value<{ rows: Array<{ after: { terminationDate: string; cpf: string } }> }>("select public.audit_history($1::jsonb) value", [JSON.stringify({ from: today, to: today, domain: "cadastros" })]);
     expect(audit.rows[0].after).toMatchObject({ terminationDate: day, cpf: "[identificador protegido]" });
   });
+  it("cliente antigo omite documentos sem apagar os identificadores armazenados", async () => {
+    const changed = await save({ cpf: "12345678909" });
+    const oldClient = employeeInputSchema.parse({ id: employee, expectedUpdatedAt: changed.record.updatedAt, employeeNumber: "LIFE-1", name: "Pessoa sintética", unitId: changed.record.unitId, managerId: team, situation: "ATIVO", admissionDate: changed.record.admissionDate, workdayHours: 8, reason: "Cliente anterior atualizado" });
+    expect(oldClient).not.toHaveProperty("cpf");expect(oldClient).not.toHaveProperty("pis");
+    await value("select public.administration('employee','save',$1::jsonb) value", [JSON.stringify(oldClient)]);
+    expect((await record()).cpf).toBe("12345678909");
+  });
 });
