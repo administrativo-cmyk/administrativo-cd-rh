@@ -74,6 +74,22 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("classifies stored originals under a fenced lease before any ingest", async () => {
+    await db.exec("insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test')");
+    const draft = await create("automatic", admin, { autoDetect: true });
+    expect((draft as Job & { autoDetect: boolean }).autoDetect).toBe(true);
+    await upload(draft); const job = await claim();
+    await expect(persist(job, batch(hash("automatic")))).rejects.toThrow("CLOUD_DETECTION_REQUIRED");
+    await expect(worker("route", { id: job.id, leaseToken: "00000000-0000-4000-8000-000000000000", kind: "afd", afdProfile: "legacy" })).rejects.toThrow("CLOUD_LEASE_LOST");
+    const routed = (await worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy" })).job as Job & { autoDetect: boolean; parserVersion: string };
+    expect(routed.autoDetect).toBe(false); expect(routed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy");
+    expect(routed.cursor).toBe(0);
+  });
+  it("rejects an ambiguous route without changing the frozen job", async () => {
+    await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace) values('second-clock','afd','second-clock');insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test'),('afd','legacy','second-clock')");
+    await upload(await create("ambiguous", admin, { autoDetect: true })); const job = await claim();
+    await expect(worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "legacy" })).rejects.toThrow("CLOUD_ROUTE_AMBIGUOUS");
+  });
   it("creates private bucket and confines admin/worker RPCs and raw Storage even with legacy broad policies", async () => {
     const bucket = (await db.query<{ public: boolean; file_size_limit: number }>("select public,file_size_limit from storage.buckets where id='monitoramento-originais'")).rows[0];
     expect(bucket.public).toBe(false); expect(Number(bucket.file_size_limit)).toBe(20971520);

@@ -1,9 +1,10 @@
+import { assessBankDay, type BankDay } from "./bank-day";
 import { z } from "zod";
 import { scheduledOn, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
 import { parseLocalTimestamp } from "./ingestion/validation";
 import {
-  calculateJourney, isEffective, normalizeGroups, RULE_VERSION,
+  calculateJourney, isEffective, normalizeGroups, RULE_VERSION, preparePunches, DEFAULT_REPETITION_POLICY,
   type AccessEvent, type AccessPointMapping, type Coverage, type GroupSnapshot, type IndicatorPolicy,
   type JourneyCalculation, type JourneyCalculationInput, type PunchEvent, type Schedule,
 } from "./domain";
@@ -22,6 +23,8 @@ const canonicalEventSchema = z.object({
 });
 const provenanceSchema = z.object({ fileId: z.string().optional(), row: z.number().int().nonnegative().optional(), sourceId: z.string().optional() });
 const snapshotSchema = z.object({
+  corrections: z.array(z.object({ date: dateSchema, updatedAt: z.string(), reason: z.string(), punches: z.array(z.object({ at: z.string(), evidenceId: z.string().nullable().optional() })).length(4) })).default([]),
+  protectedDates: z.array(dateSchema).default([]),
   version: z.number().int().nonnegative(),
   punchSourceIds: z.array(z.string()).default([]),
   calendar: z.array(z.object({ date: dateSchema, state: z.enum(["unchanged", "work", "off"]), id: z.string().optional(), name: z.string().optional() })).max(370).default([]).refine(rows => new Set(rows.map(row => row.date)).size === rows.length, "Calendário duplicado"),
@@ -64,6 +67,7 @@ export interface MonitoringResultSummary {
   scheduleName: string | null;
   expectedWorkSeconds?: number | null;
   overtimeSeconds?: number | null;
+  bankDay?: BankDay;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -184,8 +188,17 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       return source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true && coverage?.continuous === true
         && Date.parse(coverage.from ?? "") <= window.start && Date.parse(coverage.to ?? "") >= window.end;
     });
-    const sortedPunches = [...punchEvents].sort((a,b)=>a.at-b.at);
-    const autoBoundaries = !evidenceSetting && scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes === 60 && fullCollection && window.end <= referenceAt
+    const originalPunches = selectedEvents.filter(event => event.payload.type === "punch" && Date.parse(event.payload.timestamp) >= window.start).map(event => ({id:event.id,at:Date.parse(event.payload.timestamp),sourceId:event.sourceId}));
+    const correction = snapshot.corrections.find(row => row.date === date);
+    if (correction) {
+      punchEvents.splice(0, punchEvents.length, ...correction.punches.map((punch, i) => ({
+        id: `correction:${date}:${i}:${correction.updatedAt}`, personId: request.employeeId, at: Date.parse(punch.at), sourceId: "rh-correction",
+        precision: "second" as const, role: (["start", "breakStart", "breakEnd", "end"] as const)[i],
+        provenance: { sourceId: "rh-correction", origin: "manual" as const, justification: correction.reason },
+      })));
+    }
+    const sortedPunches = preparePunches(punchEvents, DEFAULT_REPETITION_POLICY).events;
+    const autoBoundaries = (!evidenceSetting || correction) && scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes === 60 && (fullCollection || correction) && window.end <= referenceAt
       && sortedPunches.length >= 4 && sortedPunches.length <= 6 && sortedPunches.length % 2 === 0
       && sortedPunches.every((p,index)=>index===0 || p.at-sortedPunches[index-1].at >= 120_000)
       && !selectedEvents.some(event=>event.payload.type==="punch" && event.conflicted && Date.parse(event.payload.timestamp)>=window.start);
@@ -214,8 +227,16 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
         reason: "Horário estimado pelo ponto; atraso exige escala confirmada." };
     }
     if (calendar && calendar.state !== "unchanged") result.issues.push({ code: calendar.state === "off" ? "CALENDAR_NON_WORKING_DAY" : "CALENDAR_WORKING_OVERRIDE", eventIds: [], detail: calendar.name });
-    const conflictingPunches = selectedEvents.filter((event) => event.payload.type === "punch" && event.conflicted && Date.parse(event.payload.timestamp) >= window.start);
-    const unconfirmedSources = punchEvents.filter((event) => !snapshot.sources.some((source) => source.id === event.sourceId && source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true));
+    const conflictingPunches = (correction ? [] : selectedEvents).filter((event) => event.payload.type === "punch" && event.conflicted && Date.parse(event.payload.timestamp) >= window.start);
+    const unconfirmedSources = punchEvents.filter((event) => event.sourceId !== "rh-correction" && !snapshot.sources.some((source) => source.id === event.sourceId && source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true));
+    const bankSchedule = attributionFor(settings, request.employeeId, date, snapshot.calendar);
+    const bankTimes = bankSchedule ? scheduleTimes(bankSchedule, date) : null;
+    const bankDay = assessBankDay({ date, punches: punchEvents, accesses: accessEvents, mappings,
+      schedule: bankSchedule && bankTimes && bankSchedule.payload.lunchMinutes !== undefined ? { start: bankTimes.start, end: bankTimes.end, lunchMinutes: bankSchedule.payload.lunchMinutes, confirmed: !bankSchedule.payload.estimated && bankSchedule.payload.weeklyRosterConfirmed !== false, ...(!scheduled ? {expectedMinutes:0} : {}) } : null,
+      closed: window.end <= referenceAt, collectionComplete: fullCollection || Boolean(correction),
+      protected: snapshot.protectedDates.includes(date), conflicted: conflictingPunches.length > 0 || unconfirmedSources.length > 0,
+    });
+    if (correction || conflictingPunches.length || unconfirmedSources.length) bankDay.originalPunches = originalPunches;
     if (conflictingPunches.length || unconfirmedSources.length) {
       if (conflictingPunches.length) result.issues.push({ code: "CONFLICTED_PUNCH_EVENTS_REQUIRE_REVIEW", eventIds: conflictingPunches.map((event) => event.id) });
       if (unconfirmedSources.length) result.issues.push({ code: "SOURCE_IDENTITY_UNCONFIRMED", eventIds: unconfirmedSources.map((event) => event.id) });
@@ -223,10 +244,10 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       const unavailable = calculateJourney({ ...calculationInput, evidence: { startConfirmed: false, endConfirmed: false, startCoverageConfirmed: false } });
       unavailable.issues.push(...result.issues.filter((issue) => ["CONFLICTED_PUNCH_EVENTS_REQUIRE_REVIEW", "SOURCE_IDENTITY_UNCONFIRMED", "CALENDAR_NON_WORKING_DAY", "CALENDAR_WORKING_OVERRIDE"].includes(issue.code)));
       return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result: unavailable,
-        summary: summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null) };
+        summary: { ...summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null), bankDay } };
     }
     return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
-      summary: { ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
+      summary: { bankDay, ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
         expectedWorkSeconds: scheduled?.payload.lunchMinutes !== undefined ? (durationMinutes(scheduled.payload.start, scheduled.payload.end)-scheduled.payload.lunchMinutes)*60 : null,
         overtimeSeconds: scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes !== undefined && result.journey.status === "complete" && result.workMs !== null
           ? Math.max(0, result.workMs/1000-(durationMinutes(scheduled.payload.start,scheduled.payload.end)-scheduled.payload.lunchMinutes)*60) : null } };

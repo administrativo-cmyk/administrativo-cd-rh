@@ -4,7 +4,7 @@ export const cloudFileLimit = 20 * 1024 * 1024;
 export const cloudStatusSchema = z.enum(["uploading", "queued", "processing", "completed", "failed", "cancelled"]);
 export const cloudJobSchema = z.object({
   id: z.string().min(1), fileName: z.string(), sourceId: z.string(), status: cloudStatusSchema,
-  bytes: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string(),
+  autoDetect: z.boolean().optional(), bytes: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string(),
   batchesDone: z.number().int().nonnegative(), totalBatches: z.number().int().nonnegative().nullable(), errorCode: z.string().nullable(),
 });
 export const cloudSnapshotSchema = z.object({
@@ -20,6 +20,9 @@ export type CloudReservation = z.infer<typeof cloudUploadReservationSchema>;
 export type CloudPhase = "idle" | "hashing" | "authorizing" | "uploading" | "confirming";
 export const cloudStatusLabels: Record<CloudJob["status"], string> = { uploading: "Aguardando confirmação do envio", queued: "Na fila da nuvem", processing: "Processando na nuvem", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 const errorLabels: Record<string, string> = {
+  CLOUD_FORMAT_UNKNOWN: "Conteúdo não reconhecido. Envie a exportação AFD ou Defense original.",
+  CLOUD_FORMAT_AMBIGUOUS: "O arquivo mistura formatos. Exporte cada relatório separadamente.",
+  CLOUD_ROUTE_AMBIGUOUS: "Mais de uma fonte corresponde ao arquivo. Solicite a revisão da configuração ao administrador.",
   CLOUD_AUTOMATION_DISABLED: "A importação aguarda ativação da automação no servidor. Solicite a ativação ao administrador e atualize os envios.",
   CLOUD_INVALID: "Revise o arquivo, a fonte e o formato selecionado antes de enviar novamente.",
   CLOUD_INVALID_FILE: "Revise o arquivo, a fonte e o formato selecionado antes de enviar novamente.",
@@ -33,7 +36,7 @@ const errorLabels: Record<string, string> = {
   CLOUD_UPLOAD_INVALID: "O arquivo recebido difere do selecionado. Cancele este envio e envie o original novamente.",
   CLOUD_SNAPSHOT_HASH_MISMATCH: "O arquivo recebido difere do selecionado. Cancele este envio e envie o original novamente.",
   CLOUD_SNAPSHOT_TOO_LARGE: "O arquivo excede o limite permitido. Envie uma exportação menor.",
-  CLOUD_AFD_PROFILE_MISMATCH: "O formato AFD não corresponde ao arquivo. Confira a exportação e envie novamente com o formato correto.",
+  CLOUD_AFD_PROFILE_MISMATCH: "O envio antigo usou outro formato. Clique em Tentar novamente para identificar automaticamente o original armazenado.",
   CLOUD_PARSER_VERSION_CHANGED: "O leitor de arquivos foi atualizado. Envie o original novamente para usar a versão atual.",
   CLOUD_QUOTA: "O limite da fila ou do armazenamento foi atingido. Solicite a revisão ao administrador.",
   CLOUD_STATE: "Esta ação não está disponível na situação atual do envio. Atualize o histórico.",
@@ -60,13 +63,14 @@ export function cloudError(code: string | null) {
   return code && errorLabels[code] ? errorLabels[code] : "O processamento não foi concluído. Confira o arquivo e a fonte antes de tentar novamente.";
 }
 export function validateCloudFile(file: File | null, source: CloudSnapshot["sources"][number] | undefined, profile: string, max: number): string | null {
-  if (!source) return "Selecione a fonte do arquivo.";
-  if (source.kind === "afd" && profile !== "legacy" && profile !== "iso") return "Selecione o formato AFD informado pelo exportador do relógio.";
+  if (profile !== "auto" && !source) return "Selecione a fonte do arquivo.";
+  if (source?.kind === "afd" && profile !== "legacy" && profile !== "iso") return "Selecione o formato AFD informado pelo exportador do relógio.";
   if (!file) return "Selecione um arquivo para enviar.";
   if (file.name.length > 200) return "O nome do arquivo excede 200 caracteres. Encurte o nome antes de enviar.";
   if (!file.size) return "O arquivo está vazio. Selecione uma exportação com conteúdo.";
   if (file.size > Math.min(cloudFileLimit, max)) return `O arquivo excede o limite de ${Math.min(cloudFileLimit, max) / 1024 / 1024} MiB.`;
-  if (!file.name.toLowerCase().endsWith(source.kind === "afd" ? ".txt" : ".xlsx")) return source.kind === "afd" ? "A fonte de ponto aceita somente AFD em arquivo .txt." : "A fonte Defense aceita somente planilha .xlsx.";
+  if (profile === "auto") return /\.(txt|xlsx)$/i.test(file.name) ? null : "Envie um AFD .txt ou uma planilha Defense .xlsx.";
+  if (!file.name.toLowerCase().endsWith(source!.kind === "afd" ? ".txt" : ".xlsx")) return source!.kind === "afd" ? "A fonte de ponto aceita somente AFD em arquivo .txt." : "A fonte Defense aceita somente planilha .xlsx.";
   return null;
 }
 export async function cloudRequest<S extends z.ZodTypeAny>(url: string, schema: S, signal: AbortSignal, body?: unknown): Promise<z.output<S>> {

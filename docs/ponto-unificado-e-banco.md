@@ -1,0 +1,11 @@
+# Ponto unificado e banco de horas
+
+Os relógios CPF e PIS alimentam uma sequência por colaborador, usando os vínculos conferidos. A origem de cada registro é preservada. Eventos equivalentes entre relógios são suprimidos somente na análise; os originais não são apagados. A data operacional do noturno continua sendo a entrada do turno.
+
+O envio em Monitoramento → Importação exige apenas o arquivo. O original vai ao armazenamento privado; o servidor verifica o hash, identifica AFD legado/ISO ou os cabeçalhos Defense e seleciona a fonte cadastrada. Formatos mistos, desconhecidos ou rotas ambíguas falham explicitamente. Uma concessão de processamento válida é obrigatória para classificar e persistir. Envios antigos que falharam por formato, sem lotes gravados, são reclassificados ao tentar novamente.
+
+Ao clicar no colaborador no Monitoramento, Cadastros, Quadro ou Chamada, consulte até 31 dias. O histórico mostra batidas, origem e crédito/débito diário. Duas batidas contam o intervalo menos 60 minutos de almoço, com mínimo de zero trabalhado. Quatro batidas contam os dois períodos trabalhados. Três batidas permanecem sem saldo; a posição mais provável fica em branco. Acesso autorizado, identificado e com direção validada no torniquete pode sugerir o horário. Apenas ADMIN/RH confirma correções, com justificativa e controle de versão. O ponto original e as revisões permanecem registrados.
+
+As medições existentes na ativação não recebem cálculo retroativo. Toda nova medição importada ou cadastrada inicia um ciclo automático na data de vigência, inclusive. O saldo usa apenas resultados processados, atuais e completos desde essa data, até a data consultada. Dias abertos, coleta incompleta, conflitos, horário não conferido e afastamentos ficam pendentes. Uma correção completa aprovada pelo RH confirma as quatro batidas daquele dia. Folgas confirmadas sem trabalho têm saldo zero. Compensações G mantêm seu tratamento existente, sem outro débito por batidas.
+
+Editar saldo manual usa a manutenção auditada de medições. Uma nova medição substitui a base do ciclo; não apaga os cálculos ou medições anteriores. A prévia do histórico pode anteceder o processamento da fila; a tela diferencia a prévia dos movimentos efetivamente processados.

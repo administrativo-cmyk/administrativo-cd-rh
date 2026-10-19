@@ -2,7 +2,7 @@ import { isEffective } from "./eligibility";
 import { assertInstant } from "./intervals";
 import type { AccessEvent, AccessPointMapping, Area, Issue, LocationState, PunchEvent, RepetitionPolicy, Suppression } from "./types";
 
-export const RULE_VERSION = "monitoring-1.1.0";
+export const RULE_VERSION = "monitoring-1.2.0";
 export const DEFAULT_REPETITION_POLICY: RepetitionPolicy = {
   version: "repetition-1.0.0", punchWindowMs: 60_000, accessWindowMs: 10_000, suppressUntypedPunches: false,
 };
@@ -33,6 +33,15 @@ export function preparePunches(events: readonly PunchEvent[], policy: Repetition
   const kept: PunchEvent[] = [];
   for (const event of sortedCanonical(events, issues)) {
     const anchor = kept.at(-1);
+    // The employee is the logical stream. Equal represented instants from two
+    // clocks are one analytical punch; originals and both source IDs stay intact.
+    const crossClock = anchor && anchor.personId === event.personId && anchor.sourceId !== event.sourceId
+      && (!anchor.role || !event.role || anchor.role === event.role)
+      && (anchor.at === event.at || ((anchor.precision === "minute" || event.precision === "minute") && Math.floor(anchor.at / 60_000) === Math.floor(event.at / 60_000)));
+    if (crossClock) {
+      suppressions.push({ eventId: event.id, retainedEventId: anchor.id, rule: "punch-repetition", ruleVersion: "cross-clock-1.0.0", differenceMs: event.at - anchor.at });
+      continue;
+    }
     const close = anchor && anchor.personId === event.personId && anchor.sourceId === event.sourceId && event.at - anchor.at <= policy.punchWindowMs;
     const compatible = anchor && ((event.role !== undefined && event.role === anchor.role) || (!event.role && !anchor.role && policy.suppressUntypedPunches));
     if (close && compatible) {

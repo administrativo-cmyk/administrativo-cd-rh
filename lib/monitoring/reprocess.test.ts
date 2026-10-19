@@ -33,6 +33,30 @@ function snapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("unifies clocks, deduplicates equivalent punches and posts only confirmed daily balances", () => {
+    const raw = snapshot();
+    raw.sources = ["rep", "second"].map(id => ({ id, kind: "afd", configuration: { sourceIdentityConfirmed: true, declaredCoverage: { from: stamp("00:00", "2026-10-01"), to: stamp("00:00", "2026-10-13"), continuous: true } } })) as unknown as typeof raw.sources;
+    const schedule = raw.settings.find(row => row.kind === "schedule")!;
+    schedule.payload = { ...(schedule.payload as object), lunchMinutes: 60, weeklyRosterConfirmed: true };
+    raw.events[1].sourceId = "second"; raw.events[3].sourceId = "second";
+    raw.events.push({ ...event("punch", "08:00", "duplicate"), sourceId: "second" });
+    const result = reprocessMonitoringSnapshot({ ...raw, punchSourceIds: ["rep", "second"] }, request, reference)[0];
+    expect(result.summary.bankDay).toMatchObject({ state: "ready", deltaMinutes: 0, suppressedIds: ["p1"] });
+    expect(result.result.journey.retainedPunchIds).toHaveLength(4);
+    schedule.payload = { ...(schedule.payload as object), weeklyRosterConfirmed: false };
+    expect(reprocessMonitoringSnapshot({ ...raw, punchSourceIds: ["rep", "second"] }, request, reference)[0].summary.bankDay?.deltaMinutes).toBeNull();
+  });
+  it("uses an audited RH correction while preserving original punches and protecting leave", () => {
+    const raw = snapshot(); raw.events = raw.events.filter(row => row.id !== "p3");
+    const schedule = raw.settings.find(row => row.kind === "schedule")!;
+    schedule.payload = { ...(schedule.payload as object), lunchMinutes: 60 };
+    const corrected = { ...raw, corrections: [{ date, updatedAt: stamp("18:00"), reason: "Conferência RH com justificativa", punches: ["08:00", "12:00", "13:00", "17:00"].map(time => ({ at: stamp(time) })) }] };
+    const result = reprocessMonitoringSnapshot(corrected, request, reference)[0];
+    expect(result.summary.bankDay).toMatchObject({ state: "ready", deltaMinutes: 0 });
+    expect(result.summary.bankDay?.originalPunches).toHaveLength(3);
+    expect(result.summary.bankDay?.punches.every(punch => punch.sourceId === "rh-correction")).toBe(true);
+    expect(reprocessMonitoringSnapshot({ ...corrected, protectedDates: [date] }, request, reference)[0].summary.bankDay?.deltaMinutes).toBeNull();
+  });
   it("horário estimado não cria atraso mesmo com início e cobertura confirmados", () => {
     const raw = snapshot();
     const schedule = raw.settings.find(setting => setting.kind === "schedule")!;

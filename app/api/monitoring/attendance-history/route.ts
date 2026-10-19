@@ -1,0 +1,50 @@
+import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+import { boundedJson, monitoringSession } from "@/lib/monitoring/server";
+import { historyPeriodSchema, punchCorrectionSchema } from "@/lib/monitoring/attendance-history-contracts";
+import { reprocessMonitoringSnapshot } from "@/lib/monitoring/reprocess";
+import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
+import type { Json } from "@/lib/monitoring/database";
+export const runtime = "nodejs";
+const headers = { "Cache-Control": "private, no-store" };
+type HistoryDatabase = { public: { Tables: Record<never, never>; Views: Record<never, never>; Enums: Record<never, never>; CompositeTypes: Record<never, never>; Functions: {
+  attendance_history: { Args: { p_action: string; p_data: Json }; Returns: Json };
+} } };
+async function rpc(action: string, data: unknown) {
+  const client = await createClient<HistoryDatabase>();
+  const result = await client.rpc("attendance_history", { p_action: action, p_data: data as Json });
+  if (result.error) throw Object.assign(new Error("HISTORY_FAILED"), { code: result.error.code, stale: result.error.message.includes("ATTENDANCE_STALE") });
+  return result.data;
+}
+function failure(error: unknown) {
+  const invalid = error instanceof z.ZodError || error instanceof SyntaxError;
+  const code = error && typeof error === "object" && "code" in error ? error.code : "";
+  const stale = error && typeof error === "object" && "stale" in error && error.stale;
+  return Response.json({ error: stale ? "As batidas foram corrigidas em outra sessão. Atualize o histórico." : invalid || code === "22023" ? "Revise período, horários e justificativa." : code === "42501" ? "Seu perfil não permite esta operação." : "Não foi possível carregar ou salvar o histórico. Tente novamente." }, { status: stale ? 409 : invalid || code === "22023" ? 400 : code === "42501" ? 403 : 503, headers });
+}
+export async function GET(request: Request) {
+  const session = await monitoringSession(); if (session.response) return session.response;
+  try {
+    const period = historyPeriodSchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    const raw = z.object({ input: z.unknown(), bank: z.unknown(), canEdit: z.boolean(), correctionHistory: z.array(z.unknown()) }).parse(await rpc("history", period));
+    const corrections = z.object({ corrections: z.array(z.object({ date: z.string(), updatedAt: z.string() })).default([]) }).parse(raw.input).corrections;
+    const days = [];
+    const now = Date.now();
+    for (let date = period.start; date <= period.end; date = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
+      try {
+        const [day] = reprocessMonitoringSnapshot(raw.input, { employeeId: period.employeeId, start: date, end: date, reason: "Consulta do histórico de ponto" }, now);
+        days.push({ date, bankDay: day.summary.bankDay ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "MONITORING_FUTURE_PERIOD") throw error;
+        days.push({ date, bankDay: null, correctionVersion: null });
+      }
+    }
+    return Response.json({ days, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory }, { headers });
+  } catch (error) { return failure(error); }
+}
+export async function POST(request: Request) {
+  if (!isTrustedMutationOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+  const session = await monitoringSession(true); if (session.response) return session.response;
+  try { return Response.json(await rpc("correct", punchCorrectionSchema.parse(await boundedJson(request, 8192))), { headers }); }
+  catch (error) { return failure(error); }
+}

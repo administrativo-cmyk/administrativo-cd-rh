@@ -8,7 +8,7 @@ import { allowedIngestSource } from "@/lib/monitoring/ingest-security";
 export const runtime = "nodejs";
 const noStore = { "Cache-Control": "private, no-store" };
 const requestSchema = z.object({
-  sourceId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/),
+  sourceId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/).optional(),
   fileName: z.string().min(1).max(200).refine(value => !/[\\/\x00-\x1f\x7f]/.test(value) && value.trim() === value),
   byteLength: z.number().int().positive().max(cloudMaxFileBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/),
   afdProfile: z.enum(["legacy", "iso"]).optional(),
@@ -30,17 +30,20 @@ export async function POST(request: Request) {
   const session = await monitoringSession(true); if (session.response) return session.response;
   try {
     const input = requestSchema.parse(await boundedJson(request, 8192));
-    assertCloudSource(input.sourceId);
     const readiness = listSchema.parse(await cloudAdmin("list", { limit: 1 }));
     if (!readiness.automationReady) throw new CloudError("CLOUD_AUTOMATION_DISABLED");
     const sources = readiness.sources;
-    const source = sources.find(item => item.id === input.sourceId); if (!source) throw new CloudError("CLOUD_SOURCE_FORBIDDEN");
-    if (source.kind === "afd" ? !/\.txt$/i.test(input.fileName) || !input.afdProfile : !/\.xlsx$/i.test(input.fileName) || input.afdProfile !== undefined) throw new CloudError("CLOUD_INVALID");
+    const autoDetect = !input.sourceId;
+    const source = sources.find(item => allowedIngestSource(item.id) && (autoDetect ? /\.txt$/i.test(input.fileName) ? item.kind === "afd" : item.kind !== "afd" : item.id === input.sourceId)); if (!source) throw new CloudError("CLOUD_SOURCE_FORBIDDEN");
+    assertCloudSource(source.id);
+    const afdProfile = autoDetect && source.kind === "afd" ? "legacy" : input.afdProfile;
+    if (source.kind === "afd" ? !/\.txt$/i.test(input.fileName) || !afdProfile : !/\.xlsx$/i.test(input.fileName) || input.afdProfile !== undefined) throw new CloudError("CLOUD_INVALID");
     const reservation = await cloudAdmin("create", {
-      ...input, parserVersion: ingestionParserVersion({ kind: source.kind, afdProfile: input.afdProfile }),
-      ...(source.kind === "afd" ? { encoding: input.afdProfile === "legacy" ? "latin1" : "utf8" } : {}),
+      ...input, sourceId: source.id, autoDetect, afdProfile, parserVersion: ingestionParserVersion({ kind: source.kind, afdProfile }),
+      ...(source.kind === "afd" ? { encoding: afdProfile === "legacy" ? "latin1" : "utf8" } : {}),
     });
     let job = cloudJob(reservation);
+    assertCloudSource(job.sourceId);
     const uploadPresent = reservation && typeof reservation === "object" && "uploadPresent" in reservation && reservation.uploadPresent === true;
     if (job.status === "uploading" && uploadPresent) job = cloudJob(await cloudAdmin("complete", { id: job.id, expectedUpdatedAt: job.updatedAt }));
     if (["queued", "processing", "completed"].includes(job.status)) return Response.json({ ...publicCloudJob(job), alreadyUploaded: true }, { headers: noStore });

@@ -1,3 +1,5 @@
+import { detectCloudImport } from "@/lib/monitoring/cloud/detection";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { assertCloudSource, cloudFailure, cloudJobSchema, cloudWorker, dispatchHash, CloudError } from "@/lib/monitoring/cloud/server";
 import { downloadCloudObject } from "@/lib/monitoring/cloud/storage";
@@ -24,7 +26,7 @@ export async function POST(request: Request) {
   let claim: z.infer<typeof claimSchema>;
   try { claim = claimSchema.parse(await cloudWorker("claim", { tokenHash }, signal)); }
   catch (error) { return cloudFailure(error); }
-  const job = claim.job;
+  let job = claim.job;
   if (!job && !claim.reprocess) return Response.json({ accepted: true, state: "idle" }, { headers });
   if (job) {
     if (!job.leaseToken) return cloudFailure(new CloudError("CLOUD_UNAVAILABLE"));
@@ -32,6 +34,12 @@ export async function POST(request: Request) {
     try {
       assertCloudSource(job.sourceId);
       const bytes = await downloadCloudObject(job, signal);
+      if (job.autoDetect) {
+        if (createHash("sha256").update(bytes).digest("hex") !== job.sha256) throw new CloudError("CLOUD_SNAPSHOT_HASH_MISMATCH");
+        const detected = await detectCloudImport(bytes);
+        job = z.object({ job: cloudJobSchema }).parse(await cloudWorker("route", { ...lease, ...detected }, signal)).job;
+        assertCloudSource(job.sourceId);
+      }
       const result = await processCloudSnapshot({
         id: job.id, source: { ...job.source, declaredCoverage: job.source.declaredCoverage ?? undefined },
         sha256: job.sha256, byteLength: job.byteLength, fileName: job.fileName, parserVersion: job.parserVersion, nextBatch: job.cursor,

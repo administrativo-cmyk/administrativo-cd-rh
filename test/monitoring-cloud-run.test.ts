@@ -16,7 +16,7 @@ import { ImportError } from "../lib/monitoring/ingestion/validation.ts";
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = "a".repeat(64);
 const bytes = Buffer.from("synthetic snapshot");
-const job: CloudJob = {
+const job: CloudJob = { autoDetect: false,
   id: "80000000-0000-4000-8000-000000000001", sourceId: "cloud-test",
   source: { id: "cloud-test", kind: "afd", timeZone: "America/Sao_Paulo", identityNamespace: "cloud-test", sourceIdentityConfirmed: false, afdProfile: "iso" },
   fileName: "synthetic.txt", objectPath: "80000000-0000-4000-8000-000000000001/original", bucket: "monitoramento-originais",

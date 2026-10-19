@@ -145,3 +145,49 @@ describe("medições gerenciadas no PostgreSQL isolado", () => {
     expect(await value<number>("select count(*)::int value from public.chamada_diaria where colaborador_id=$1", [employee])).toBe(0);
   });
 });
+
+describe("punch corrections and baseline-gated bank ledger", () => {
+  async function history(action: string, employeeId: string, extra = {}, user = actor(1)) {
+    await db.query("select set_config('request.jwt.claim.sub',$1,false)", [user]);
+    await db.exec("set role authenticated");
+    try { return await value<Record<string, unknown>>("select public.attendance_history($1,$2::jsonb) value", [action, JSON.stringify({ employeeId, start: "2026-10-01", end: "2026-10-02", ...extra })]); }
+    finally { await db.exec("reset role"); }
+  }
+  it("adds positive and negative days from the new effective baseline, excluding pending/dirty and old periods", async () => {
+    const employee = await person(); const row = await create(employee);
+    const add = (date: string, delta: number, state = "ready", dirty = false) => db.query("insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason,dirty) values($1,$2::date,0,'test','{}',$3::jsonb,'Synthetic calculation',$4)", [employee, date, JSON.stringify({ bankDay: { state, deltaMinutes: delta } }), dirty]);
+    await add("2026-09-30", 1000); await add("2026-10-01", 60); await add("2026-10-02", -120); await add("2026-10-03", 500, "pending"); await add("2026-10-04", 500, "ready", true);
+    expect((await bank(employee))?.saldo_minutos).toBe(900);
+    expect((await bank(employee, "2026-10-01"))?.saldo_minutos).toBe(1020);
+    await db.query("delete from private.attendance_bank_baselines where measurement_id=$1", [row.id]);
+    expect((await bank(employee))?.saldo_minutos).toBe(960);
+  });
+  it("preserves manual G compensation without a second punch deficit", async () => {
+    const employee = await person(); await create(employee);
+    await db.query("insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason) values($1,'2026-10-01',0,'test','{}','{\"bankDay\":{\"state\":\"ready\",\"deltaMinutes\":-480}}','Synthetic calculation')", [employee]);
+    await db.query("insert into public.chamada_diaria(colaborador_id,data,status,updated_by) values($1,'2026-10-01','G',$2)", [employee, actor(1)]);
+    expect(await bank(employee)).toMatchObject({ saldo_minutos: 960, dias_g_ciclo: 1, dias_pendentes_compensar: 1 });
+  });
+  it("only ADMIN/RH correct, saves revisions without altering originals, and rejects stale writes", async () => {
+    const employee = await person();
+    const correction = { date: "2026-10-02", expectedUpdatedAt: null, reason: "Conferência sintética do ponto", punches: ["08:00", "12:00", "13:00", "17:00"].map(time => ({ at: `2026-10-02T${time}:00-03:00`, evidenceId: null })) };
+    await expect(history("correct", employee, correction, actor(4))).rejects.toThrow("ATTENDANCE_CORRECTION_FORBIDDEN");
+    expect(await history("correct", employee, correction)).toEqual({ changed: true });
+    const data = await history("history", employee);
+    expect(data.canEdit).toBe(true); expect((data.input as { corrections: unknown[] }).corrections).toHaveLength(1);
+    expect(data.correctionHistory).toHaveLength(1);
+    expect(await value<number>("select count(*)::int value from public.monitoring_events where source_id='rh-correction'")).toBe(0);
+    await expect(history("correct", employee, correction)).rejects.toThrow("ATTENDANCE_STALE");
+    const version = (data.input as { corrections: Array<{ updatedAt: string }> }).corrections[0].updatedAt;
+    expect(await history("correct", employee, { ...correction, expectedUpdatedAt: version, reason: "Revisão sintética pelo RH" }, actor(2))).toEqual({ changed: true });
+    expect((await history("history", employee)).correctionHistory).toHaveLength(2);
+    expect(await value<number>("select count(*)::int value from public.monitoring_jobs where employee_id=$1 and operational_date='2026-10-02'", [employee])).toBe(1);
+  });
+  it("rejects evidence from another person and out-of-order or future marks", async () => {
+    const employee = await person(); const marks = ["08:00", "12:00", "13:00", "17:00"].map(time => ({ at: `2026-10-02T${time}:00-03:00`, evidenceId: null as string | null }));
+    marks[2].evidenceId = "aaaaaaaa-0000-4000-8000-000000000001";
+    await expect(history("correct", employee, { date: "2026-10-02", expectedUpdatedAt: null, reason: "Conferência sintética", punches: marks })).rejects.toThrow("ATTENDANCE_INVALID_EVIDENCE");
+    marks[2].evidenceId = null; marks.reverse();
+    await expect(history("correct", employee, { date: "2026-10-02", expectedUpdatedAt: null, reason: "Conferência sintética", punches: marks })).rejects.toThrow("ATTENDANCE_INVALID_CORRECTION");
+  });
+});

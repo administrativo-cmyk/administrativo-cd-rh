@@ -25,8 +25,7 @@ function file(name = "synthetic.txt", text = "abc") {
   const value = new File([text], name); Object.defineProperty(value, "arrayBuffer", { value: async () => new TextEncoder().encode(text).buffer }); return value;
 }
 async function choose(user: ReturnType<typeof userEvent.setup>, source = "clock", name = "synthetic.txt") {
-  await user.selectOptions(await screen.findByLabelText("Fonte do arquivo"), source);
-  if (source === "clock") await user.selectOptions(screen.getByLabelText("Formato AFD"), "legacy");
+  void source; await screen.findByLabelText("Arquivo de importação");
   await user.upload(screen.getByLabelText("Arquivo de importação"), file(name));
 }
 beforeEach(() => { upload.mockReset().mockResolvedValue({ error: null }); storage.mockClear(); vi.stubGlobal("crypto", webcrypto); });
@@ -37,7 +36,7 @@ describe("Envio para processamento na nuvem", () => {
     const fetch = api(); fetch.mockResolvedValue(ok({ sources, jobs: [job("failed")], maxFileBytes: cloudFileLimit, ...(automationReady === undefined ? {} : { automationReady }) }));
     render(<CloudImportPanel />);
     expect(await screen.findByText(/Aguardando ativação da automação no servidor/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeDisabled(); expect(screen.getByLabelText("Fonte do arquivo")).toBeDisabled(); expect(screen.getByLabelText("Arquivo de importação")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeDisabled(); expect(screen.getByLabelText("Arquivo de importação")).toBeDisabled();
     expect(screen.getByText("synthetic-1.txt")).toBeInTheDocument(); expect(screen.getByRole("button", { name: "Cancelar synthetic-1.txt" })).toBeEnabled();
     fireEvent.submit(screen.getByRole("form", { name: "Envio de arquivo para processamento na nuvem" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("aguarda ativação"); expect(fetch).toHaveBeenCalledOnce(); expect(upload).not.toHaveBeenCalled();
@@ -47,26 +46,26 @@ describe("Envio para processamento na nuvem", () => {
     await screen.findByText(/Aguardando ativação da automação no servidor/); await user.click(screen.getByRole("button", { name: "Atualizar envios" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Enviar arquivo" })).toBeEnabled()); expect(screen.queryByText(/Aguardando ativação da automação no servidor/)).not.toBeInTheDocument();
   });
-  it("exige formato AFD explícito mesmo quando a fonte tem um perfil armazenado", async () => {
+  it("envia sem selecionar fonte ou formato; identificação pertence ao servidor", async () => {
     const user = userEvent.setup(); const fetch = api(); render(<CloudImportPanel />);
-    await user.selectOptions(await screen.findByLabelText("Fonte do arquivo"), "clock");
-    expect(screen.getByLabelText("Formato AFD")).toHaveValue("");
-    await user.upload(screen.getByLabelText("Arquivo de importação"), file()); await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Selecione o formato AFD"); expect(fetch.mock.calls).toHaveLength(1); expect(upload).not.toHaveBeenCalled();
+    await choose(user); expect(screen.queryByLabelText("Fonte do arquivo")).not.toBeInTheDocument(); expect(screen.queryByLabelText("Formato AFD")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
+    await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    const body = JSON.parse(String(fetch.mock.calls[1][1]?.body)); expect(body).not.toHaveProperty("sourceId"); expect(body).not.toHaveProperty("afdProfile");
   });
   it("barra arquivo acima20MiB e extensão incompatível antes do hash ou reserva", async () => {
     const user = userEvent.setup({ applyAccept: false }); const fetch = api(); render(<CloudImportPanel />); await choose(user);
     const oversized = file(); Object.defineProperty(oversized, "size", { value: cloudFileLimit + 1 });
     await user.upload(screen.getByLabelText("Arquivo de importação"), oversized); await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("20 MiB");
-    await user.upload(screen.getByLabelText("Arquivo de importação"), file("synthetic.xlsx")); await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("somente AFD em arquivo .txt"); expect(fetch.mock.calls).toHaveLength(1); expect(upload).not.toHaveBeenCalled();
+    await user.upload(screen.getByLabelText("Arquivo de importação"), file("synthetic.pdf")); await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("AFD .txt ou uma planilha Defense .xlsx"); expect(fetch.mock.calls).toHaveLength(1); expect(upload).not.toHaveBeenCalled();
   });
   it("calcula SHA256 e só confirma recebimento após upload assinado bem sucedido", async () => {
     const user = userEvent.setup(); const fetch = api(); let finishUpload!: (value: unknown) => void;
     upload.mockReturnValue(new Promise(resolve => { finishUpload = resolve; })); render(<CloudImportPanel />); await choose(user); await user.click(screen.getByRole("button", { name: "Enviar arquivo" }));
     await waitFor(() => expect(upload).toHaveBeenCalledOnce());
-    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({ sourceId: "clock", fileName: "synthetic.txt", byteLength: 3, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", afdProfile: "legacy" });
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({ fileName: "synthetic.txt", byteLength: 3, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" });
     expect(fetch.mock.calls[1][1]?.credentials).toBe("same-origin"); expect(fetch.mock.calls.some(([url]) => url.endsWith("/complete"))).toBe(false);
     expect(screen.getByRole("status")).toHaveTextContent("Mantenha esta página aberta");
     expect(storage).toHaveBeenCalledWith("private-imports"); expect(upload.mock.calls[0][0]).toBe("created/raw"); expect(upload.mock.calls[0][2].type).toBe("application/octet-stream");
@@ -96,7 +95,7 @@ describe("Envio para processamento na nuvem", () => {
     const user = userEvent.setup(); const fetch = api([job("uploading")]); render(<CloudImportPanel />);
     await user.click(await screen.findByRole("button", { name: "Confirmar envio de synthetic-1.txt" }));
     expect(fetch.mock.calls.some(([url, options]) => url === "/api/monitoring/cloud/1/complete" && options?.body === "{}")).toBe(true);
-    await user.selectOptions(screen.getByLabelText("Fonte do arquivo"), "people"); expect(screen.getByText("A planilha não inclui as imagens. As fotos já cadastradas são mantidas.")).toBeInTheDocument(); expect(screen.queryByLabelText("Formato AFD")).not.toBeInTheDocument();
+    expect(screen.getByText(/Fotos já cadastradas são preservadas/)).toBeInTheDocument(); expect(screen.queryByLabelText("Formato AFD")).not.toBeInTheDocument();
   });
   it("confirmar envio antigo preserva o novo arquivo ainda não enviado", async () => {
     const user = userEvent.setup(); api([job("uploading")]); render(<CloudImportPanel />); await choose(user, "people", "new.xlsx");

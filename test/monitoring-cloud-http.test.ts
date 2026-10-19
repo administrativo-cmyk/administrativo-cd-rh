@@ -10,7 +10,7 @@ import { dispatchHash, type CloudJob } from "@/lib/monitoring/cloud/server";
 
 const id = "80000000-0000-4000-8000-000000000001";
 const source = { id: "ponto", name: "Ponto", kind: "afd" as const };
-const job: CloudJob = { id, sourceId: source.id, source: { id: source.id, kind: "afd", timeZone: "America/Sao_Paulo", identityNamespace: "ponto", sourceIdentityConfirmed: false, afdProfile: "legacy", encoding: "latin1" },
+const job: CloudJob = { autoDetect: false, id, sourceId: source.id, source: { id: source.id, kind: "afd", timeZone: "America/Sao_Paulo", identityNamespace: "ponto", sourceIdentityConfirmed: false, afdProfile: "legacy", encoding: "latin1" },
   fileName: "ponto.txt", objectPath: `${id}/original.txt`, bucket: "monitoramento-originais", byteLength: 3, sha256: createHash("sha256").update("abc").digest("hex"),
   parserVersion: "monitoring-import/1.0.0/afd-legacy", status: "uploading", cursor: 0, processedRows: 0, totalRows: null, totalBatches: null,
   attempts: 0, maxAttempts: 5, nextRetryAt: null, lastError: null, createdAt: "2026-10-19T00:00:00Z", updatedAt: "2026-10-19T00:00:00Z", completedAt: null };
@@ -44,7 +44,7 @@ describe("cloud uploads authorization and contract", () => {
   });
   it("creates an immutable signed upload for the authorized database path with server-selected parser version", async () => {
     const result = await POST(request(input)); expect(result.status).toBe(201);
-    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_cloud_admin", { p_action: "create", p_data: { ...input, encoding: "latin1", parserVersion: job.parserVersion } });
+    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_cloud_admin", { p_action: "create", p_data: { ...input, autoDetect: false, encoding: "latin1", parserVersion: job.parserVersion } });
     expect(mocks.sign).toHaveBeenCalledWith(job.objectPath, { upsert: false });
     const body = await result.json(); expect(body.upload.token).toBe("temporary-test-token"); expect(JSON.stringify(body)).not.toContain("server-test-key");
   });
