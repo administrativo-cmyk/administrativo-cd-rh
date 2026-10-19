@@ -172,4 +172,15 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     await value("select public.administration('employee','save',$1::jsonb) value", [JSON.stringify(oldClient)]);
     expect((await record()).cpf).toBe("12345678909");
   });
+  it("RH recebe aviso de retorno vencido mesmo com afastamento cadastrado há meses", async () => {
+    await leave();
+    await db.exec(`reset role;set local session_replication_role=replica;update public.colaboradores set updated_at=now()-interval '400 days' where id='${employee}';set local session_replication_role=origin`);
+    await tick();
+    const notices = await value<number>("select count(*)::int value from private.workspace_notifications($1::uuid,'RH',null) where key like 'notice:employee-return:%' and created_at>=now()-interval '1 day'", [rh]);
+    expect(notices).toBe(1);
+    const first = await value<string>("select detected_at::text value from private.employee_lifecycle_signals where employee_id=$1::uuid", [employee]);
+    await tick();
+    expect(await value<string>("select detected_at::text value from private.employee_lifecycle_signals where employee_id=$1::uuid", [employee])).toBe(first);
+    expect(await value<number>("select count(*)::int value from private.workspace_notifications($1::uuid,'GESTOR',$2::uuid) where key like 'notice:employee-return:%'", [manager, team])).toBe(0);
+  });
 });
