@@ -8,21 +8,23 @@ import { BankHoursBadge } from "./bank-hours-badge";
 import type { AttendanceCode, Employee } from "@/lib/daily-call-types";
 import { EmployeeAvatar } from "./employee-avatar";
 import { validPeriod } from "@/lib/data/daily-call-dates";
+import { cn } from "@/lib/utils";
 
 type Props = { employees: Employee[]; startDate: string; endDate: string; onSelect: (employee: Employee) => void;
   readOnly?: boolean; onSave?: (employee: Employee, date: string, status: AttendanceCode | null, observation: string | null) => Promise<boolean>;
   isSaving?: (employee: Employee, date: string) => boolean;
+  fillHeight?: boolean;
 };
 const stickyColumns = [
   { label: "Matrícula", left: 0, width: 88 }, { label: "Colaborador", left: 88, width: 210 }, { label: "Gestor", left: 298, width: 118 },
   { label: "Férias previstas", left: 416, width: 124 }, { label: "BH em dias", left: 540, width: 78 }, { label: "A compensar / repor", left: 618, width: 130 }, { label: "Situação", left: 748, width: 108 },
 ] as const;
 
-export function PeriodGrid({ employees, startDate, endDate, onSelect, readOnly = true, onSave, isSaving }: Props) {
+export function PeriodGrid({ employees, startDate, endDate, onSelect, readOnly = true, onSave, isSaving, fillHeight = false }: Props) {
   const dates = useMemo(() => dateRange(startDate, endDate), [startDate, endDate]);
-  return <section data-testid="period-grid">
-    <div className="flex items-center gap-2 border-b border-slate-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-800 md:hidden"><MonitorUp size={15} className="shrink-0" />Deslize horizontalmente. A grade de período é mais confortável em telas maiores.</div>
-    <div className="max-h-[min(620px,calc(100vh-190px))] overflow-auto overscroll-contain bg-white" tabIndex={0} aria-label="Grade de chamada por período"><table className="border-separate border-spacing-0 text-left text-xs"><thead className="sticky top-0 z-50 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{stickyColumns.map((column, index) => <StickyHead key={column.label} {...column} divider={index === stickyColumns.length - 1}>{column.label}</StickyHead>)}{dates.map((date) => <th key={date} className="min-w-12 border-b border-r border-slate-200 bg-slate-50 px-1 py-2.5 text-center font-semibold"><span className="block text-[9px] font-medium text-slate-400">{weekday(date)}</span>{date.slice(-2)}</th>)}</tr></thead><tbody>{employees.map((employee) => <PeriodRow key={employee.id} employee={employee} dates={dates} onSelect={onSelect} readOnly={readOnly} onSave={onSave} isSaving={isSaving} />)}</tbody></table></div>
+  return <section data-testid="period-grid" className={cn(fillHeight && "flex h-full min-h-0 flex-col")}>
+    <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-800 md:hidden"><MonitorUp size={15} className="shrink-0" />Deslize horizontalmente. A grade de período é mais confortável em telas maiores.</div>
+    <div className={cn("overflow-auto overscroll-contain bg-white", fillHeight ? "min-h-0 flex-1" : "max-h-[min(620px,calc(100vh-190px))]")} tabIndex={0} aria-label="Grade de chamada por período"><table className="border-separate border-spacing-0 text-left text-xs"><thead className="sticky top-0 z-50 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{stickyColumns.map((column, index) => <StickyHead key={column.label} {...column} divider={index === stickyColumns.length - 1}>{column.label}</StickyHead>)}{dates.map((date) => <th key={date} className="min-w-12 border-b border-r border-slate-200 bg-slate-50 px-1 py-2.5 text-center font-semibold"><span className="block text-[9px] font-medium text-slate-400">{weekday(date)}</span>{date.slice(-2)}</th>)}</tr></thead><tbody>{employees.map((employee) => <PeriodRow key={employee.id} employee={employee} dates={dates} onSelect={onSelect} readOnly={readOnly} onSave={onSave} isSaving={isSaving} />)}</tbody></table></div>
   </section>;
 }
 
