@@ -5,7 +5,7 @@ import { SupabaseDailyCallRepository } from "@/lib/data/supabase-daily-call-repo
 import { SupabaseTimeBankRepository } from "@/lib/data/supabase-time-bank-repository";
 import { SupabaseWorkforceRepository } from "@/lib/data/supabase-workforce-repository";
 import { filtersSchema, type MonitoringSnapshot } from "@/lib/monitoring/contracts";
-import { loadMonitoring } from "@/lib/monitoring/server";
+import { loadMonitoringPage } from "@/lib/monitoring/server";
 import { dashboardSnapshotSchema, parseDashboardFilters, type DashboardDomain, type DashboardFilters, type DashboardSnapshot } from "./contracts";
 import { buildDailyCallDashboard, buildMonitoringDashboard, buildTimeBankDashboard, buildWorkforceDashboard } from "./selectors";
 
@@ -42,7 +42,7 @@ export async function dashboardSession() {
 
 async function monitoringPages(filters: DashboardFilters, signal: AbortSignal): Promise<MonitoringSnapshot> {
   const query = filtersSchema.parse({ start: filters.start, end: filters.end, unit: filters.unit, managerId: filters.managerId === "none" ? "" : filters.managerId, limit: MONITORING_PAGE_SIZE });
-  const first = await loadMonitoring(query, signal);
+  const first = await loadMonitoringPage(query, signal);
   if (first.total > MAX_MONITORING_ROWS) throw new DashboardError("DASHBOARD_TOO_LARGE", 422);
   if (!first.datasetVersion) throw new DashboardError("DASHBOARD_SOURCE_CHANGED", 409);
   const rows = [...first.rows];
@@ -51,7 +51,7 @@ async function monitoringPages(filters: DashboardFilters, signal: AbortSignal): 
   // Bound concurrent requests; the revision prevents mixing pages from different runs.
   for (let index = 0; index < offsets.length; index += 4) {
     if (signal.aborted) throw new DashboardError("DASHBOARD_TIMEOUT", 503);
-    const pages = await Promise.all(offsets.slice(index, index + 4).map((offset) => loadMonitoring({ ...query, offset }, signal)));
+    const pages = await Promise.all(offsets.slice(index, index + 4).map((offset) => loadMonitoringPage({ ...query, offset }, signal)));
     for (const page of pages) {
       if (page.datasetVersion !== first.datasetVersion || page.total !== first.total) throw new DashboardError("DASHBOARD_SOURCE_CHANGED", 409);
       rows.push(...page.rows);

@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MonitoringSnapshot } from "@/lib/monitoring/contracts";
-const mocks = vi.hoisted(() => ({ claims: vi.fn(), profile: vi.fn(), workforce: vi.fn(), daily: vi.fn(), bank: vi.fn(), monitoring: vi.fn() }));
+import { monitoringQueryView } from "@/lib/monitoring/query-view";
+import { filtersSchema } from "@/lib/monitoring/contracts";
+const mocks = vi.hoisted(() => ({ claims: vi.fn(), profile: vi.fn(), workforce: vi.fn(), daily: vi.fn(), bank: vi.fn(), monitoring: vi.fn(), monitoringView: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth: { getClaims: mocks.claims }, from: () => ({ select: () => ({ eq: () => ({ abortSignal: () => ({ single: mocks.profile }) }) }) }) }) }));
 vi.mock("@/lib/data/supabase-workforce-repository", () => ({ SupabaseWorkforceRepository: class { load = mocks.workforce; } }));
 vi.mock("@/lib/data/supabase-daily-call-repository", () => ({ SupabaseDailyCallRepository: class { load = mocks.daily; } }));
 vi.mock("@/lib/data/supabase-time-bank-repository", () => ({ SupabaseTimeBankRepository: class { load = mocks.bank; } }));
-vi.mock("@/lib/monitoring/server", () => ({ loadMonitoring: mocks.monitoring }));
+vi.mock("@/lib/monitoring/server", () => ({ loadMonitoringPage: mocks.monitoring, loadMonitoring: mocks.monitoringView }));
 import { dashboardSession, loadDashboard } from "./server";
 
 const day = "2026-10-17";
@@ -52,6 +54,19 @@ describe("sessão de dashboard", () => {
   });
 });
 describe("carregamento completo e consistente das fontes", () => {
+  it("consulta jornadas diárias sem repaginar a visão agrupada por colaborador", async () => {
+    const start="2026-10-16",end=day;
+    const people=monitoringPage(0,2);
+    const source={...people,start,end,total:4,rows:people.rows.flatMap(row=>[start,end].map(date=>({...row,date})))};
+    mocks.monitoring.mockResolvedValue(source);
+    // The employee view has total=2 but four underlying daily rows; it is not a raw page.
+    mocks.monitoringView.mockResolvedValue(monitoringQueryView(source,filtersSchema.parse({start,end,limit:500})));
+    const result=await loadDashboard("monitoramento",{start,end});
+    expect(result.metrics.find(metric=>metric.id==="workedMinutes")?.value).toBe(4);
+    expect(result.metrics.find(metric=>metric.id==="people")?.value).toBe(2);
+    expect(mocks.monitoring).toHaveBeenCalledOnce();
+    expect(mocks.monitoringView).not.toHaveBeenCalled();
+  });
   it("agrega600resultados de duas páginas, nunca sóosprimeiros500", async () => {
     mocks.monitoring.mockImplementation(async ({ offset }: { offset: number }) => monitoringPage(offset, 600));
     const result = await loadDashboard("monitoramento", { start: day, end: day });
