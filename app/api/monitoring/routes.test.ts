@@ -10,12 +10,14 @@ import { GET as photo } from './photo/route';
 import { POST as config } from './config/route';
 import { POST as ingest } from './ingest/route';
 import { POST as confirmDefense } from './defense-confirmation/route';
+import { GET as groupChanges } from './group-changes/route';
 const uuid='80000000-0000-0000-0000-000000000001';
 const read=()=>new Request('http://localhost:3000/api/monitoring?start=2026-10-01&end=2026-10-31');
 describe('monitoring HTTP authorization',()=>{
  beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('NODE_ENV','development');mocks.getClaims.mockResolvedValue({data:{claims:{sub:uuid}}});mocks.single.mockResolvedValue({data:{id:uuid,status_usuario:'APROVADO',papel_usuario:'ADMIN'}});mocks.rpc.mockResolvedValue({data:null,error:null});});
  it('rejects anonymous API and protected photos before reading database records',async()=>{
   mocks.getClaims.mockResolvedValue({data:null});expect((await summary(read())).status).toBe(401);expect((await photo(new Request(`http://localhost:3000/api/monitoring/photo?employeeId=${uuid}`))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
+  expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
  });
  it.each(['PENDENTE','BLOQUEADO'])('rejects %s approval state',async status=>{
   mocks.single.mockResolvedValue({data:{status_usuario:status,papel_usuario:'ADMIN'}});expect((await summary(read())).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
@@ -24,6 +26,7 @@ describe('monitoring HTTP authorization',()=>{
   mocks.single.mockResolvedValue({data:{status_usuario:'APROVADO',papel_usuario}});expect((await admin(new Request('http://localhost:3000/api/monitoring/admin'))).status).toBe(403);
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await confirmDefense(new Request('http://localhost:3000/api/monitoring/defense-confirmation',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
+  expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
  });
  it('requires same-site origin for session-authenticated writes',async()=>{
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'https://evil.invalid'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();

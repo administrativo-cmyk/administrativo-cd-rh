@@ -7,7 +7,7 @@ const text=z.string().min(1).max(200);
 const setting=z.object({id:z.string().uuid(),kind:z.string(),target:z.string(),valid_from:dateSchema,valid_to:dateSchema.nullable(),payload:z.record(z.unknown()),revoked_at:z.string().nullable(),updated_at:z.string().optional(),supersedes_id:z.string().nullable().optional()});
 export const defenseAdminSchema=z.object({
   sources:z.array(z.object({id:text,kind:text,active:z.boolean().optional(),identity_namespace:text.optional()})),
-  files:z.array(z.object({id:z.string().uuid(),source_id:text,status:text,relative_path:z.string(),completed_at:z.string().nullable()})),
+  files:z.array(z.object({id:z.string().uuid(),source_id:text,status:text,relative_path:z.string(),completed_at:z.string().nullable(),group_observed_at:z.string().nullable().optional()})),
   settings:z.array(setting).max(20000),
   bindings:z.array(z.object({id:z.string().uuid(),source_id:text,identity_type:text,identity_value:text,employee_id:z.string().uuid(),valid_from:dateSchema,valid_to:dateSchema.nullable(),revoked_at:z.string().nullable(),updated_at:z.string().optional()})).max(20000),
   employees:z.array(z.object({id:z.string().uuid(),name:text,employeeNumber:text})),
@@ -45,7 +45,7 @@ export function planDefenseConfirmation(admin:DefenseAdmin,input:DefenseConfirma
   const access=admin.sources.find(s=>s.id===input.accessSourceId&&s.kind==="defense-access"&&s.active!==false);
   const person=admin.sources.find(s=>s.id===input.personSourceId&&s.kind==="defense-person"&&s.active!==false);
   if(!access||!person||!access.identity_namespace||access.identity_namespace!==person.identity_namespace)fail("DEFENSE_SOURCE_MISMATCH");
-  const file=admin.files.filter(f=>f.source_id===person.id&&f.status==="complete").sort((a,b)=>(b.completed_at??"").localeCompare(a.completed_at??""))[0];
+  const file=admin.files.filter(f=>f.source_id===person.id&&f.status==="complete").sort((a,b)=>(b.group_observed_at??b.completed_at??"").localeCompare(a.group_observed_at??a.completed_at??""))[0];
   if(!file)fail("DEFENSE_FILE_MISSING");
   const accessFile=admin.files.filter(f=>f.source_id===access.id&&f.status==="complete").sort((a,b)=>(b.completed_at??"").localeCompare(a.completed_at??""))[0];
   if(input.confirmCoverage&&!accessFile)fail("DEFENSE_FILE_MISSING");

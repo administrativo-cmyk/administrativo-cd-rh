@@ -10,6 +10,11 @@ function fixture():DefenseAdmin{return {
  employees:[{id:id(30),name:"Pessoa Sintética",employeeNumber:"123"}],people:[{source_id:"people",external_id:"123",name:"Pessoa Sintética",groups:["Equipe A"],ambiguous:false}]
 };}
 describe("confirmação histórica do Defense",()=>{
+ it("arquivo antigo recebido depois não fornece os grupos da confirmação",()=>{
+  const a=fixture();a.files[0].group_observed_at="2026-10-16T12:00:00Z";
+  a.files.push({id:id(3),source_id:"people",status:"complete",relative_path:"Person-antigo.xlsx",completed_at:"2026-10-19T12:00:00Z",group_observed_at:"2026-10-12T12:00:00Z"});
+  expect(planDefenseConfirmation(a,input).preview.sourceFile).toBe("Person.xlsx");
+ });
  it("cria grupos apenas no intervalo e cobertura fecha à meia-noite seguinte",()=>{
   const plan=planDefenseConfirmation(fixture(),input);
   expect(plan.people[0]).toMatchObject({status:"create",setting:{kind:"group_snapshot",target:id(30),validFrom:"2026-10-03",validTo:"2026-10-15",payload:{groups:["EQUIPE A"]}}});

@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "./database";
-type Operation = "monitoring_binding_change" | "monitoring_sources_admin" | "operational_import";
+type Operation = "monitoring_binding_change" | "monitoring_sources_admin" | "operational_import" | "monitoring_defense_group_changes";
 type Database = { public: { Tables: Record<never, never>; Views: Record<never, never>; Enums: Record<never, never>; CompositeTypes: Record<never, never>; Functions: { [K in Operation]: { Args: { p_action: string; p_data: Json }; Returns: Json } } } };
 export async function monitoringOperation(operation: Operation, action: string, data: unknown) {
   const client = await createClient<Database>();
