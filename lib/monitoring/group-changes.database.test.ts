@@ -57,6 +57,27 @@ describe("detecção automática dos grupos Defense",()=>{
   expect((await list()).rows[0]).toMatchObject({new_groups:['B'],file_name:'Person20261019160000.xlsx'});
   expect((await db.query<{groups:string[]}>("select groups from public.monitoring_people")).rows[0].groups).toEqual(['B']);
  });
+ it("não confunde acentuação de cadastro e acessos com troca de grupo ou de pessoa",async()=>{
+  await ingest('Person20261016160000.xlsx',[person(['6X1-8H JK CAFE-ALMOCO','LIDERANCA JK'],'123','JOAO DA CONCEICAO')]);
+  await ingest('AccessRecords20261017160000.xlsx',[access(['Liderança JK','6X1-8H JK Café-Almoço'],'123','João da Conceição')],{kind:'defense-access'});
+  expect((await list()).total).toBe(0);
+  await ingest('Person20261019160000.xlsx',[person(['Lideranc\u0327a JK','6X1-8H JK Cafe\u0301-Almoc\u0327o'],'123','Joa\u0303o da Conceic\u0327a\u0303o')]);
+  expect((await list()).total).toBe(0);
+  expect((await db.query<{groups:string[]}>("select groups from public.monitoring_people")).rows[0].groups).toEqual(['6X1-8H JK CAFE-ALMOCO','LIDERANCA JK']);
+  await ingest('Person20261019170000.xlsx',[person(['6X1-14H JK JANTA'],'123','JOAO DA CONCEICAO')]);
+  expect((await list()).rows[0]).toMatchObject({status:'pending',new_groups:['6X1-14H JK JANTA']});
+ });
+ it("normaliza comparações anteriores sem alterar arquivos, datas ou evidência original",async()=>{
+  await ingest('Person20261016160000.xlsx',[person(['CAFE'],'123','JOAO')]);
+  await ingest('AccessRecords20261019160000.xlsx',[access(['CAFÉ'],'123','JOÃO')],{kind:'defense-access'});
+  const before=await db.query('select * from private.monitoring_group_files order by file_id');
+  const raw=await db.query('select payload from public.monitoring_occurrences order by payload::text');
+  await db.exec(`update private.monitoring_group_observations set names='["JOÃO"]',variants='[["CAFÉ"],["CAFE"]]' where source_id='group-access';`);
+  await db.exec(await readFile('supabase/migrations/20261019211123_monitoring_defense_group_spelling.sql','utf8'));
+  expect((await list()).total).toBe(0);
+  expect((await db.query('select * from private.monitoring_group_files order by file_id')).rows).toEqual(before.rows);
+  expect((await db.query('select payload from public.monitoring_occurrences order by payload::text')).rows).toEqual(raw.rows);
+ });
  it("não publica troca de arquivo parcial e mantém grupos anteriores até concluir",async()=>{
   await ingest('Person20261016160000.xlsx',[person(['A'])]);
   await ingest('Person20261019160000.xlsx',[person(['B'])],{total:2,count:2});expect((await list()).total).toBe(0);
