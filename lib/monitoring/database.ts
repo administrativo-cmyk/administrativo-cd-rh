@@ -7,4 +7,5 @@ export type MonitoringDatabase={public:{Tables:Record<never,never>;Views:Record<
  monitoring_worker_sources:{Args:{p_ids:string[]};Returns:Json};
  monitoring_save_result:{Args:{p_data:Json};Returns:Json};
  monitoring_worker:{Args:{p_action:string;p_data:Json};Returns:Json};
+ monitoring_cloud_worker:{Args:{p_action:string;p_data:Json};Returns:Json};
 }}};

@@ -2,14 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHttpTransport } from "../lib/monitoring/ingestion/transport.ts";
+import { createHttpTransport, type HttpTransportOptions } from "../lib/monitoring/ingestion/transport.ts";
+import { batchesFor } from "../lib/monitoring/ingestion/batches.ts";
 import { scanSources } from "../lib/monitoring/ingestion/worker.ts";
 
 const token = "synthetic-worker-token-not-a-secret-0123456789";
 const reference = "10000000-0000-4000-8000-000000000001";
-const transport = () => createHttpTransport("http://127.0.0.1:3000/api/monitoring/ingest", token);
+const transport = (options?: HttpTransportOptions) => createHttpTransport("http://127.0.0.1:3000/api/monitoring/ingest", token, options);
 const failure = { sourceId: "synthetic", relativePath: "synthetic.txt", code: "SYNTHETIC_FAILURE" };
-afterEach(() => vi.unstubAllGlobals());
+const batch = batchesFor({ sourceId: "synthetic", parserVersion: "synthetic-v1", sha256: "a".repeat(64), byteLength: 80, totalRows: 0, occurrences: [], issues: [], observedRange: null, metadata: {} }, { id: "synthetic", kind: "afd", root: ".", timeZone: "America/Sao_Paulo" }, "synthetic.txt")[0];
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("diagnóstico HTTP sem conteúdo pessoal", () => {
   it.each(["42703", "PGRST202", "SOURCE_CONTRACT_CONFLICT"])("preserva código %s e referência UUID", async (code) => {
@@ -52,5 +54,94 @@ describe("diagnóstico HTTP sem conteúdo pessoal", () => {
       expect(JSON.stringify(summary)).not.toContain("SENSITIVE_SYNTHETIC_NAME");
       expect(JSON.stringify(summary)).not.toContain(token);
     } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+});
+
+describe("cancelamento e orçamento da rodada HTTP", () => {
+  it("cancela antes do primeiro fetch sem expor o motivo do caller", async () => {
+    const controller = new AbortController(); controller.abort("SENSITIVE_CALLER_REASON");
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const error = await transport({ signal: controller.signal, retries: 3 }).persist(batch).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ code: "INGEST_ABORTED" });
+    expect(JSON.stringify(error)).not.toContain("SENSITIVE_CALLER_REASON");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("não inicia requisição com deadline vencido", async () => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    await expect(transport({ deadline: Date.now() - 1 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_DEADLINE_EXCEEDED" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("mantém uma tentativa por padrão", async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error("SENSITIVE_NETWORK_DETAIL")); vi.stubGlobal("fetch", fetch);
+    await expect(transport().persist(batch)).rejects.toMatchObject({ code: "INGEST_CONNECTION_FAILED" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("retry opcional reenvia exatamente o mesmo lote após resposta transitória", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json({ accepted: true, fileStatus: "complete" })); vi.stubGlobal("fetch", fetch);
+    const pending = transport({ retries: 1, retryDelayMs: 20 }).persist(batch);
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(pending).resolves.toMatchObject({ accepted: true, fileStatus: "complete" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map(call => call[1].body)).toEqual([JSON.stringify(batch), JSON.stringify(batch)]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("cancela a espera de retry e não envia o próximo lote", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const fetch = vi.fn().mockResolvedValue(Response.json({}, { status: 503 })); vi.stubGlobal("fetch", fetch);
+    const assertion = expect(transport({ signal: controller.signal, retries: 3, retryDelayMs: 1000 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_ABORTED" });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(1);
+    controller.abort();
+    await assertion;
+    await vi.runAllTimersAsync();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("propaga cancelamento ao fetch da segunda tentativa, sem terceira", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController(); let secondSignal: AbortSignal | undefined;
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({}, { status: 503 })).mockImplementationOnce((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      secondSignal = init.signal!;
+      secondSignal.addEventListener("abort", () => reject(new Error("SENSITIVE_NETWORK_DETAIL")), { once: true });
+    })); vi.stubGlobal("fetch", fetch);
+    const assertion = expect(transport({ signal: controller.signal, retries: 3, retryDelayMs: 20 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_ABORTED" });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(secondSignal?.aborted).toBe(false);
+    controller.abort();
+    await assertion;
+    expect(secondSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("deadline interrompe fetch pendente antes do timeout de 60 segundos", async () => {
+    vi.useFakeTimers(); let requestSignal: AbortSignal | undefined;
+    const fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      requestSignal = init.signal!;
+      requestSignal.addEventListener("abort", () => reject(new Error("network aborted")), { once: true });
+    })); vi.stubGlobal("fetch", fetch);
+    const assertion = expect(transport({ deadline: Date.now() + 50, retries: 3 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_DEADLINE_EXCEEDED" });
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("deadline também limita backoff e não é renovado entre tentativas", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockResolvedValue(Response.json({}, { status: 503 })); vi.stubGlobal("fetch", fetch);
+    const assertion = expect(transport({ deadline: Date.now() + 50, retries: 3, retryDelayMs: 1000 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_DEADLINE_EXCEEDED" });
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("erros de autorização não são repetidos", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({}, { status: 403 })); vi.stubGlobal("fetch", fetch);
+    await expect(transport({ retries: 3 }).persist(batch)).rejects.toMatchObject({ code: "INGEST_HTTP_403" });
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

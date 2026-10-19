@@ -4,6 +4,15 @@ import { ImportError, errorCode, normalizeIdentifier, normalizeLabel, parseLocal
 import type { AfdProfile, CanonicalImportEvent, EventClassification, ImportOccurrence, IngestionSource, ParsedImport } from "./types.ts";
 
 const VERSION = "monitoring-import/1.0.0";
+/** Frozen by the server when a cloud job is created; never supplied by a browser. */
+export function ingestionParserVersion(source: Pick<IngestionSource, "kind" | "afdProfile">): string {
+  if (source.kind === "afd") {
+    if (source.afdProfile !== "legacy" && source.afdProfile !== "iso") throw new ImportError("INVALID_AFD_PROFILE");
+    return `${VERSION}/afd-${source.afdProfile}`;
+  }
+  if (source.kind !== "defense-access" && source.kind !== "defense-person") throw new ImportError("INVALID_SOURCE_CONFIG");
+  return `${VERSION}/${source.kind}`;
+}
 const MAX_ROWS = 500_000;
 const recordIssue = (code: string, line?: number) => ({ code, severity: "error" as const, ...(line ? { line } : {}) });
 function result(bytes: Buffer, source: IngestionSource): ParsedImport {

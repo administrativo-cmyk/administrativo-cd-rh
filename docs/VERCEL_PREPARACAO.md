@@ -33,6 +33,12 @@ O worker continua no computador que possui os arquivos, usando o endpoint local 
 
 Na auditoria operacional de 18/10/2026, foi observado **um reinício inesperado às 05:09:06 BRT**, com recuperação automática em **6,7 segundos** e sem duplicação de worker. Supervisor e servidor permaneceram ativos; às 05:35 BRT havia um único worker e saúde `ready`. A causa não foi determinada. Evidência local: `.monitoring-worker/runtime/events.jsonl`; stdout/stderr dos filhos não são preservados pelo supervisor atual.
 
+### Novo fluxo de importação pela nuvem — ativação pendente
+
+A implementação local acrescenta upload manual de AFD `.txt` e Defense `.xlsx` em **Monitoramento > Importação**, com originais de até **20 MiB** enviados diretamente ao Storage privado. Após confirmação do recebimento, o processamento poderá continuar sem o computador: Supabase Cron a cada minuto e rodadas Node.js na Vercel com orçamento de 230 segundos, dentro do máximo de 300 segundos. Reutiliza as variáveis existentes, sem novo segredo de ambiente. Há limite acumulado de **500 MiB** para originais e reservas: objetos armazenados continuam contando após conclusão/cancelamento, sem expurgo automático; reservas falhas ou canceladas sem objeto podem ser liberadas após três horas. Novos uploads permanecem bloqueados até o servidor confirmar `automationReady: true`.
+
+**Este fluxo ainda não está publicado nem ativado em produção.** O importador local permanece em uso; nenhuma configuração ou processo foi desligado. A ativação e o teste autenticado de ponta a ponta continuam pendentes. O responsável também deve rever o enquadramento comercial do plano Vercel: [Hobby destina-se a uso pessoal e não comercial](https://vercel.com/docs/plans/hobby). Nenhum upgrade ou cobrança foi autorizado por esta implementação. Procedimento, restrições e retenção: [IMPORTACAO_NUVEM.md](IMPORTACAO_NUVEM.md).
+
 ## Limites de transporte
 
 A Vercel limita corpo de requisição e resposta a 4,5 MB. Os limites abaixo são em bytes, inclusive JSON UTF-8 serializado:

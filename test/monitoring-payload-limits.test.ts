@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { batchesFor } from "../lib/monitoring/ingestion/worker";
+import { batchesFor } from "../lib/monitoring/ingestion/batches";
+import { batchesFor as compatibilityBatchesFor } from "../lib/monitoring/ingestion/worker";
 import { createHttpTransport } from "../lib/monitoring/ingestion/transport";
 import { httpBodyLimitBytes } from "../lib/monitoring/payload-limits";
 import type { ImportOccurrence, IngestionSource, ParsedImport } from "../lib/monitoring/ingestion/types";
@@ -10,6 +11,7 @@ const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8
 afterEach(() => vi.unstubAllGlobals());
 describe("payloads menores que o teto da Vercel", () => {
   it("preserva lotes pequenos, ordem, identidade e serialização determinística", () => {
+    expect(compatibilityBatchesFor).toBe(batchesFor);
     const input = parsed(Array.from({ length: 501 }, (_, index) => occurrence(index + 1)));
     const batches = batchesFor(input, source, "synthetic.xlsx");
     expect(batches.map(batch => batch.occurrences.length)).toEqual([500, 1]);

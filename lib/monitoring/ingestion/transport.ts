@@ -30,20 +30,75 @@ async function responseError(response: Response): Promise<ImportError> {
   return new ImportError(`INGEST_HTTP_${response.status}${apiCode ? `_${apiCode}` : ""}`, { httpStatus: response.status, apiCode, correlationId });
 }
 
-export function createHttpTransport(endpoint: string, token: string): IngestionTransport {
+export interface HttpTransportOptions {
+  signal?: AbortSignal;
+  /** Absolute Unix time in milliseconds; the same deadline covers all attempts. */
+  deadline?: number;
+  /** Opt-in only. Existing callers continue to send each request once. */
+  retries?: number;
+  retryDelayMs?: number;
+}
+
+export function createHttpTransport(endpoint: string, token: string, options: HttpTransportOptions = {}): IngestionTransport {
   let url: URL;
   try { url = new URL(endpoint); } catch { throw new ImportError("INVALID_INGEST_ENDPOINT"); }
   if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) throw new ImportError("INGEST_ENDPOINT_REQUIRES_HTTPS_OR_LOOPBACK");
   if (token.length < 32 || /[\r\n]/.test(token)) throw new ImportError("INGEST_TOKEN_MISSING_OR_TOO_SHORT");
+  const { signal, deadline } = options;
+  const retries = options.retries ?? 0;
+  const retryDelayMs = options.retryDelayMs ?? 250;
+  if ((deadline !== undefined && (!Number.isSafeInteger(deadline) || deadline < 0)) || !Number.isInteger(retries) || retries < 0 || retries > 3 || !Number.isInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 60_000) throw new ImportError("INVALID_TRANSPORT_OPTIONS");
+  const checkRound = (): void => {
+    if (signal?.aborted) throw new ImportError("INGEST_ABORTED");
+    if (deadline !== undefined && Date.now() >= deadline) throw new ImportError("INGEST_DEADLINE_EXCEEDED");
+  };
+  const waitToRetry = (attempt: number): Promise<void> => {
+    checkRound();
+    const duration = Math.min(retryDelayMs * 2 ** attempt, 60_000, deadline === undefined ? Infinity : deadline - Date.now());
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", finish); };
+      const finish = () => {
+        cleanup();
+        try { checkRound(); resolve(); } catch (error) { reject(error); }
+      };
+      const timer = setTimeout(finish, Math.max(0, duration));
+      signal?.addEventListener("abort", finish, { once: true });
+      if (signal?.aborted) finish();
+    });
+  };
   const post = async (path: string, body: unknown): Promise<unknown> => {
+    checkRound();
     const serialized = JSON.stringify(body);
     if (Buffer.byteLength(serialized, "utf8") > httpBodyLimitBytes) throw new ImportError("INGEST_PAYLOAD_TOO_LARGE");
-    let response: Response;
-    try {
-      response = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: serialized, redirect: "error", signal: AbortSignal.timeout(60_000) });
-    } catch { throw new ImportError("INGEST_CONNECTION_FAILED"); }
-    if (!response.ok) throw await responseError(response);
-    try { return await response.json(); } catch { throw new ImportError("INGEST_RESPONSE_INVALID"); }
+    for (let attempt = 0; ; attempt++) {
+      checkRound();
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const timeout = setTimeout(abort, Math.min(60_000, deadline === undefined ? Infinity : Math.max(0, deadline - Date.now())));
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+      let failure: ImportError;
+      try {
+        let response: Response;
+        try {
+          response = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: serialized, redirect: "error", signal: controller.signal });
+        } catch { checkRound(); throw new ImportError("INGEST_CONNECTION_FAILED"); }
+        checkRound();
+        if (!response.ok) throw await responseError(response);
+        try { const result: unknown = await response.json(); checkRound(); return result; }
+        catch { checkRound(); throw new ImportError("INGEST_RESPONSE_INVALID"); }
+      } catch (error) {
+        checkRound();
+        if (!(error instanceof ImportError)) throw error;
+        failure = error;
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
+      }
+      const retryable = failure.code === "INGEST_CONNECTION_FAILED" || [408, 429, 502, 503, 504].includes(failure.httpStatus ?? 0);
+      if (!retryable || attempt >= retries) throw failure;
+      await waitToRetry(attempt);
+    }
   };
   return {
     async sources(request) {
