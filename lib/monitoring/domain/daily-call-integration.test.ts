@@ -119,6 +119,20 @@ describe("Chamada importada: migration completa em PostgreSQL local", () => {
     expect(snapshot.employees.find(employee => employee.id === f.employeeId)?.attendance[0]).toMatchObject({ origin: "punch" });
   });
 
+
+  it("fila de período usa decisões processadas e mantém dados pendentes bloqueados sem reexecutar evidência",async()=>{
+    const f=await fixture();await f.punch();await f.apply();
+    await db.query("delete from public.monitoring_jobs where employee_id=$1::uuid",[f.employeeId]);
+    await db.exec("begin");
+    try {
+      await db.exec("create or replace function private.daily_call_evidence(p_employee uuid,p_date date) returns jsonb language plpgsql stable security definer set search_path='' as $$begin raise exception 'FRESH_EVIDENCE_CALLED';end$$;");
+      const query=()=>session("authenticated",admin,()=>value<Queue>("select public.daily_call_workflow('queue',$1::jsonb) value",[JSON.stringify({start:f.date,end:today,managerId:f.managerId})]));
+      const ready=await query();expect(ready.rows.find(r=>r.employeeId===f.employeeId&&r.date===f.date)).toMatchObject({status:"P",state:"present"});
+      expect(ready.rows.find(r=>r.employeeId===f.employeeId&&r.date!==f.date)?.blockers).toContain("IMPORT_REPROCESS_PENDING");
+      await db.query("insert into public.monitoring_jobs(employee_id,operational_date,reason) values($1::uuid,$2::date,'Revisão sintética') on conflict do nothing",[f.employeeId,f.date]);
+      const queued=await query();expect(queued.rows.find(r=>r.date===f.date)).toMatchObject({state:"blocked"});expect(queued.rows.find(r=>r.date===f.date)?.blockers).toContain("IMPORT_REPROCESS_PENDING");
+    } finally {await db.exec("rollback");}
+  });
   it.each([[-60, "I"], [0, "I"], [480, "I"], [481, null]])("saldo %i e evidência completa => %s", async (balance, status) => {
     const f = await fixture(balance as number);
     expect(await f.apply()).toMatchObject({ status, state: status ? "automatic_absence" : "pending_manager", origin: status ? "automatic_absence" : null });
