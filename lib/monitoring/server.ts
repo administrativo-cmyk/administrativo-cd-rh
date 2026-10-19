@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Json,MonitoringDatabase } from "./database";
 import { snapshotSchema,type MonitoringFilters } from "./contracts";
 import { monitoringErrorCode, monitoringErrorMessage } from "./errors";
+import { monitoringQueryView, readCompleteMonitoring } from "./query-view";
 
 const businessErrors:Record<string,string>={
  BINDING_STALE:'O vínculo mudou. Atualize a consulta antes de continuar.',
@@ -31,7 +32,8 @@ export async function monitoringQuery(action:string,data:unknown={},signal?:Abor
  if(error) throw Object.assign(new Error("MONITORING_QUERY_FAILED"),{code:Object.keys(businessErrors).find(code=>error.message?.includes(code))??error.code});
  return result;
 }
-export async function loadMonitoring(filters:MonitoringFilters,signal?:AbortSignal) { return snapshotSchema.parse(await monitoringQuery("summary",filters,signal)); }
+export async function loadMonitoringPage(filters:MonitoringFilters,signal?:AbortSignal) { return snapshotSchema.parse(await monitoringQuery("summary",filters,signal)); }
+export async function loadMonitoring(filters:MonitoringFilters,signal?:AbortSignal) { return monitoringQueryView(await readCompleteMonitoring(filters,loadMonitoringPage,signal),filters); }
 export async function changeMonitoringSetting(action:string,data:unknown) {
  const client=await createClient<MonitoringDatabase>();
  const {data:result,error}=await client.rpc('monitoring_setting_change',{p_action:action,p_data:data as Json});

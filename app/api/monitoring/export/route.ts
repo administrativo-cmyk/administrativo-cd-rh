@@ -1,6 +1,6 @@
 import { filtersSchema,type MonitoringRow } from "@/lib/monitoring/contracts";
 import { monitoringCsv } from "@/lib/monitoring/export";
-import { loadMonitoring,monitoringFailure,monitoringSession } from "@/lib/monitoring/server";
+import { loadMonitoringPage as loadMonitoring,monitoringFailure,monitoringSession } from "@/lib/monitoring/server";
 export async function GET(request:Request){
  const session=await monitoringSession();if(session.response)return session.response;
  const parsed=filtersSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));

@@ -3,6 +3,7 @@ import { SourceManager } from "./source-manager";
 import { BindingHistory } from "./binding-history";
 import { ImportWizard } from "./import-wizard";
 import { CloudImportPanel } from "./cloud-import-panel";
+import { DefenseConfirmationPanel } from "./defense-confirmation-panel";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bindingSchema } from "@/lib/monitoring/contracts";
@@ -77,6 +78,7 @@ export function MonitoringAdmin({ section, today }: { section: "import" | "recon
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-slate-600">{section === "import" ? "Envie arquivos para processamento na nuvem e acompanhe a integridade das importações." : section === "reconcile" ? "Identidades sem vínculo permanecem importadas. Nome é evidência auxiliar; nunca vinculação automática." : "Configurações com vigência, justificativa e histórico."}</p><button className={buttonClass} disabled={loading} onClick={() => { setLoading(true); setRefresh((value) => value + 1); refreshEmployeePhotos(); }}>Atualizar administração</button></div>
     {section === "import" ? <CloudImportPanel onCompleted={cloudCompleted} /> : null}
+    {section === "settings" && data ? <DefenseConfirmationPanel sources={data.sources} today={today} onChanged={()=>setRefresh(value=>value+1)}/> : null}
     {loading ? <p role="status" className="text-sm text-slate-600">Carregando administração…</p> : null}{error && (!messageSection || messageSection === section) ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</p> : null}{notice && (!messageSection || messageSection === section) ? <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p> : null}
     {data && section === "import" ? <>
       <SourceManager sources={data.sources} onSaved={() => setRefresh(value => value + 1)} />

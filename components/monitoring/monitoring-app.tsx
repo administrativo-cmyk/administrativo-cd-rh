@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, RefreshCw, Search, Users } from "lucide-react";
+import { Download, RefreshCw, Search } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
-import { EmployeeAvatar } from "@/components/employee-avatar";
+import { MonitoringResults } from "./monitoring-results";
+import type { MonitoringSortKey } from "@/lib/monitoring/query-view";
 import type { AuthenticatedProfile } from "@/lib/auth/types";
 import { filtersSchema, snapshotSchema, type MonitoringFilters, type MonitoringSnapshot } from "@/lib/monitoring/contracts";
 import { cn } from "@/lib/utils";
 import { MonitoringDetail } from "./monitoring-detail";
 import { MonitoringAdmin } from "./monitoring-admin";
-import { buttonClass, calendarDate, duration, Field, inputClass, instant, primaryClass, Quality, qualityLabels, requestJson } from "./shared";
+import { buttonClass, calendarDate, duration, Field, inputClass, instant, primaryClass, qualityLabels, requestJson } from "./shared";
 
 type Tab = "query" | "import" | "reconcile" | "settings";
 function params(filters: MonitoringFilters) { return new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)])).toString(); }
@@ -44,6 +45,7 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
   }
   const total = snapshot?.total ?? 0;
   const totals = snapshot?.totals ?? {};
+  function sort(key: MonitoringSortKey) { const direction=(applied.orderBy??"name")===key && (applied.direction??"asc")==="asc"?"desc":"asc";setFilters(current=>({...current,orderBy:key,direction,offset:0}));void load({ ...applied, orderBy:key, direction, offset:0 }); }
   const unitOptions = snapshot?.options?.units ?? [...new Set(snapshot?.rows.map((row) => row.unit))];
   const managerOptions = snapshot?.options?.managers ?? [...new Map(snapshot?.rows.filter((row) => row.managerId).map((row) => [row.managerId!, row.manager])).entries()].map(([id, name]) => ({ id, name: name ?? "Sem gestor" }));
   async function exportRecords() {
@@ -90,11 +92,8 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
             <section aria-label="Indicadores do Monitoramento" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{[
               ["Colaboradores no escopo", snapshot.people], ["Fora da operação", duration(totals.outsideSeconds)], ["Refeitório durante trabalho", duration(totals.cafeteriaSeconds)], ["Jornadas com atraso > 15 min", totals.lateJourneys ?? "Não apurável"], ["Pendências de apuração", snapshot.pending],
             ].map(([label, value]) => <div className="rounded-xl border border-slate-200 bg-white p-4" key={label}><p className="text-xs font-medium text-slate-600">{label}</p><b className="mt-2 block text-xl">{value}</b></div>)}</section>
-            <p className="text-xs leading-relaxed text-slate-600">{total} registro(s) · {totals.assessedJourneys ?? 0} jornada(s) apurada(s) · {totals.latenessAssessedJourneys ?? 0} com atraso apurável · {snapshot.excluded} excluída(s) por regra. Tempo trabalhado apurado: {duration(totals.workedSeconds)}. Tempo sem estado conhecido: {duration(totals.unknownSeconds)}. Ausência de cobertura não representa tempo zero.</p>
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white" aria-label="Resultados do Monitoramento" aria-busy={loading}>
-              {snapshot.rows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1060px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr>{["Colaborador / unidade", "Data operacional", "Qualidade", "Trabalho", "Fora operação", "Refeitório", "Atraso", "Detalhes"].map((label) => <th scope="col" className="px-4 py-3" key={label}>{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{snapshot.rows.map((row) => <tr key={`${row.employeeId}|${row.date}`} className="hover:bg-slate-50"><td className="px-4 py-3"><div className="flex items-center gap-2"><EmployeeAvatar name={row.name} employeeId={row.employeeId} /><div><span className="block font-semibold">{row.name}</span><span className="text-xs text-slate-500">{row.employeeNumber} · {row.unit} · {row.manager ?? "Sem gestor"}</span></div></div></td><td className="px-4 py-3 whitespace-nowrap">{calendarDate(row.date)}</td><td className="px-4 py-3"><Quality value={row.quality} /></td>{["workedSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds"].map((key) => <td className="px-4 py-3 whitespace-nowrap" key={key}>{row.dirty ? "Recalcular" : duration(row.summary?.[key])}</td>)}<td className="px-4 py-3"><button className={buttonClass} onClick={() => setSelectedKey({ employeeId: row.employeeId, date: row.date })} aria-label={`Detalhes de ${row.name}`}>Ver detalhes</button></td></tr>)}</tbody></table></div> : <div className="p-12 text-center text-slate-600"><Users className="mx-auto mb-3" size={28} /><p>Nenhum colaborador encontrado nos filtros e permissões atuais.</p></div>}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 p-3 text-xs text-slate-600"><span>{total ? applied.offset + 1 : 0}–{Math.min(applied.offset + applied.limit, total)} de {total}</span><div className="flex gap-2"><button className={buttonClass} disabled={loading || applied.offset === 0} onClick={() => void load({ ...applied, offset: Math.max(0, applied.offset - applied.limit) })}>Anterior</button><button className={buttonClass} disabled={loading || applied.offset + applied.limit >= total} onClick={() => void load({ ...applied, offset: applied.offset + applied.limit })}>Próxima</button></div></div>
-            </section>
+            <p className="text-xs leading-relaxed text-slate-600">{snapshot.recordTotal ?? total} registro(s) · {totals.assessedJourneys ?? 0} jornada(s) apurada(s) · {totals.latenessAssessedJourneys ?? 0} com atraso apurável · {snapshot.excluded} excluída(s) por regra. Tempo trabalhado apurado: {duration(totals.workedSeconds)}. Tempo sem estado conhecido: {duration(totals.unknownSeconds)}. Ausência de cobertura não representa tempo zero.</p>
+            <MonitoringResults key={`${applied.start}|${applied.end}|${applied.query}|${applied.unit}|${applied.managerId}|${applied.group}|${applied.schedule}|${applied.quality}`} snapshot={snapshot} applied={applied} loading={loading} onSort={sort} onPage={offset=>void load({...applied,offset})} onDetails={(employeeId,date)=>setSelectedKey({employeeId,date})}/>
           </> : null}
         </>}
       </div>

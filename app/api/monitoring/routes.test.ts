@@ -9,6 +9,7 @@ import { GET as detail } from './detail/route';
 import { GET as photo } from './photo/route';
 import { POST as config } from './config/route';
 import { POST as ingest } from './ingest/route';
+import { POST as confirmDefense } from './defense-confirmation/route';
 const uuid='80000000-0000-0000-0000-000000000001';
 const read=()=>new Request('http://localhost:3000/api/monitoring?start=2026-10-01&end=2026-10-31');
 describe('monitoring HTTP authorization',()=>{
@@ -22,6 +23,7 @@ describe('monitoring HTTP authorization',()=>{
  it.each(['GESTOR','LEITURA'])('restricts administration for %s',async papel_usuario=>{
   mocks.single.mockResolvedValue({data:{status_usuario:'APROVADO',papel_usuario}});expect((await admin(new Request('http://localhost:3000/api/monitoring/admin'))).status).toBe(403);
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
+  expect((await confirmDefense(new Request('http://localhost:3000/api/monitoring/defense-confirmation',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
  });
  it('requires same-site origin for session-authenticated writes',async()=>{
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'https://evil.invalid'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();

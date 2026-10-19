@@ -1,0 +1,79 @@
+import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnapshot } from "./contracts";
+
+export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds"] as const;
+export type MonitoringSortKey = typeof monitoringSortKeys[number];
+const metrics = ["workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "lateSeconds", "unknownSeconds"];
+const qualityNames: Record<string,string> = {complete:"Completa",partial:"Parcial",unavailable:"Não apurável",pending:"Pendente",excluded:"Excluída por regra",stale:"Recalcular"};
+const collator = new Intl.Collator("pt-BR", {numeric:true,sensitivity:"base"});
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+/** Missing/dirty days never become zero. Every group is assembled before pagination. */
+export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGroup[] {
+  const grouped = new Map<string, MonitoringRow[]>();
+  for (const row of rows) grouped.set(row.employeeId, [...grouped.get(row.employeeId) ?? [], row]);
+  return [...grouped.values()].map(days => {
+    const first = days[0];
+    const summary: Record<string,unknown> = {};
+    const metricDays: Record<string,number> = {};
+    for (const key of metrics) {
+      const known = days.filter(row => !row.dirty && row.quality !== "stale" && finite(row.summary?.[key]));
+      metricDays[key] = known.length;
+      summary[key] = known.length ? known.reduce((sum,row)=>sum + (row.summary![key] as number),0) : null;
+    }
+    const assessedDays = metricDays.workedSeconds;
+    const dirty = days.some(day=>day.dirty || day.quality === "stale");
+    const quality = dirty ? "stale" : days.every(day=>day.quality === "complete") ? "complete"
+      : days.every(day=>day.quality === "excluded") ? "excluded" : assessedDays || Object.values(metricDays).some(Boolean) ? "partial"
+        : days.some(day=>day.quality === "pending") ? "pending" : "unavailable";
+    const dates = days.flatMap(day=>day.date ? [day.date] : []).sort();
+    return {...first,date:null,computedAt:null,ruleVersion:null,quality,dirty,summary,metricDays,totalDays:dates.length,assessedDays,
+      pendingDays:days.filter(day=>["pending","unavailable","stale"].includes(day.quality)).length,firstDate:dates[0] ?? null};
+  });
+}
+
+export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], orderBy: MonitoringSortKey = "name", direction: "asc"|"desc" = "asc", grouped = false): T[] {
+  const value = (row:T):string|number|null => orderBy === "name" ? row.name : orderBy === "quality" ? qualityNames[row.quality] ?? row.quality
+    : orderBy === "date" ? grouped ? (row as unknown as MonitoringGroup).assessedDays : row.date
+      : !grouped && (row.dirty || row.quality === "stale") ? null : finite(row.summary?.[orderBy]) ? row.summary![orderBy] as number : null;
+  return [...rows].sort((a,b)=>{
+    const left=value(a),right=value(b);
+    // Unavailable values remain last in both directions.
+    if (left === null && right !== null) return 1;
+    if (right === null && left !== null) return -1;
+    const comparison=typeof left === "number" && typeof right === "number" ? left-right : left !== null && right !== null ? collator.compare(String(left),String(right)) : 0;
+    return comparison*(direction === "asc" ? 1 : -1) || collator.compare(a.name,b.name) || a.employeeId.localeCompare(b.employeeId) || (a.date??"").localeCompare(b.date??"");
+  });
+}
+
+export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: MonitoringFilters): MonitoringSnapshot {
+  const grouped=filters.start !== filters.end;
+  if (!grouped) return {...snapshot,grouped:false,recordTotal:snapshot.total,rows:sortMonitoringRows(snapshot.rows,filters.orderBy,filters.direction).slice(filters.offset,filters.offset+filters.limit)};
+  const groups=sortMonitoringRows(monitoringGroups(snapshot.rows),filters.orderBy,filters.direction,true);
+  const page=groups.slice(filters.offset,filters.offset+filters.limit);
+  const ids=new Set(page.map(group=>group.employeeId));
+  return {...snapshot,grouped:true,recordTotal:snapshot.total,total:groups.length,groups:page,
+    rows:snapshot.rows.filter(row=>ids.has(row.employeeId)).sort((a,b)=>(a.date??"").localeCompare(b.date??"")||a.employeeId.localeCompare(b.employeeId))};
+}
+
+type ReadPage = (filters: MonitoringFilters,signal?:AbortSignal)=>Promise<MonitoringSnapshot>;
+/** Read the authenticated RPC in bounded parallel pages; never combine different revisions. */
+export async function readCompleteMonitoring(filters: MonitoringFilters, readPage: ReadPage, signal?: AbortSignal): Promise<MonitoringSnapshot> {
+  for (let attempt=0;attempt<2;attempt++) {
+    const first=await readPage({...filters,offset:0,limit:500},signal);
+    if (first.total>200_000) throw Object.assign(new Error("MONITORING_PERIOD_TOO_LARGE"),{code:"MONITORING_PERIOD_TOO_LARGE"});
+    if (first.total>500 && !first.datasetVersion) throw Object.assign(new Error("MONITORING_SNAPSHOT_CHANGED"),{code:"MONITORING_SNAPSHOT_CHANGED"});
+    const pages=[first];let changed=false;
+    for (let offset=500;offset<first.total;offset+=2000) {
+      signal?.throwIfAborted();
+      const offsets=Array.from({length:4},(_,i)=>offset+i*500).filter(value=>value<first.total);
+      const batch=await Promise.all(offsets.map(value=>readPage({...filters,offset:value,limit:500},signal)));
+      if (batch.some(page=>page.datasetVersion!==first.datasetVersion || page.total!==first.total)) {changed=true;break;}
+      pages.push(...batch);
+    }
+    if (changed) continue;
+    const rows=pages.flatMap(page=>page.rows);
+    if (rows.length !== first.total || new Set(rows.map(row=>`${row.employeeId}|${row.date}`)).size !== rows.length) throw Object.assign(new Error("MONITORING_INCOMPLETE_PAGE"),{code:"MONITORING_INCOMPLETE_PAGE"});
+    return {...first,rows};
+  }
+  throw Object.assign(new Error("MONITORING_SNAPSHOT_CHANGED"),{code:"MONITORING_SNAPSHOT_CHANGED"});
+}
