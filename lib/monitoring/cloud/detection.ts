@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { cellText, detectAfdProfile, validateWorkbookArchive } from "../ingestion/parsers.ts";
 import { ImportError, normalizeLabel, normalizeIdentifier } from "../ingestion/validation.ts";
 
-export type DetectedImport = { kind: "afd"; afdProfile: "legacy" | "iso"; afdIdentityType: "cpf" | "pis" } | { kind: "defense-access" | "defense-person" };
+export type DetectedImport = { kind: "afd"; afdProfile: "legacy" | "iso"; afdIdentityType: "cpf" | "pis"; afdAllowAlternate?: boolean } | { kind: "defense-access" | "defense-person" };
 
 /** Inspect the stored original, never its name or a caller supplied MIME type. */
 export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> {
@@ -38,6 +38,9 @@ export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> 
     try { normalizeIdentifier(identifier, "pis", true); pis = true; } catch { /* CPF and PIS have independent check digits. */ }
     if (cpf && !pis) cpfOnly++; if (pis && !cpf) pisOnly++;
   }
-  if ((!cpfOnly && !pisOnly) || (cpfOnly && pisOnly)) throw new ImportError("CLOUD_IDENTITY_AMBIGUOUS");
-  return { kind: "afd", afdProfile, afdIdentityType: cpfOnly ? "cpf" : "pis" };
+  const primary = Math.max(cpfOnly, pisOnly); const mixed = cpfOnly > 0 && pisOnly > 0;
+  if (!primary || (mixed && (primary < 10 || primary / (cpfOnly + pisOnly) < 0.95))) throw new ImportError("CLOUD_IDENTITY_AMBIGUOUS");
+  // A small minority may have a different valid document. The parser preserves
+  // each row's document type; the database links only exact unique HR documents.
+  return { kind: "afd", afdProfile, afdIdentityType: cpfOnly > pisOnly ? "cpf" : "pis", ...(mixed ? { afdAllowAlternate: true } : {}) };
 }

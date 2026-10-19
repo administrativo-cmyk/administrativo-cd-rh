@@ -112,6 +112,16 @@ describe("Envio para processamento na nuvem", () => {
     await user.click(screen.getByRole("button", { name: "Confirmar cancelamento" })); expect(await screen.findByText(/Processamento cancelado/)).toBeInTheDocument();
     expect(fetch.mock.calls.some(([url, options]) => url.endsWith("/cancel") && options?.body === JSON.stringify({ expectedUpdatedAt: updatedAt }))).toBe(true);
   });
+  it("reavalia rejeições com versão esperada, preservando o original sem novo upload", async () => {
+    const user = userEvent.setup(); const fetch = api([{ ...job("completed"), rejectedRows: 4, canReinspect: true }]); const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, options) => url.endsWith("/reinspect") ? ok({ id: "1", status: "queued", updatedAt }) : original(url, options));
+    render(<CloudImportPanel />);
+    expect(await screen.findByText(/4 registro.*rejeitado/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reavaliar synthetic-1.txt" }));
+    expect(await screen.findByText(/Reavaliação enfileirada.*original.*preservados/)).toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url, options]) => url.endsWith("/reinspect") && options?.body === JSON.stringify({ expectedUpdatedAt: updatedAt }))).toBe(true);
+    expect(upload).not.toHaveBeenCalled();
+  });
   it("não anuncia sucesso quando ação retorna resposta inválida ou versão alterada", async () => {
     const user = userEvent.setup(); const fetch = api([job("failed")]); const original = fetch.getMockImplementation()!; let attempts = 0;
     fetch.mockImplementation(async (url, options) => url.endsWith("/retry") ? attempts++ === 0 ? ok(null) : { ok: false, status: 409, json: async () => ({}) } : original(url, options));

@@ -27,6 +27,13 @@ it("parses CPF in a legacy AFD using independent identity semantics and an immut
   expect(parsed.occurrences[0].event?.identity).toEqual({ type: "cpf", value: CPF });
   expect(parsed.occurrences[0].event?.precisionSeconds).toBe(60);
 });
+it("preserves a valid CPF registered in a predominantly PIS clock under a new parser contract", () => {
+  const bytes = Buffer.from(legacy() + "\n" + legacy(2).replace(`0${PIS}`, `0${CPF}`));
+  const parsed = parseAfd(bytes, source("afd", {afdProfile:"legacy",afdIdentityType:"pis",afdAllowAlternate:true}));
+  expect(parsed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy-alternate");
+  expect(parsed.occurrences.map(row=>row.event?.identity?.type)).toEqual(["pis","cpf"]);
+  expect(parsed.occurrences.some(row=>row.issues.some(issue=>issue.severity==="error"))).toBe(false);
+});
 async function temporary(): Promise<string> { const path = await mkdtemp(join(tmpdir(), "monitoring-test-")); tempDirectories.push(path); return path; }
 afterEach(async () => { vi.unstubAllGlobals(); await Promise.all(tempDirectories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 

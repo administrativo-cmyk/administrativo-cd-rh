@@ -18,6 +18,15 @@ describe("server import detection from original bytes", () => {
   it("rejects a legacy file mixing unambiguous CPF and PIS identities", async () => {
     await expect(detectCloudImport(Buffer.from(legacy + "\n" + legacy.replace(`0${PIS}`, "012345678909")))).rejects.toThrow("CLOUD_IDENTITY_AMBIGUOUS");
   });
+  it("recognizes a PIS clock with a small CPF minority without dropping the minority's document type", async () => {
+    const records: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const base = String(1111100000 + i); const check = 11 - [...base].reduce((sum, digit, index) => sum + Number(digit) * [3,2,9,8,7,6,5,4,3,2][index], 0) % 11;
+      records.push(legacy.replace(`0${PIS}`, `0${base}${check > 9 ? 0 : check}`));
+    }
+    records.push(legacy.replace(`0${PIS}`, "012345678909"));
+    expect(await detectCloudImport(Buffer.from(records.join("\r\n")))).toEqual({kind:"afd",afdProfile:"legacy",afdIdentityType:"pis",afdAllowAlternate:true});
+  });
   it("rejects mixed, empty, binary and unrelated exports", async () => {
     for (const value of ["", "unrelated.txt", "\0" + legacy, legacy + "\n" + iso, legacy + "\r" + iso]) await expect(detectCloudImport(Buffer.from(value))).rejects.toThrow();
   });

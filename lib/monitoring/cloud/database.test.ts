@@ -74,6 +74,42 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("reinspects a completed partial import once, retaining its original and immutable old file", async () => {
+    await upload(await create());const job=await claim();await persist(job);let done=(await worker("finish",{id:job.id,leaseToken:job.leaseToken})).job as Job;
+    await db.exec("update public.monitoring_files set rejected_rows=4");
+    expect(((await administrative("get",{id:job.id})).job as {rejectedRows:number}).rejectedRows).toBe(4);
+    await expect(administrative("reinspect",{id:job.id,expectedUpdatedAt:done.updatedAt},reader)).rejects.toThrow("CLOUD_FORBIDDEN");
+    const reviewed=(await administrative("reinspect",{id:job.id,expectedUpdatedAt:done.updatedAt})).job as Job&{autoDetect:boolean;reviewVersion:number};
+    expect(reviewed).toMatchObject({status:"queued",cursor:0,autoDetect:true,reviewVersion:1});expect(reviewed.objectPath).toBe(done.objectPath);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_files")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='cloud_reinspect'")).rows[0].n).toBe(1);
+    done=reviewed;await expect(administrative("reinspect",{id:job.id,expectedUpdatedAt:done.updatedAt})).rejects.toThrow("CLOUD_RETRY_UNAVAILABLE");
+  });
+  it("links only exact canonical HR documents for alternate registrations, with an explicit system origin",async()=>{
+    await db.exec(`update public.monitoring_sources set configuration='{"sourceIdentityConfirmed":true}' where id='cloud-test';
+      insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis');
+      insert into public.colaboradores(id,matricula,nome,unidade_id,admissao) values('cb100000-0000-4000-8000-000000000001','AUTO-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'),'2026-09-01');
+      insert into private.employee_identifiers(employee_id,cpf) values('cb100000-0000-4000-8000-000000000001','12345678909');`);
+    await upload(await create("mixed-documents",admin,{autoDetect:true}));const job=await claim();
+    const routed=(await worker("route",{id:job.id,leaseToken:job.leaseToken,kind:"afd",afdProfile:"legacy",afdIdentityType:"pis",afdAllowAlternate:true,identifiers:[{type:"cpf",value:"12345678909",observedOn:"2026-10-02"}]})).job as Job&{parserVersion:string};
+    expect(routed.parserVersion).toBe("monitoring-import/1.0.0/afd-legacy-alternate");
+    const link=(await db.query<{origin:string;created_by:string|null}>("select origin,created_by from public.monitoring_bindings where employee_id='cb100000-0000-4000-8000-000000000001'")).rows[0];
+    expect(link).toEqual({origin:"cloud_document",created_by:null});
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='cloud_document_binding' and actor is null")).rows[0].n).toBe(1);
+  });
+  it("never recreates a revoked manual binding or attributes an unknown document",async()=>{
+    await db.exec(`update public.monitoring_sources set configuration='{"sourceIdentityConfirmed":true}' where id='cloud-test';
+      insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis');
+      insert into public.colaboradores(id,matricula,nome,unidade_id,admissao) values('cb100000-0000-4000-8000-000000000001','AUTO-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'),'2026-09-01');
+      insert into private.employee_identifiers(employee_id,cpf) values('cb100000-0000-4000-8000-000000000001','12345678909');
+      insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by,revoked_at)
+      values('cloud-test','cpf','12345678909','cb100000-0000-4000-8000-000000000001','2026-09-01','Vínculo sintético revogado','${admin}',now());`);
+    await upload(await create("revoked-document",admin,{autoDetect:true}));const job=await claim();
+    await worker("route",{id:job.id,leaseToken:job.leaseToken,kind:"afd",afdProfile:"legacy",afdIdentityType:"pis",afdAllowAlternate:true,identifiers:[{type:"cpf",value:"12345678909",observedOn:"2026-10-02"},{type:"cpf",value:"52998224725",observedOn:"2026-10-02"}]});
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_bindings")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_bindings where revoked_at is not null and origin='manual'")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='cloud_document_binding'")).rows[0].n).toBe(0);
+  });
   it("routes legacy CPF independently from the PIS clock and freezes the CPF parser version", async () => {
     await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace) values('cloud-cpf','afd','cloud-cpf');insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis'),('afd','legacy','cloud-cpf','cpf')");
     await upload(await create("legacy-cpf", admin, { autoDetect: true })); const job = await claim();

@@ -1,3 +1,4 @@
+import { parseSnapshot } from "@/lib/monitoring/ingestion/parsers";
 import { detectCloudImport } from "@/lib/monitoring/cloud/detection";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -37,7 +38,19 @@ export async function POST(request: Request) {
       if (job.autoDetect) {
         if (createHash("sha256").update(bytes).digest("hex") !== job.sha256) throw new CloudError("CLOUD_SNAPSHOT_HASH_MISMATCH");
         const detected = await detectCloudImport(bytes);
-        job = z.object({ job: cloudJobSchema }).parse(await cloudWorker("route", { ...lease, ...detected }, signal)).job;
+        const identifiers: Array<{type:string;value:string;observedOn:string}> = [];
+        if (detected.kind === "afd" && detected.afdAllowAlternate) {
+          const parsed = await parseSnapshot(bytes, { root: "", id: job.sourceId, timeZone: job.source.timeZone, encoding: detected.afdProfile === "legacy" ? "latin1" : "utf8", ...detected });
+          const unique = new Map<string, {type:string;value:string;observedOn:string}>();
+          const dateFormat = new Intl.DateTimeFormat("en-CA", {timeZone:job.source.timeZone,year:"numeric",month:"2-digit",day:"2-digit"});
+          for (const row of parsed.occurrences) if (row.event?.identity) {
+            const {type,value} = row.event.identity; const parts = Object.fromEntries(dateFormat.formatToParts(new Date(row.event.timestamp)).map(part => [part.type,part.value])); const observedOn = `${parts.year}-${parts.month}-${parts.day}`; const key = `${type}:${value}`;
+            if (!unique.has(key) && unique.size >= 5000) throw new CloudError("CLOUD_IDENTITY_AMBIGUOUS");
+            if (!unique.has(key) || unique.get(key)!.observedOn > observedOn) unique.set(key, {type,value,observedOn});
+          }
+          identifiers.push(...unique.values());
+        }
+        job = z.object({ job: cloudJobSchema }).parse(await cloudWorker("route", { ...lease, ...detected, ...(identifiers.length ? {identifiers} : {}) }, signal)).job;
         assertCloudSource(job.sourceId);
       }
       const result = await processCloudSnapshot({

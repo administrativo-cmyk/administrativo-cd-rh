@@ -27,6 +27,12 @@ describe("one logical clock and daily bank arithmetic", () => {
     expect(day.suggestions.map(s => s.eventId)).toEqual(["entry"]);
     expect(day.deltaMinutes).toBeNull(); expect(day.slots[2].at).toBeNull();
   });
+  it("anchors a missing lunch return to the actual recorded exit plus one hour", () => {
+    const mapping: AccessPointMapping = { id:"mapping",pointId:"Torniquete",portalId:"operacao",area:"operation",direction:"entry",validated:true,eventClasses:["Rosto"],validFrom:"2026-01-01" };
+    const value=input(["08:00","10:00","18:00"]);value.schedule.end=at("18:00");
+    const day=assessBankDay({...value,mappings:[mapping],accesses:[{id:"early-lunch",personId:"employee",at:at("11:00"),pointId:"Torniquete",sourceId:"defense",eventClass:"Rosto",authorized:true,identified:true}]});
+    expect(day.missingRole).toBe("breakEnd");expect(day.suggestions.map(s=>s.eventId)).toEqual(["early-lunch"]);expect(day.deltaMinutes).toBeNull();
+  });
   it.each(["closed", "collectionComplete"] as const)("blocks incomplete evidence: %s", key => {
     expect(assessBankDay({ ...input(["08:00", "17:00"]), [key]: false }).deltaMinutes).toBeNull();
   });

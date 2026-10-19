@@ -17,6 +17,7 @@ export interface IngestionSource {
   afdProfile?: AfdProfile;
   /** Identifier semantics are independent from the AFD timestamp layout. */
   afdIdentityType?: "cpf" | "pis";
+  afdAllowAlternate?: boolean;
   encoding?: "utf8" | "latin1";
   photoRoot?: string;
   declaredCoverage?: { from: string; to: string; continuous: boolean };

@@ -4,7 +4,7 @@ import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
 import { assertCloudSource, cloudAdmin, cloudFailure, cloudJob, publicCloudJob } from "@/lib/monitoring/cloud/server";
 
 export const runtime = "nodejs";
-const parameters = z.object({ id: z.string().uuid(), action: z.enum(["complete", "retry", "cancel"]) });
+const parameters = z.object({ id: z.string().uuid(), action: z.enum(["complete", "retry", "cancel", "reinspect"]) });
 export async function POST(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   if (!isTrustedMutationOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
   const session = await monitoringSession(true); if (session.response) return session.response;

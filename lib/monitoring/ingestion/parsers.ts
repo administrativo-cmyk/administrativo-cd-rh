@@ -5,11 +5,11 @@ import type { AfdProfile, CanonicalImportEvent, EventClassification, ImportOccur
 
 const VERSION = "monitoring-import/1.0.0";
 /** Frozen by the server when a cloud job is created; never supplied by a browser. */
-export function ingestionParserVersion(source: Pick<IngestionSource, "kind" | "afdProfile" | "afdIdentityType">): string {
+export function ingestionParserVersion(source: Pick<IngestionSource, "kind" | "afdProfile" | "afdIdentityType" | "afdAllowAlternate">): string {
   if (source.kind === "afd") {
     if (source.afdProfile !== "legacy" && source.afdProfile !== "iso") throw new ImportError("INVALID_AFD_PROFILE");
     const defaultIdentity = source.afdProfile === "legacy" ? "pis" : "cpf";
-    return `${VERSION}/afd-${source.afdProfile}${source.afdIdentityType && source.afdIdentityType !== defaultIdentity ? `-${source.afdIdentityType}` : ""}`;
+    return `${VERSION}/afd-${source.afdProfile}${source.afdIdentityType && source.afdIdentityType !== defaultIdentity ? `-${source.afdIdentityType}` : ""}${source.afdAllowAlternate ? "-alternate" : ""}`;
   }
   if (source.kind !== "defense-access" && source.kind !== "defense-person") throw new ImportError("INVALID_SOURCE_CONFIG");
   return `${VERSION}/${source.kind}`;
@@ -65,8 +65,13 @@ export function parseAfd(bytes: Buffer, source: IngestionSource): ParsedImport {
       if (!/^\d{9}/.test(raw) || raw.length !== (profile === "legacy" ? 38 : 50) || !/^[\da-f]{4}$/i.test(raw.slice(-4))) throw new ImportError("AFD_INVALID_RECORD_LENGTH_OR_CRC_FORMAT");
       const nsr = raw.slice(0, 9);
       const rawIdentifier = profile === "legacy" ? raw.slice(22, 34) : raw.slice(34, 46);
-      const identityType = source.afdIdentityType ?? (profile === "legacy" ? "pis" : "cpf");
-      const value = normalizeIdentifier(rawIdentifier, identityType, true);
+      let identityType = source.afdIdentityType ?? (profile === "legacy" ? "pis" : "cpf");
+      let value: string;
+      try { value = normalizeIdentifier(rawIdentifier, identityType, true); } catch (error) {
+        if (!source.afdAllowAlternate) throw error;
+        identityType = identityType === "cpf" ? "pis" : "cpf";
+        value = normalizeIdentifier(rawIdentifier, identityType, true);
+      }
       const rawTimestamp = profile === "legacy" ? `${raw.slice(10, 18)}${raw.slice(18, 22)}` : raw.slice(10, 34);
       const timestamp = profile === "legacy"
         ? parseLocalTimestamp(`${raw.slice(14, 18)}-${raw.slice(12, 14)}-${raw.slice(10, 12)} ${raw.slice(18, 20)}:${raw.slice(20, 22)}:00`, source.timeZone)

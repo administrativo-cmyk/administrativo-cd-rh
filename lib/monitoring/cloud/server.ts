@@ -12,10 +12,10 @@ const sourceSchema = z.object({
   id: z.string().min(1).max(80), kind: z.enum(["afd", "defense-access", "defense-person"]),
   timeZone: z.string().min(1), identityNamespace: z.string().min(1), sourceIdentityConfirmed: z.boolean(),
   declaredCoverage: z.object({ from: z.string(), to: z.string(), continuous: z.boolean() }).nullish(),
-  afdProfile: z.enum(["legacy", "iso"]).optional(), afdIdentityType: z.enum(["cpf", "pis"]).optional(), encoding: z.enum(["utf8", "latin1"]).optional(),
+  afdProfile: z.enum(["legacy", "iso"]).optional(), afdIdentityType: z.enum(["cpf", "pis"]).optional(), afdAllowAlternate: z.boolean().optional(), encoding: z.enum(["utf8", "latin1"]).optional(),
 });
 export const cloudJobSchema = z.object({
-  autoDetect: z.boolean().default(false), id: z.string().uuid(), sourceId: z.string(), source: sourceSchema,
+  autoDetect: z.boolean().default(false), rejectedRows: z.number().int().nonnegative().optional(), reviewVersion: z.number().int().nonnegative().optional(), id: z.string().uuid(), sourceId: z.string(), source: sourceSchema,
   fileName: z.string().min(1).max(240), objectPath: z.string().min(1), bucket: z.literal(cloudBucket),
   byteLength: z.number().int().positive().max(cloudMaxFileBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/),
   parserVersion: z.string(), status: z.enum(["uploading", "queued", "processing", "completed", "failed", "cancelled"]),
@@ -57,7 +57,7 @@ export function cloudJob(value: unknown): CloudJob {
 }
 export function publicCloudJob(job: CloudJob) {
   return {
-    autoDetect: job.autoDetect, id: job.id, fileName: job.fileName, sourceId: job.sourceId, status: job.status, bytes: job.byteLength,
+    rejectedRows: job.rejectedRows ?? 0, canReinspect: job.status === "completed" && (job.rejectedRows ?? 0) > 0 && (job.reviewVersion ?? 0) === 0 && job.source.kind === "afd", autoDetect: job.autoDetect, id: job.id, fileName: job.fileName, sourceId: job.sourceId, status: job.status, bytes: job.byteLength,
     batchesDone: job.cursor, totalBatches: job.totalBatches, processedRows: job.processedRows, totalRows: job.totalRows,
     attempts: job.attempts, maxAttempts: job.maxAttempts, nextRetryAt: job.nextRetryAt, errorCode: job.lastError,
     createdAt: job.createdAt, updatedAt: job.updatedAt, completedAt: job.completedAt,

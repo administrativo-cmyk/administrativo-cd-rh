@@ -44,13 +44,15 @@ export function assessBankDay(input: {
       const before = missing ? output.slots[missing - 1].at! : schedule.start - 3_600_000;
       const after = missing < 3 ? output.slots[missing + 1].at! : schedule.end + 3_600_000;
       const direction = missing === 0 || missing === 2 ? "entry" : "exit";
+      const candidateTarget = missing === 1 ? output.slots[2].at! - schedule.lunchMinutes * 60_000
+        : missing === 2 ? output.slots[1].at! + schedule.lunchMinutes * 60_000 : targets[missing];
       for (const event of input.accesses) {
-        if (!event.authorized || !event.identified || event.personId !== punches[0].personId || event.provenance?.origin === "manual" || event.at <= before || event.at >= after || Math.abs(event.at - targets[missing]) > 120 * 60_000) continue;
+        if (!event.authorized || !event.identified || event.personId !== punches[0].personId || event.provenance?.origin === "manual" || event.at <= before || event.at >= after || Math.abs(event.at - candidateTarget) > 120 * 60_000) continue;
         const mappings = input.mappings.filter(mapping => mapping.validated && ((mapping.area === "perimeter" || mapping.area === "operation") && mapping.direction === direction)
           && normalizeAccessLabel(mapping.pointId) === normalizeAccessLabel(event.pointId)
           && mapping.eventClasses.some(value => normalizeAccessLabel(value) === normalizeAccessLabel(event.eventClass)) && isEffective(mapping, input.date));
         if (mappings.length !== 1) continue;
-        output.suggestions.push({ at: event.at, eventId: event.id, pointId: event.pointId, direction, differenceMinutes: Math.round(Math.abs(event.at - targets[missing]) / 60_000) });
+        output.suggestions.push({ at: event.at, eventId: event.id, pointId: event.pointId, direction, differenceMinutes: Math.round(Math.abs(event.at - candidateTarget) / 60_000) });
       }
       output.suggestions.sort((a, b) => a.differenceMinutes - b.differenceMinutes || a.at - b.at);
       output.suggestions = output.suggestions.slice(0, 5);

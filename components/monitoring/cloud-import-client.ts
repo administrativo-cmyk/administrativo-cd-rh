@@ -4,7 +4,7 @@ export const cloudFileLimit = 20 * 1024 * 1024;
 export const cloudStatusSchema = z.enum(["uploading", "queued", "processing", "completed", "failed", "cancelled"]);
 export const cloudJobSchema = z.object({
   id: z.string().min(1), fileName: z.string(), sourceId: z.string(), status: cloudStatusSchema,
-  autoDetect: z.boolean().optional(), bytes: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string(),
+  rejectedRows: z.number().int().nonnegative().optional(), canReinspect: z.boolean().optional(), autoDetect: z.boolean().optional(), bytes: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string(),
   batchesDone: z.number().int().nonnegative(), totalBatches: z.number().int().nonnegative().nullable(), errorCode: z.string().nullable(),
 });
 export const cloudSnapshotSchema = z.object({
