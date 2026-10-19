@@ -26,7 +26,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const [mutationVersion, setMutationVersion] = useState(0);
   const pendingKeys = useRef(new Set<string>());
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
-  const lastRequestKey = useRef(`${initialDate}|${filters.startDate}|${filters.endDate}|0`);
+  const lastRequestKey = useRef(`${initialDate}|${filters.startDate}|${filters.endDate}||0`);
   const employees = useMemo(() => error ? [] : snapshot?.employees ?? [], [snapshot, error]);
   const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId) ?? null, [employees, selectedEmployeeId]);
   const filteredEmployees = useMemo(() => filterEmployees(employees, filters, selectedDate), [employees, filters, selectedDate]);
@@ -37,13 +37,13 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const activeFilterCount = useMemo(() => countActiveFilters(filters, defaults), [filters, defaults]);
 
   useEffect(() => {
-    const requestKey = `${selectedDate}|${filters.startDate}|${filters.endDate}|${refreshKey}`;
+    const requestKey = `${selectedDate}|${filters.startDate}|${filters.endDate}|${filters.situation ?? ""}|${refreshKey}`;
     if (lastRequestKey.current === requestKey) return;
     lastRequestKey.current = requestKey;
     const abort = new AbortController();
     activeRead.current = abort;
     const version = ++queryVersion.current;
-    const params = new URLSearchParams({ date: selectedDate, start: filters.startDate, end: filters.endDate });
+    const params = new URLSearchParams({ date: selectedDate, start: filters.startDate, end: filters.endDate, situation: filters.situation ?? "" });
     Promise.resolve().then(() => {
       if (abort.signal.aborted) return null;
       if (!validPeriod(filters.startDate, filters.endDate)) { setError(true); return null; }
@@ -74,7 +74,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [selectedDate, filters.startDate, filters.endDate, refreshKey, setSelectedEmployee]);
+  }, [selectedDate, filters.startDate, filters.endDate, filters.situation, refreshKey, setSelectedEmployee]);
 
   const updateFilter = useCallback(<K extends keyof DailyCallFilters>(key: K, value: DailyCallFilters[K]) => setFilters((current) => ({ ...current, [key]: value })), []);
   const clearFilters = useCallback(() => setFilters(filtersForDate(selectedDate)), [selectedDate]);
@@ -136,6 +136,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
         return { ...item, attendance, observations, attendanceVersions, attendanceSources, realBank };
       }) } : current);
       if (result.changed) toast.success("Lançamento salvo.");
+      if (result.changed && employee.situation === "Desligado") setRefreshKey(value => value + 1);
       return true;
     } catch (cause) {
       reportOperationalError("daily-call.client-write", cause);

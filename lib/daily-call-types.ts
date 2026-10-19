@@ -5,7 +5,7 @@ export type AttendanceCode = AttendanceStatusCode;
 export type AttendanceOrigin = "punch" | "automatic_absence" | "manual";
 /** Unit codes come from the authorized organization register. */
 export type UnitCode = string;
-export type EmployeeSituation = "Ativo" | "Férias" | "Novo admitido" | "Afastado";
+export type EmployeeSituation = "Ativo" | "Férias" | "Novo admitido" | "Afastado" | "Desligado" | "Aviso prévio" | "Licença-maternidade" | "Acidente de trabalho" | "Outro afastamento";
 export type BankSituation = "Em dia" | "A compensar" | "A repor" | "Sem extrato";
 
 export type Unit = { id: string; name: UnitCode };
@@ -42,6 +42,10 @@ export type Employee = {
   role: string;
   situation: EmployeeSituation;
   admissionDate: string;
+  terminationDate?: string | null;
+  expectedReturnDate?: string | null;
+  pendingTerminationDates?: string[];
+  activeInSystem?: boolean;
   plannedVacation: string;
   bankDays: number | null;
   bankHours: string | null;
@@ -59,6 +63,7 @@ export type DailyCallFilters = {
   query: string;
   bank: "Todos" | BankSituation;
   status: DailyCallStatusFilter;
+  situation?: string;
   startDate: string;
   endDate: string;
 };

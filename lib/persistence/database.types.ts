@@ -132,6 +132,7 @@ export type Database = {
     };
     Views: Record<never, never>;
     Functions: {
+      daily_call_read: { Args: { p_date: string; p_start: string; p_end: string; p_situation?: string | null }; Returns: Json };
       ler_chamada_diaria: { Args: { p_data: string; p_inicio: string; p_fim: string }; Returns: Json };
       salvar_chamada_diaria: { Args: { p_colaborador_id: string; p_data: string; p_status: DatabaseAttendanceCode | null; p_observacao: string | null; p_expected_updated_at: string | null }; Returns: Json };
       ler_banco_horas_atual: { Args: { p_data: string }; Returns: Json };

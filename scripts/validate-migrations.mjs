@@ -467,7 +467,7 @@ const populationRpc = await asAuthenticated(authUsers.admin, () => database.quer
 `));
 const populationEmployees = populationRpc.rows[0].snapshot.employees;
 if (
-  JSON.stringify(populationEmployees.map((employee) => employee.employeeNumber).sort()) !== JSON.stringify(expectedPopulation)
+  JSON.stringify(populationEmployees.map((employee) => employee.employeeNumber).sort()) !== JSON.stringify([...expectedPopulation, 'FICT-LEAVE', 'FICT-NOTICE', 'FICT-MATERNITY', 'FICT-ACCIDENT', 'FICT-OTHER'].sort())
   || populationEmployees.filter((employee) => employee.employeeNumber !== 'FICT-001').some(
     (employee) => employee.manager !== null || employee.balanceMinutes !== null,
   )
@@ -487,7 +487,7 @@ const readCall = async (actor) => (await asAuthenticated(actor, () => database.q
 const fullPopulation = [authUsers.admin, authUsers.rh, authUsers.reader];
 for (const actor of fullPopulation) {
   const rows = await readCall(actor);
-  if (rows.length !== 5 || !rows.some((row) => row.id === teamAEmployee)
+  if (rows.length !== 10 || !rows.some((row) => row.id === teamAEmployee)
       || !rows.some((row) => row.id === teamBEmployee)
       || !rows.some((row) => row.manager === null)) {
     throw new Error('ADMIN/RH/LEITURA read scope mismatch');
@@ -836,7 +836,7 @@ await expectAuthenticatedFailure("non-operational employee", authUsers.admin, `
 await database.exec(`
   insert into public.colaboradores (id, matricula, nome, unidade_id, situacao)
   values ('30000000-0000-0000-0000-000000000099', 'FICT-OUT', 'Excluded Fictitious',
-    (select id from public.unidades where codigo = 'CD FLV'), 'AFASTADO');
+    (select id from public.unidades where codigo = 'CD FLV'), 'DESLIGADO');
 `);
 await expectAuthenticatedFailure("excluded employee", authUsers.admin, `
   select public.salvar_chamada_diaria('30000000-0000-0000-0000-000000000099', '${writeDate}', 'P', null, null);

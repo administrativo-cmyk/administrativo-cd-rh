@@ -1,5 +1,6 @@
 import { bankSituation, statusMatches } from "./daily-call-rules";
 import type { DailyCallFilters, DailyCallMetrics, Employee } from "./daily-call-types";
+import { situationLabels, type WorkforceSituation } from "./workforce";
 
 export const defaultDailyCallFilters: DailyCallFilters = { unit: "Todas", manager: "Todos", query: "", bank: "Todos", status: "Todos", startDate: "2026-09-01", endDate: "2026-09-30" };
 
@@ -15,6 +16,7 @@ export function filterEmployees(employees: Employee[], filters: DailyCallFilters
     && (filters.manager === "Todos" || employee.manager === filters.manager)
     && (!query || employee.name.toLocaleLowerCase("pt-BR").includes(query) || employee.id.toLocaleLowerCase("pt-BR").includes(query))
     && (filters.bank === "Todos" || bankSituation(employee) === filters.bank)
+    && (!filters.situation || employee.situation === situationLabels[filters.situation as WorkforceSituation])
     && statusMatches(employee.attendance[today], filters.status));
 }
 
@@ -42,5 +44,6 @@ export function countActiveFilters(filters: DailyCallFilters, defaults = default
   return Number(filters.unit !== defaultDailyCallFilters.unit) + Number(filters.manager !== defaultDailyCallFilters.manager)
     + Number(Boolean(filters.query.trim())) + Number(filters.bank !== defaultDailyCallFilters.bank)
     + Number(filters.status !== defaultDailyCallFilters.status)
+    + Number(Boolean(filters.situation))
     + Number(filters.startDate !== defaults.startDate || filters.endDate !== defaults.endDate);
 }

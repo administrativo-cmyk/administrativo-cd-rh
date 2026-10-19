@@ -1,3 +1,4 @@
+import { workforceSituations, situationLabels, type WorkforceSituation } from "@/lib/workforce";
 import { z } from "zod";
 import type { DailyCallSnapshot, Employee, EmployeeSituation, UnitCode } from "@/lib/daily-call-types";
 import { formatSignedMinutes } from "@/lib/domain/bank-hours";
@@ -17,9 +18,13 @@ const employeeSchema = z.object({
   unit: z.string().trim().min(1),
   department: z.string().nullable(),
   role: z.string().nullable(),
-  situation: z.enum(["ATIVO", "FERIAS", "NOVO_ADMITIDO"]),
+  situation: z.enum(workforceSituations),
   manager: z.string().nullable(),
   admissionDate: z.string().nullable(),
+  terminationDate: z.string().nullable().optional(),
+  expectedReturnDate: z.string().nullable().optional(),
+  pendingTerminationDates: z.array(z.string()).optional(),
+  activeInSystem: z.boolean().optional(),
   measurementDate: z.string().nullable(),
   effectiveFrom: z.string().nullable(),
   workdayHours: z.number().nullable(),
@@ -38,9 +43,7 @@ const resultSchema = z.object({
   employees: z.array(employeeSchema),
 });
 
-const situations: Record<"ATIVO" | "FERIAS" | "NOVO_ADMITIDO", EmployeeSituation> = {
-  ATIVO: "Ativo", FERIAS: "Férias", NOVO_ADMITIDO: "Novo admitido",
-};
+const situations = situationLabels as Record<WorkforceSituation, EmployeeSituation>;
 
 export function formatBalanceMinutes(value: number): string {
   return formatSignedMinutes(value);
@@ -78,6 +81,10 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
         role: row.role ?? "Não informada",
         situation: situations[row.situation],
         admissionDate: row.admissionDate ?? "",
+        terminationDate: row.terminationDate,
+        expectedReturnDate: row.expectedReturnDate,
+        pendingTerminationDates: row.pendingTerminationDates,
+        activeInSystem: row.activeInSystem,
         plannedVacation: "—",
         bankDays: row.balanceDays,
         bankHours: hasMeasurement ? formatBalanceMinutes(row.balanceMinutes!) : null,

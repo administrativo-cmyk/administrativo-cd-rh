@@ -10,6 +10,9 @@ const errors: Record<string, string> = {
   ADMINISTRATION_REFERENCED: "Há cadastros ativos vinculados. Transfira ou desative os vínculos antes de arquivar.", ADMINISTRATION_VACATION_OVERLAP: "Já há férias aprovadas nesse período.",
   ADMINISTRATION_VACATION_LOCKED: "Esta programação exige revisão de ADMIN ou RH.", ADMINISTRATION_DUPLICATE: "Já existe um cadastro equivalente com esse nome, código ou matrícula.",
   ADMINISTRATION_ARCHIVED: "Restaure o cadastro antes de editá-lo.",
+  EMPLOYEE_LIFECYCLE_DATES: "Informe datas válidas: desligamento, início da situação e retorno previsto. Ao reativar, informe a data efetiva do retorno.",
+  EMPLOYEE_IDENTIFIER_INVALID: "CPF ou PIS inválido. Informe os 11 dígitos.",
+  EMPLOYEE_IDENTIFIER_CONFLICT: "CPF ou PIS já pertence a outro colaborador. Confira os vínculos na Conciliação.",
 };
 export async function administrationQuery(entity: AdministrationEntity, action: AdministrationAction, data: unknown) {
   const client = await createClient<AdministrationDatabase>();

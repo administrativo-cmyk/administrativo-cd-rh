@@ -18,7 +18,7 @@ const situationMap: Record<Employee["situation"], EmployeeSituationCode> = {
   Ativo: "ATIVO",
   "Férias": "FERIAS",
   "Novo admitido": "NOVO_ADMITIDO",
-  Afastado: "AFASTADO",
+  Afastado: "AFASTADO", Desligado: "DESLIGADO", "Aviso prévio": "AVISO_PREVIO", "Licença-maternidade": "LICENCA_MATERNIDADE", "Acidente de trabalho": "ACIDENTE_TRABALHO", "Outro afastamento": "OUTRO_AFASTAMENTO",
 };
 
 function unitId(code: Employee["unit"]): string {

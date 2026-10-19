@@ -2,13 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { SupabaseDailyCallRepository } from "@/lib/data/supabase-daily-call-repository";
 import { validDate, validPeriod } from "@/lib/data/daily-call-dates";
 import { reportOperationalError } from "@/lib/security/operational-error";
+import { workforceSituations, type WorkforceSituation } from "@/lib/workforce";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const date = url.searchParams.get("date") ?? "";
   const start = url.searchParams.get("start") ?? "";
   const end = url.searchParams.get("end") ?? "";
-  if (!validDate(date) || !validPeriod(start, end)) {
+  const situation = url.searchParams.get("situation") || "";
+  if (!validDate(date) || !validPeriod(start, end) || (situation && !workforceSituations.includes(situation as WorkforceSituation))) {
     return Response.json({ error: "Data ou período inválido (máximo de 31 dias)." }, { status: 400 });
   }
 
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const snapshot = await new SupabaseDailyCallRepository().load(date, start, end);
+    const snapshot = await new SupabaseDailyCallRepository().load(date, start, end, situation);
     return Response.json(snapshot, { headers: { "Cache-Control": "private, no-store" } });
   } catch (cause) {
     const correlationId = reportOperationalError("daily-call.read", cause);
