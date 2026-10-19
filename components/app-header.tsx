@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, ChevronDown, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings, UserRound } from "lucide-react";
+import { Bell, ChevronDown, Menu, Search, Settings, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -20,14 +20,10 @@ const roleLabels: Record<UserRole, string> = {
 };
 
 export function AppHeader({
-  collapsed,
-  onToggle,
   onMobileOpen,
   profile,
   title = "Chamada Diária",
 }: {
-  collapsed: boolean;
-  onToggle: () => void;
   onMobileOpen: () => void;
   profile: AuthenticatedProfile;
   title?: string;
@@ -58,7 +54,6 @@ export function AppHeader({
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur-md sm:px-4 md:px-5">
       <button aria-label="Abrir menu" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 lg:hidden" onClick={onMobileOpen}><Menu size={18} /></button>
-      <button aria-label={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"} className="hidden h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50 lg:grid" onClick={onToggle}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
       <div className="min-w-0 flex-1 md:flex-none"><p className="truncate text-sm font-semibold">{title}</p><p className="hidden text-[11px] text-slate-500 sm:block">Administrativo CD</p></div>
       <button aria-label="Pesquisar páginas" onClick={() => setSearchOpen(true)} className="mx-auto flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600 hover:bg-white lg:w-full lg:max-w-72"><Search size={17}/><span className="hidden flex-1 text-left text-sm lg:block">Pesquisar páginas</span><kbd className="hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] lg:block">Ctrl K</kbd></button>
       <Link href="/notificacoes" aria-label={showCount && unread !== null ? `Notificações: ${unread} não lidas` : "Notificações"} className="relative grid h-11 w-11 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100"><Bell size={18}/>{showCount && unread !== null && unread > 0 ? <span className="absolute right-0 top-0 rounded-full bg-blue-700 px-1 text-[10px] font-semibold text-white">{unread > 99 ? "99+" : unread}</span> : null}</Link>

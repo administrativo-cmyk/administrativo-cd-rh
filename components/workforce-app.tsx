@@ -30,7 +30,6 @@ function Metric({ label, value, icon: Icon, tone }: { label: string; value: numb
 
 export function WorkforceApp({ profile, employees }: { profile: AuthenticatedProfile; employees: WorkforceEmployee[] | null }) {
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [filters, setFilters] = useState<WorkforceFilters>(defaultWorkforceFilters);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -72,9 +71,9 @@ export function WorkforceApp({ profile, employees }: { profile: AuthenticatedPro
   }
 
   return <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
-    <AppSidebar collapsed={collapsed} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Quadro Atual" />
-    <section className={cn("transition-[padding] duration-200", collapsed ? "lg:pl-18" : "lg:pl-[232px]")}>
-      <AppHeader collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onMobileOpen={() => setMobileOpen(true)} profile={profile} title="Quadro Atual" />
+    <AppSidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Quadro Atual" />
+    <section className="lg:pl-18">
+      <AppHeader onMobileOpen={() => setMobileOpen(true)} profile={profile} title="Quadro Atual" />
       <div className="mx-auto max-w-[1720px] space-y-4 p-3 sm:p-4 md:p-5">
         <header className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Operação de pessoas</p><h1 className="text-2xl font-bold tracking-tight md:text-[28px]">Quadro Atual</h1><p className="mt-1 text-sm text-slate-500">Colaboradores cadastrados, incluindo situações fora da Chamada Diária.</p></div><div className="flex gap-2"><span className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500">Somente leitura</span><button type="button" onClick={() => router.refresh()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800"><RefreshCw size={14} />Atualizar</button></div></header>
 

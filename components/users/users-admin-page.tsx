@@ -25,7 +25,6 @@ function StatusBadge({ status }: { status: AccessRequestStatus }) {
 }
 
 export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [users, setUsers] = useState<VersionedAdministrativeUser[]>([]);
   const [editing, setEditing] = useState<VersionedAdministrativeUser | null>(null);
@@ -90,9 +89,9 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
 
   return (
     <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
-      <AppSidebar collapsed={collapsed} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Usuários" />
-      <section className={cn("transition-[padding] duration-200", collapsed ? "lg:pl-18" : "lg:pl-[232px]")}>
-        <AppHeader collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onMobileOpen={() => setMobileOpen(true)} profile={profile} title="Usuários" />
+      <AppSidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Usuários" />
+      <section className="lg:pl-18">
+        <AppHeader onMobileOpen={() => setMobileOpen(true)} profile={profile} title="Usuários" />
         <div className="mx-auto max-w-[1500px] space-y-4 p-3 sm:p-4 md:p-5">
           <header>
             <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Administração de acesso</p>

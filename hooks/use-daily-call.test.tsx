@@ -26,6 +26,19 @@ const reply = (status: string | null, version = "2026-10-06T12:00:00Z", response
 describe("sincronização local da Chamada Diária", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", vi.fn()); });
 
+  it("troca a folha atomicamente, preserva filtro e consulta os dias 21 a 20", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => snapshot } as Response);
+    const { result } = renderHook(() => useDailyCall(date, snapshot));
+    act(() => { result.current.updateFilter("query", "Pessoa"); result.current.changePayrollPeriod("2026-11"); });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.filters).toMatchObject({ query: "Pessoa", startDate: "2026-10-21", endDate: "2026-11-20" });
+    expect(result.current.selectedDate).toBe("2026-10-21");
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]), "http://localhost");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ date: "2026-10-21", start: "2026-10-21", end: "2026-11-20" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("PUT atrasado não desconta G novamente após GET de outro período", async () => {
     let finishWrite!: (value: Response) => void;
     const authoritative: DailyCallSnapshot = { ...snapshot, startDate: "2026-09-01", endDate: "2026-09-30",

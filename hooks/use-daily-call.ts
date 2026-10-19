@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { calculateDailyCallMetrics, countActiveFilters, filterEmployees, filtersForDate, groupEmployeesByManager } from "@/lib/daily-call-selectors";
-import { validPeriod } from "@/lib/data/daily-call-dates";
+import { validDate, validPeriod } from "@/lib/data/daily-call-dates";
+import { payrollPeriodForMonth } from "@/lib/payroll-period";
 import { reportOperationalError } from "@/lib/security/operational-error";
 import type { AttendanceCode, DailyCallFilters, DailyCallSnapshot, Employee } from "@/lib/daily-call-types";
 
@@ -78,7 +79,12 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
 
   const updateFilter = useCallback(<K extends keyof DailyCallFilters>(key: K, value: DailyCallFilters[K]) => setFilters((current) => ({ ...current, [key]: value })), []);
   const clearFilters = useCallback(() => setFilters(filtersForDate(selectedDate)), [selectedDate]);
-  const changeDate = useCallback((date: string) => { setSelectedDate(date); setFilters(filtersForDate(date)); }, []);
+  const changeDate = useCallback((date: string) => { if (!validDate(date)) return; setSelectedDate(date); setFilters(filtersForDate(date)); }, []);
+  const changePayrollPeriod = useCallback((month: string) => {
+    const period = payrollPeriodForMonth(month);
+    setFilters(current => ({ ...current, startDate: period.startDate, endDate: period.endDate }));
+    setSelectedDate(current => current < period.startDate ? period.startDate : current > period.endDate ? period.endDate : current);
+  }, []);
   const refresh = useCallback(() => setRefreshKey((current) => current + 1), []);
 
   const saveAttendance = useCallback(async (employee: Employee, date: string, status: AttendanceCode | null, observation: string | null): Promise<boolean> => {
@@ -149,5 +155,5 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   }, []);
   const isSaving = useCallback((employee: Employee, date: string) => savingKeys.has(`${employee.id}|${date}`), [savingKeys]);
 
-  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, refresh, loading, error, lastSuccessfulAt, mutationVersion, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
+  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, changePayrollPeriod, refresh, loading, error, lastSuccessfulAt, mutationVersion, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
 }

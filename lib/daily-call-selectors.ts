@@ -1,13 +1,13 @@
 import { bankSituation, statusMatches } from "./daily-call-rules";
 import type { DailyCallFilters, DailyCallMetrics, Employee } from "./daily-call-types";
 import { situationLabels, type WorkforceSituation } from "./workforce";
+import { payrollPeriodForDate } from "./payroll-period";
 
-export const defaultDailyCallFilters: DailyCallFilters = { unit: "Todas", manager: "Todos", query: "", bank: "Todos", status: "Todos", startDate: "2026-09-01", endDate: "2026-09-30" };
+export const defaultDailyCallFilters: DailyCallFilters = { unit: "Todas", manager: "Todos", query: "", bank: "Todos", status: "Todos", startDate: "2026-08-21", endDate: "2026-09-20" };
 
 export function filtersForDate(date: string): DailyCallFilters {
-  const [year, month] = date.split("-").map(Number);
-  const end = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return { ...defaultDailyCallFilters, startDate: `${date.slice(0, 7)}-01`, endDate: `${date.slice(0, 7)}-${String(end).padStart(2, "0")}` };
+  const period = payrollPeriodForDate(date);
+  return { ...defaultDailyCallFilters, startDate: period.startDate, endDate: period.endDate };
 }
 
 export function filterEmployees(employees: Employee[], filters: DailyCallFilters, today: string): Employee[] {
