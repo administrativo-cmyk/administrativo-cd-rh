@@ -25,6 +25,7 @@
     "monitoring:watch": "node --experimental-strip-types scripts/monitoring-import.ts --apply --watch",
     "monitoring:register": "node --experimental-strip-types scripts/monitoring-register-source.mjs",
     "monitoring:runtime": "node --experimental-strip-types scripts/monitoring-runtime.mjs",
+    "monitoring:archive": "node --experimental-strip-types scripts/monitoring-archive.ts",
     "monitoring:runtime:install": "powershell -NoProfile -File scripts/install-monitoring-runtime.ps1",
     "build:runtime": "node scripts/monitoring-build-validation.mjs --webpack --retain-runtime",
     "auth:bootstrap-admin": "node --env-file=.env.local scripts/promote-first-admin.mjs"
