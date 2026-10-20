@@ -11,6 +11,7 @@ import { filtersSchema, snapshotSchema, type MonitoringFilters, type MonitoringS
 import { cn } from "@/lib/utils";
 import { MonitoringDetail } from "./monitoring-detail";
 import { MonitoringAdmin } from "./monitoring-admin";
+import { GroupFilter } from "./group-filter";
 import { buttonClass, calendarDate, duration, Field, inputClass, instant, primaryClass, qualityLabels, requestJson } from "./shared";
 
 type Tab = "query" | "import" | "reconcile" | "settings";
@@ -81,7 +82,7 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
             <Field label="Colaborador"><input aria-label="Buscar colaborador" className={inputClass} value={filters.query} onChange={(event) => update("query", event.target.value)} placeholder="Nome ou matrícula exata" /></Field>
             <Field label="Unidade"><select className={inputClass} value={filters.unit} onChange={(event) => update("unit", event.target.value)}><option value="">Todas</option>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
             {profile.papel_usuario !== "GESTOR" ? <Field label="Gestor"><select className={inputClass} value={filters.managerId} onChange={(event) => update("managerId", event.target.value)}><option value="">Todos do escopo</option>{managerOptions.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}</select></Field> : null}
-            <Field label="Grupo"><input className={inputClass} value={filters.group} onChange={(event) => update("group", event.target.value)} placeholder="Nome exato do grupo" /></Field>
+            <GroupFilter value={filters.group} onChange={group => update("group", group)} />
             <Field label="Escala"><input className={inputClass} value={filters.schedule} onChange={(event) => update("schedule", event.target.value)} placeholder="Nome exato da escala" /></Field>
             <Field label="Qualidade"><select className={inputClass} value={filters.quality} onChange={(event) => update("quality", event.target.value as MonitoringFilters["quality"])}><option value="">Todas</option>{Object.entries(qualityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <div className="flex flex-wrap items-end gap-2 sm:col-span-2 xl:col-span-4"><button className={primaryClass} disabled={loading}><Search size={16} />Aplicar filtros</button><button type="button" className={buttonClass} onClick={() => setFilters(initialFilters)}>Limpar campos</button><a className={cn(buttonClass, "sm:ml-auto")} href={`/api/monitoring/export?${params(applied)}`} download aria-disabled={exporting} onClick={(event) => { event.preventDefault(); void exportRecords(); }}><Download size={16} />{exporting ? "Exportando…" : "Exportar consulta CSV"}</a></div>

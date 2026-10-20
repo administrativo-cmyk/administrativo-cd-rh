@@ -20,6 +20,7 @@ describe('monitoring HTTP authorization',()=>{
   mocks.getClaims.mockResolvedValue({data:null});expect((await summary(read())).status).toBe(401);expect((await photo(new Request(`http://localhost:3000/api/monitoring/photo?employeeId=${uuid}`))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await groups(new Request('http://localhost:3000/api/monitoring/groups'))).status).toBe(401);
+  expect((await groups(new Request('http://localhost:3000/api/monitoring/groups?scope=query'))).status).toBe(401);
  });
  it.each(['PENDENTE','BLOQUEADO'])('rejects %s approval state',async status=>{
   mocks.single.mockResolvedValue({data:{status_usuario:status,papel_usuario:'ADMIN'}});expect((await summary(read())).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
@@ -42,6 +43,18 @@ describe('monitoring HTTP authorization',()=>{
   expect(response.status).toBe(200);expect(await response.json()).toEqual(catalog);
   expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   expect(mocks.rpc).toHaveBeenCalledWith('monitoring_query',{p_action:'groups',p_data:{}});
+ });
+ it.each(['ADMIN','RH','GESTOR','LEITURA'])('delegates group filter scope to the database for %s',async papel_usuario=>{
+  mocks.single.mockResolvedValue({data:{status_usuario:'APROVADO',papel_usuario}});
+  const catalog={groups:['EQUIPE AUTORIZADA'],queriedAt:'2026-10-20T13:00:00Z'};
+  mocks.rpc.mockReturnValue({abortSignal:()=>Promise.resolve({data:catalog,error:null})});
+  const response=await groups(new Request('http://localhost:3000/api/monitoring/groups?scope=query'));
+  expect(response.status).toBe(200);expect(await response.json()).toEqual(catalog);
+  expect(mocks.rpc).toHaveBeenCalledWith('monitoring_query',{p_action:'filter_groups',p_data:{}});
+ });
+ it('rejects unknown catalog scopes before querying',async()=>{
+  expect((await groups(new Request('http://localhost:3000/api/monitoring/groups?scope=all'))).status).toBe(400);
+  expect(mocks.rpc).not.toHaveBeenCalled();
  });
  it('delegates UUID detail scope to authorized RPC and preserves database denial',async()=>{
   const log=vi.spyOn(console,'error').mockImplementation(()=>{});mocks.rpc.mockResolvedValue({data:null,error:{code:'42501',message:'secret'}});

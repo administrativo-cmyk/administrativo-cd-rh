@@ -10,6 +10,7 @@ import type { AuthenticatedProfile } from "@/lib/auth/types";
 import type { AdminSnapshot } from "./admin-types";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
+vi.mock("./use-group-catalog", () => ({ useGroupCatalog: () => ({ catalog: { groups: ["COZINHA JK", "ENT-14H JK VESP"], queriedAt: "2026-10-20T13:00:00Z" }, error: "", retry: () => {} }) }));
 const employeeId = "30000000-0000-4000-8000-000000000001";
 const profile: AuthenticatedProfile = { id: "10000000-0000-4000-8000-000000000001", nome_completo: "Usuário Sintético", status_usuario: "APROVADO", papel_usuario: "RH", gestor_id: null, ultimo_acesso_em: null, created_at: "2026-10-17", updated_at: "2026-10-17" };
 const filters = filtersSchema.parse({ start: "2026-10-17", end: "2026-10-17" });
@@ -19,6 +20,22 @@ const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
 
 describe("Monitoramento integrado", () => {
+  it("pesquisa e seleciona grupo sem consultar antes de aplicar; exporta o grupo aplicado", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValue(response(snapshot));
+    render(<MonitoringApp profile={profile} initialFilters={filters} initialSnapshot={snapshot} />);
+    await user.click(screen.getByRole("combobox", { name: "Grupo" }));
+    await user.type(screen.getByRole("combobox", { name: "Pesquisar grupos" }), "cozinha");
+    expect(screen.queryByRole("option", { name: "ENT-14H JK VESP" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "COZINHA JK" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/monitoring?"))).toHaveLength(0);
+    expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining("group=&"));
+    await user.click(screen.getByRole("button", { name: "Aplicar filtros" }));
+    await waitFor(() => expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining("group=COZINHA+JK")));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("group=COZINHA+JK"), expect.anything());
+    await user.click(screen.getByRole("button", { name: "Limpar campos" }));
+    expect(screen.getByRole("combobox", { name: "Grupo" })).toHaveTextContent("Todos os grupos");
+  });
   it("mantém parcial e não apurável distintos de zero; exporta filtros aplicados", async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValue(response({ ...snapshot, rows: [], total: 0, people: 0 }));

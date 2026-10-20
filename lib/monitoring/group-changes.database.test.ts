@@ -15,6 +15,7 @@ async function rpc(fn:string,args:unknown[],role="service_role",actor=""){
 }
 async function list(actor=admin,filters:Record<string,unknown>={}){return groupChangesSchema.parse(await rpc("monitoring_defense_group_changes",["list",filters],"authenticated",actor));}
 async function catalog(actor=admin){return groupCatalogSchema.parse(await rpc("monitoring_query",["groups",{}],"authenticated",actor));}
+async function filterCatalog(actor=admin){return groupCatalogSchema.parse(await rpc("monitoring_query",["filter_groups",{}],"authenticated",actor));}
 const person=(groups:string[],id="123",name="Pessoa Sintética")=>({key:hash(id+name+groups.join(',')),line:Number(id),payloadHash:hash(JSON.stringify({id,groups,name})),person:{externalId:id,name,groups,photoReference:null,original:{id,name,groups:groups.join(',')}},original:{id,name,groups:groups.join(',')},issues:[]});
 const access=(groups:string[],id="123",name="Pessoa Sintética")=>({key:hash(id+groups.join(',')),line:Number(id),payloadHash:hash(JSON.stringify({id,groups})),event:{key:"same-canonical-access",type:"access",identity:{type:"defense",value:id},timestamp:"2026-10-08T17:00:00-03:00",device:"Entrada",classification:"authorized",eligible:true,rawTimestamp:"08/10/2026 17:00",rawIdentifier:id,precisionSeconds:1,original:{name,groups:groups.join(',')}},original:{name,groups:groups.join(',')},issues:[]});
 async function ingest(fileName:string,rows:ReturnType<typeof person>[]|ReturnType<typeof access>[],options:{kind?:"defense-person"|"defense-access";index?:number;total?:number;count?:number;sha?:string}={}){
@@ -40,6 +41,24 @@ beforeEach(async()=>{await db.exec(`begin;
 afterEach(async()=>{await db.exec("rollback;reset role");});
 
 describe("detecção automática dos grupos Defense",()=>{
+ it("filtra grupos pelo escopo do gestor, sem liberar o catálogo administrativo",async()=>{
+  const manager='cb100000-0000-4000-8000-000000000003',reader='cb100000-0000-4000-8000-000000000004';
+  const other='cb200000-0000-4000-8000-000000000002';
+  await db.exec(`insert into public.gestores(nome) values('Gestor do catálogo sintético');
+   update public.perfis set gestor_id=(select id from public.gestores where nome='Gestor do catálogo sintético') where id='${manager}';
+   update public.colaboradores set gestor_id=(select gestor_id from public.perfis where id='${manager}') where id='${employee}';
+   insert into public.colaboradores(id,matricula,nome,unidade_id,situacao,admissao) values('${other}','124','Outra equipe',(select id from public.unidades where codigo='CD I'),'ATIVO','2026-01-01');
+   insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by) values('group-people','defense','124','${other}','2026-10-01','Outro vínculo sintético','${admin}');`);
+  await ingest('Person20261019160000.xlsx',[person(['Equipe permitida']),person(['Equipe restrita'],'124')]);
+  await ingest('AccessRecords20261019170000.xlsx',[access(['Grupo novo no acesso'])],{kind:'defense-access'});
+  expect((await filterCatalog(manager)).groups).toEqual(['EQUIPE PERMITIDA','GRUPO NOVO NO ACESSO']);
+  expect((await filterCatalog(reader)).groups).toEqual(['EQUIPE PERMITIDA','EQUIPE RESTRITA','GRUPO NOVO NO ACESSO']);
+  expect((await filterCatalog()).groups).toEqual((await catalog()).groups);
+  await expect(catalog(manager)).rejects.toThrow('MONITORING_ADMIN_REQUIRED');
+  await db.exec(`update public.perfis set gestor_id=null where id='${manager}'`);
+  expect((await filterCatalog(manager)).groups).toEqual([]);
+  await expect(filterCatalog('')).rejects.toThrow('MONITORING_FORBIDDEN');
+ });
  it("lista grupos além da primeira página, normaliza nomes e inclui novos grupos somente após concluir",async()=>{
   const baseline=(await catalog()).groups;
   const settings=(await db.query('select count(*)::int n from public.monitoring_settings')).rows;
