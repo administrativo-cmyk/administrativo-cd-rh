@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile,readdir } from "node:fs/promises";
 import { afterAll,afterEach,beforeAll,beforeEach,describe,expect,it } from "vitest";
 import { groupChangesSchema } from "./group-changes";
+import { groupCatalogSchema } from "./group-catalog";
 
 const admin="cb100000-0000-4000-8000-000000000001",employee="cb200000-0000-4000-8000-000000000001";
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
@@ -13,6 +14,7 @@ async function rpc(fn:string,args:unknown[],role="service_role",actor=""){
  catch(e){await db.exec("rollback to savepoint group_rpc");throw e;}finally{await db.exec("reset role;release savepoint group_rpc");}
 }
 async function list(actor=admin,filters:Record<string,unknown>={}){return groupChangesSchema.parse(await rpc("monitoring_defense_group_changes",["list",filters],"authenticated",actor));}
+async function catalog(actor=admin){return groupCatalogSchema.parse(await rpc("monitoring_query",["groups",{}],"authenticated",actor));}
 const person=(groups:string[],id="123",name="Pessoa Sintética")=>({key:hash(id+name+groups.join(',')),line:Number(id),payloadHash:hash(JSON.stringify({id,groups,name})),person:{externalId:id,name,groups,photoReference:null,original:{id,name,groups:groups.join(',')}},original:{id,name,groups:groups.join(',')},issues:[]});
 const access=(groups:string[],id="123",name="Pessoa Sintética")=>({key:hash(id+groups.join(',')),line:Number(id),payloadHash:hash(JSON.stringify({id,groups})),event:{key:"same-canonical-access",type:"access",identity:{type:"defense",value:id},timestamp:"2026-10-08T17:00:00-03:00",device:"Entrada",classification:"authorized",eligible:true,rawTimestamp:"08/10/2026 17:00",rawIdentifier:id,precisionSeconds:1,original:{name,groups:groups.join(',')}},original:{name,groups:groups.join(',')},issues:[]});
 async function ingest(fileName:string,rows:ReturnType<typeof person>[]|ReturnType<typeof access>[],options:{kind?:"defense-person"|"defense-access";index?:number;total?:number;count?:number;sha?:string}={}){
@@ -38,6 +40,35 @@ beforeEach(async()=>{await db.exec(`begin;
 afterEach(async()=>{await db.exec("rollback;reset role");});
 
 describe("detecção automática dos grupos Defense",()=>{
+ it("lista grupos além da primeira página, normaliza nomes e inclui novos grupos somente após concluir",async()=>{
+  const baseline=(await catalog()).groups;
+  const settings=(await db.query('select count(*)::int n from public.monitoring_settings')).rows;
+  await ingest('Person20261016160000.xlsx',Array.from({length:105},(_,i)=>person(i===104?['CD / Equipe Z']:[' equipe a ','EQUIPE A'],String(200+i),`Pessoa ${i}`)));
+  expect((await catalog()).groups).toEqual([...baseline,'EQUIPE A','EQUIPE Z'].sort());
+  const before=(await db.query('select version,results_version from private.monitoring_revision')).rows;
+  await catalog('cb100000-0000-4000-8000-000000000002');
+  expect((await db.query('select version,results_version from private.monitoring_revision')).rows).toEqual(before);
+  await ingest('Person20261019160000.xlsx',[person(['Equipe Nova'])],{total:2,count:2});
+  expect((await catalog()).groups).not.toContain('EQUIPE NOVA');
+  await ingest('Person20261019160000.xlsx',[person(['Equipe Outra'],'124')],{index:1,total:2,count:2});
+  expect((await catalog()).groups).toEqual([...baseline,'EQUIPE A','EQUIPE NOVA','EQUIPE OUTRA','EQUIPE Z'].sort());
+  expect((await db.query('select count(*)::int n from public.monitoring_settings')).rows).toEqual(settings);
+ });
+ it("preserva grupos históricos e regras existentes sem depender de vínculos ou da página de pessoas",async()=>{
+  await ingest('Person20261016160000.xlsx',[person(['Antigo'])]);
+  await ingest('Person20261019160000.xlsx',[person(['Atual'])]);
+  await ingest('AccessRecords20261019170000.xlsx',[access(['Só no acesso'])],{kind:'defense-access'});
+  await db.exec(`insert into public.monitoring_settings(kind,target,valid_from,payload,reason) values
+   ('policy','Grupo cadastrado','2026-10-01','{"scope":"group","indicator":"outsideOperation","exclude":true}','Regra sintética'),
+   ('group_snapshot','${employee}','2026-10-01','{"groups":["Grupo histórico"],"evidence":"Conferido"}','Histórico sintético');`);
+  expect((await catalog()).groups).toEqual(['ANTIGO','ATUAL','COZINHA JK','GRUPO CADASTRADO','GRUPO HISTORICO','LIDERANCA JK','SO NO ACESSO']);
+  for(const suffix of ['3','4'])await expect(catalog('cb100000-0000-4000-8000-'+suffix.padStart(12,'0'))).rejects.toThrow('MONITORING_ADMIN_REQUIRED');
+  await expect(rpc('monitoring_query',['groups',{}],'anon')).rejects.toThrow(/permission denied/);
+  await expect(catalog('')).rejects.toThrow('MONITORING_ADMIN_REQUIRED');
+  const rh='cb100000-0000-4000-8000-000000000002';
+  await db.exec(`update public.perfis set status_usuario='BLOQUEADO',bloqueado_em=now(),bloqueado_por='${admin}' where id='${rh}'`);
+  await expect(catalog(rh)).rejects.toThrow('MONITORING_ADMIN_REQUIRED');
+ });
  it("detecta troca entre arquivos completos sem criar vigência nem identidade ambígua",async()=>{
   await ingest('Person20261016160000.xlsx',[person(['Equipe A'])]);expect((await list()).total).toBe(0);
   await ingest('Person20261019160000.xlsx',[person(['Equipe B'])]);const result=await list();expect(result.total).toBe(1);expect(result.rows[0]).toMatchObject({employee_id:employee,old_groups:['EQUIPE A'],new_groups:['EQUIPE B'],status:'pending',time_origin:'filename'});

@@ -11,6 +11,7 @@ import { POST as config } from './config/route';
 import { POST as ingest } from './ingest/route';
 import { POST as confirmDefense } from './defense-confirmation/route';
 import { GET as groupChanges } from './group-changes/route';
+import { GET as groups } from './groups/route';
 const uuid='80000000-0000-0000-0000-000000000001';
 const read=()=>new Request('http://localhost:3000/api/monitoring?start=2026-10-01&end=2026-10-31');
 describe('monitoring HTTP authorization',()=>{
@@ -18,6 +19,7 @@ describe('monitoring HTTP authorization',()=>{
  it('rejects anonymous API and protected photos before reading database records',async()=>{
   mocks.getClaims.mockResolvedValue({data:null});expect((await summary(read())).status).toBe(401);expect((await photo(new Request(`http://localhost:3000/api/monitoring/photo?employeeId=${uuid}`))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
+  expect((await groups(new Request('http://localhost:3000/api/monitoring/groups'))).status).toBe(401);
  });
  it.each(['PENDENTE','BLOQUEADO'])('rejects %s approval state',async status=>{
   mocks.single.mockResolvedValue({data:{status_usuario:status,papel_usuario:'ADMIN'}});expect((await summary(read())).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
@@ -27,9 +29,19 @@ describe('monitoring HTTP authorization',()=>{
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await confirmDefense(new Request('http://localhost:3000/api/monitoring/defense-confirmation',{method:'POST',headers:{origin:'http://localhost:3000'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
+  expect((await groups(new Request('http://localhost:3000/api/monitoring/groups'))).status).toBe(403);
  });
  it('requires same-site origin for session-authenticated writes',async()=>{
   expect((await config(new Request('http://localhost:3000/api/monitoring/config',{method:'POST',headers:{origin:'https://evil.invalid'},body:'{}'}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();
+ });
+ it.each(['ADMIN','RH'])('returns only the uncached group catalog for %s',async papel_usuario=>{
+  mocks.single.mockResolvedValue({data:{status_usuario:'APROVADO',papel_usuario}});
+  const catalog={groups:['COZINHA JK','EQUIPE NOVA'],queriedAt:'2026-10-20T12:00:00Z'};
+  mocks.rpc.mockReturnValue({abortSignal:()=>Promise.resolve({data:catalog,error:null})});
+  const response=await groups(new Request('http://localhost:3000/api/monitoring/groups'));
+  expect(response.status).toBe(200);expect(await response.json()).toEqual(catalog);
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(mocks.rpc).toHaveBeenCalledWith('monitoring_query',{p_action:'groups',p_data:{}});
  });
  it('delegates UUID detail scope to authorized RPC and preserves database denial',async()=>{
   const log=vi.spyOn(console,'error').mockImplementation(()=>{});mocks.rpc.mockResolvedValue({data:null,error:{code:'42501',message:'secret'}});
