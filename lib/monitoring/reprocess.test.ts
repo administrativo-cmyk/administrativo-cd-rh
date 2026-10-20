@@ -33,6 +33,29 @@ function snapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("aplica repetição do torniquete abaixo de 60s mesmo com regra anterior de 10s e preserva banco", () => {
+    const raw = snapshot();
+    const schedule = raw.settings.find(row => row.kind === "schedule")!;
+    schedule.payload = { ...(schedule.payload as object), lunchMinutes: 60, weeklyRosterConfirmed: true };
+    raw.settings.push(setting("rule", "global", { punchRepeatSeconds: 60, accessRepeatSeconds: 10, initialLookbackSeconds: 3600, maxJourneyHours: 18, suppressUntypedPunches: false }));
+    const first = raw.events.find(row => row.id === "a1")!;
+    first.payload.timestamp = stamp("08:00");
+    const confirmed = { ...raw, punchSourceIds: ["rep"], sources: [
+      { id: "rep", kind: "afd", configuration: { sourceIdentityConfirmed: true, declaredCoverage: { from: stamp("00:00"), to: stamp("00:00", "2026-10-07"), continuous: true } } },
+      ...raw.sources.filter(row => row.id !== "rep"),
+    ] };
+    const baseline = reprocessMonitoringSnapshot(confirmed, request, reference)[0];
+    expect(baseline.summary.bankDay).toMatchObject({ state: "ready", deltaMinutes: 0 });
+    raw.events.push({ ...structuredClone(first), id: "a1-repeat", payload: { ...structuredClone(first.payload), key: "a1-repeat", timestamp: `${date}T08:00:59-03:00` } });
+    const original = structuredClone(raw);
+    const result = reprocessMonitoringSnapshot(confirmed, request, reference)[0];
+    expect(result.ruleVersion).toBe("monitoring-1.5.0");
+    expect(result.result.suppressions).toContainEqual({ eventId: "a1-repeat", retainedEventId: "a1", rule: "access-repetition", ruleVersion: "turnstile-repetition-1.0.0", differenceMs: 59_000 });
+    expect(result.result.outsideOperation).toEqual(baseline.result.outsideOperation);
+    expect(result.result.journey).toEqual(baseline.result.journey);
+    expect(result.summary.bankDay).toEqual(baseline.summary.bankDay);
+    expect(raw).toEqual(original);
+  });
   it("unifies clocks, deduplicates equivalent punches and posts only confirmed daily balances", () => {
     const raw = snapshot();
     raw.sources = ["rep", "second"].map(id => ({ id, kind: "afd", configuration: { sourceIdentityConfirmed: true, declaredCoverage: { from: stamp("00:00", "2026-10-01"), to: stamp("00:00", "2026-10-13"), continuous: true } } })) as unknown as typeof raw.sources;

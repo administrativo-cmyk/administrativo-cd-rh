@@ -2,7 +2,10 @@ import { isEffective } from "./eligibility";
 import { assertInstant } from "./intervals";
 import type { AccessEvent, AccessPointMapping, Area, Issue, LocationState, PunchEvent, RepetitionPolicy, Suppression } from "./types";
 
-export const RULE_VERSION = "monitoring-1.4.0";
+export const RULE_VERSION = "monitoring-1.5.0";
+/** Consecutive reads at the validated operation reader count once below one minute. */
+export const TURNSTILE_REPETITION_WINDOW_MS = 60_000;
+export const TURNSTILE_REPETITION_VERSION = "turnstile-repetition-1.0.0";
 export const DEFAULT_REPETITION_POLICY: RepetitionPolicy = {
   version: "repetition-1.0.0", punchWindowMs: 60_000, accessWindowMs: 10_000, suppressUntypedPunches: false,
 };
@@ -85,10 +88,19 @@ export function prepareAccess(events: readonly AccessEvent[], mappings: readonly
     for (const [key, anchor] of anchors) {
       if (Object.entries(effects).some(([area, state]) => anchor.effects[area as Area] && anchor.effects[area as Area] !== state)) anchors.delete(key);
     }
-    const key = `${normalizeAccessLabel(event.pointId)}\u0000${mapping.direction}\u0000${normalizeAccessLabel(event.eventClass)}`;
+    const key = JSON.stringify([event.sourceId, normalizeAccessLabel(event.pointId), mapping.portalId, mapping.area,
+      mapping.direction, normalizeAccessLabel(event.eventClass), event.provenance?.origin ?? "device"]);
+    // A different operation reader/source/class interrupts this reader's sequence.
+    // Never merge two passages merely because their clocks or labels are close.
+    if (mapping.area === "operation") {
+      for (const [anchorKey, anchor] of anchors) if (anchor.mapping.area === "operation" && anchorKey !== key) anchors.delete(anchorKey);
+    }
     const anchor = anchors.get(key);
-    if (anchor && event.at - anchor.event.at <= policy.accessWindowMs) {
-      suppressions.push({ eventId: event.id, retainedEventId: anchor.event.id, rule: "access-repetition", ruleVersion: policy.version, differenceMs: event.at - anchor.event.at });
+    const turnstile = mapping.area === "operation";
+    const repeated = anchor && (turnstile ? event.at - anchor.event.at < TURNSTILE_REPETITION_WINDOW_MS : event.at - anchor.event.at <= policy.accessWindowMs);
+    if (anchor && repeated) {
+      suppressions.push({ eventId: event.id, retainedEventId: anchor.event.id, rule: "access-repetition",
+        ruleVersion: turnstile ? TURNSTILE_REPETITION_VERSION : policy.version, differenceMs: event.at - anchor.event.at });
       continue;
     }
     const mapped = { event, mapping, effects };

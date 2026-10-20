@@ -19,6 +19,7 @@ import { ViewModeSelector } from "./view-mode-selector";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDailyCall } from "@/hooks/use-daily-call";
+import { useDailyCallPreferences } from "@/hooks/use-daily-call-preferences";
 import type { DailyCallSnapshot } from "@/lib/daily-call-types";
 import type { AuthenticatedProfile } from "@/lib/auth/types";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ type Props = { profile: AuthenticatedProfile; initialDate: string; initialSnapsh
 
 export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
   const daily = useDailyCall(initialDate, initialSnapshot);
+  const preferences = useDailyCallPreferences(profile.id);
   const { expanded, region, toggle } = useBoardFullscreen();
   const period = payrollPeriodForMonth(daily.filters.endDate.slice(0, 7));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,19 +41,19 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
   const unitOptions = [...new Set(daily.employees.map((employee) => employee.unit))].sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   function exportVisibleCall() {
-    const start = daily.viewMode === "period" ? daily.filters.startDate : daily.selectedDate;
-    const end = daily.viewMode === "period" ? daily.filters.endDate : daily.selectedDate;
+    const start = preferences.viewMode === "period" ? daily.filters.startDate : daily.selectedDate;
+    const end = preferences.viewMode === "period" ? daily.filters.endDate : daily.selectedDate;
     downloadCsv(exportDailyCall(daily.filteredEmployees, start, end), `chamada-diaria-${start}-${end}.csv`);
   }
 
   function renderContent() {
-    if (daily.loading) return <LoadingSkeleton />;
+    if (daily.loading || preferences.loading) return <LoadingSkeleton />;
     if (daily.error) return <ErrorState onRetry={daily.refresh} />;
     if (isManager && !profile.gestor_id && !daily.employees.length) return <div className="p-8 text-center text-sm text-slate-600">Seu usuário ainda não está vinculado a um gestor do quadro.</div>;
     if (!daily.employees.length) return <EmptyState />;
     if (!daily.filteredEmployees.length) return <EmptyState filtered />;
-    if (daily.viewMode === "period") {
-      return <PeriodGrid employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} fillHeight={expanded} />;
+    if (preferences.viewMode === "period") {
+      return <PeriodGrid key={profile.id} employees={daily.filteredEmployees} startDate={daily.filters.startDate} endDate={daily.filters.endDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} fillHeight={expanded} columnsCollapsed={preferences.columnsCollapsed} onColumnsCollapsedChange={preferences.setColumnsCollapsed} />;
     }
     if (daily.groupByManager) {
       return <div data-testid="manager-groups">{daily.managerGroups.map(([manager, employees]) => <ManagerGroup key={manager} manager={manager} employees={employees} date={daily.selectedDate} onSelect={daily.setSelectedEmployee} readOnly={!canWrite} onSave={canWrite ? daily.saveAttendance : undefined} isSaving={daily.isSaving} />)}</div>;
@@ -79,9 +81,10 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
           {canWrite ? <DailyCallBatch employees={daily.filteredEmployees} date={daily.selectedDate} onChanged={daily.refresh} disabled={daily.loading || daily.error} /> : null}
           <DailyCallPending start={daily.filters.startDate} end={daily.filters.endDate} canWrite={canWrite} onChanged={daily.refresh} refreshToken={daily.mutationVersion} />
           <section ref={region} aria-label="Lista da chamada" data-fullscreen={expanded} className={cn("overflow-hidden border border-slate-200 bg-white shadow-[0_1px_2px_rgb(15_23_42/4%)]", expanded ? "fixed inset-0 z-[45] flex h-dvh flex-col" : "rounded-xl")}>
-            <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 p-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap items-center gap-3"><ViewModeSelector value={daily.viewMode} onChange={daily.setViewMode} /><span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Users size={14} />{daily.filteredEmployees.length} de {daily.employees.length} colaboradores</span><span className="text-xs font-semibold text-blue-800">{daily.viewMode === "period" ? period.label : daily.selectedDate.split("-").reverse().join("/")}</span></div><div className="flex flex-wrap items-center justify-end gap-3"><label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600", daily.viewMode === "period" && "pointer-events-none opacity-45")}><Checkbox checked={daily.groupByManager} onCheckedChange={(checked) => daily.setGroupByManager(Boolean(checked))} disabled={daily.viewMode === "period"} />Agrupar por gestor</label><button type="button" aria-pressed={expanded} onClick={toggle} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-600">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{expanded ? "Sair da tela cheia" : "Tela cheia"}</button></div></div>
+            <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 p-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap items-center gap-3"><ViewModeSelector value={preferences.viewMode} onChange={preferences.setViewMode} /><span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Users size={14} />{daily.filteredEmployees.length} de {daily.employees.length} colaboradores</span><span className="text-xs font-semibold text-blue-800">{preferences.viewMode === "period" ? period.label : daily.selectedDate.split("-").reverse().join("/")}</span>{preferences.saving ? <span role="status" className="text-xs text-slate-500">Salvando visualização…</span> : null}</div><div className="flex flex-wrap items-center justify-end gap-3"><label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600", preferences.viewMode === "period" && "pointer-events-none opacity-45")}><Checkbox checked={daily.groupByManager} onCheckedChange={(checked) => daily.setGroupByManager(Boolean(checked))} disabled={preferences.viewMode === "period"} />Agrupar por gestor</label><button type="button" aria-pressed={expanded} onClick={toggle} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-600">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{expanded ? "Sair da tela cheia" : "Tela cheia"}</button></div></div>
+            {preferences.error ? <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{preferences.error}<button type="button" onClick={preferences.retry} className="min-h-9 rounded border border-amber-300 px-2 font-semibold focus-visible:outline-2 focus-visible:outline-amber-700">Tentar novamente</button></div> : null}
             {expanded ? <p className="shrink-0 border-b px-3 py-1 text-xs text-slate-500">Chamada Diária · {period.label} · {period.startDate.split("-").reverse().join("/")} a {period.endDate.split("-").reverse().join("/")} · Esc para sair</p> : null}
-            <div className={cn(expanded && "min-h-0 flex-1", expanded && (daily.viewMode === "period" ? "overflow-hidden" : "overflow-auto"))}>{renderContent()}</div>
+            <div className={cn(expanded && "min-h-0 flex-1", expanded && (preferences.viewMode === "period" ? "overflow-hidden" : "overflow-auto"))}>{renderContent()}</div>
             <AttendanceLegend />
           </section>
           <footer className="flex flex-col justify-between gap-2 pb-3 text-xs text-slate-400 sm:flex-row"><span>{canWrite ? "Lançamentos atribuídos ao usuário autenticado e salvos no Supabase." : "Consulta em modo somente leitura."}</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-500" />Acesso {profile.papel_usuario}</span></footer>

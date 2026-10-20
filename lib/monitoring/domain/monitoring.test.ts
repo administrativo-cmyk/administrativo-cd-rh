@@ -246,7 +246,7 @@ describe("atrasos", () => {
 
 describe("repetições e conflitos", () => {
   it("supressão ancorada mantém primeiro evento e não absorve cadeia móvel", () => {
-    const events = ["10:00:00", "10:00:08", "10:00:16"].map((time) => access("operation-entry", time));
+    const events = ["10:00:00", "10:00:40", "10:01:20"].map((time) => access("operation-entry", time));
     const result = prepareAccess(events, mappings, date, personId, DEFAULT_REPETITION_POLICY);
     expect(result.events).toHaveLength(2);
     expect(result.suppressions).toHaveLength(1);

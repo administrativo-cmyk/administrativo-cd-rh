@@ -37,3 +37,14 @@ it("mantém seleção, edição do dia correto e modo recolhido ao entrar em tel
   await user.click(screen.getByRole("button", { name: /FFolga/ }));
   expect(save).toHaveBeenCalledWith(employee, "2026-10-20", "F", null);
 });
+
+it("recebe preferência controlada e comunica a alteração para persistência pelo usuário", async () => {
+  const user = userEvent.setup(), change = vi.fn();
+  const view = render(<TooltipProvider><PeriodGrid {...props} columnsCollapsed onColumnsCollapsedChange={change} /></TooltipProvider>);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(31);
+  await user.click(screen.getByRole("button", { name: "Mostrar colunas de dados" }));
+  expect(change).toHaveBeenCalledWith(false);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(31);
+  view.rerender(<TooltipProvider><PeriodGrid {...props} columnsCollapsed={false} onColumnsCollapsedChange={change} /></TooltipProvider>);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(37);
+});

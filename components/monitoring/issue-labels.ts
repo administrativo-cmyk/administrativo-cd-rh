@@ -4,6 +4,7 @@ export const issueLabels: Record<string, string> = {
   JOURNEY_FROM_DECLARED_COMPLETE_AFD: "Jornada apurada por sequência alternada em coleta integral declarada dos relógios vinculados.",
   COFFEE_WINDOWS_NOT_CONFIGURED: "Janela de café não cadastrada.",
   INCOMPLETE_AREA_MAPPING: "Faltam leitores validados de entrada ou saída da área.",
+  AREA_COVERAGE_MISSING: "Não há cobertura completa confirmada desta área no período observado.",
   OPERATION_LOCATION_UNKNOWN: "Parte do trabalho não possui estado conhecido na operação.",
   PUNCH_REPETITION_REVIEW_REQUIRED: "Batidas próximas precisam de revisão antes da apuração.",
   SCHEDULE_MISSING: "Escala não cadastrada na data.",

@@ -7,6 +7,8 @@ const notificationFilters = page.extend({ query: z.string().trim().max(200).defa
 const noticeBase = z.object({ id: z.string().uuid().optional(), expectedUpdatedAt: version.optional(), reason: z.string().trim().min(5).max(1000) }).strict();
 export const workspaceSchemas = {
  settings: z.object({}).strict(), notification_summary: z.object({}).strict(),
+ daily_call_preferences: z.object({ expectedUserId: z.string().uuid() }).strict(),
+ save_daily_call_preferences: z.object({ expectedUserId: z.string().uuid(), expectedUpdatedAt: version.nullable(), viewMode: z.enum(["today", "period"]).optional(), columnsCollapsed: z.boolean().optional() }).strict().refine(value => value.viewMode !== undefined || value.columnsCollapsed !== undefined),
  save_preferences: z.object({ defaultDashboard: z.enum(defaultDashboards), compactTables: z.boolean(), notificationsEnabled: z.boolean(), expectedUpdatedAt: version.nullable() }).strict(),
  reset_preferences: z.object({ expectedUpdatedAt: version.nullable() }).strict(),
  save_profile: z.object({ name: z.string().trim().min(3).max(200), expectedUpdatedAt: version }).strict(),
@@ -18,6 +20,8 @@ export const workspaceSchemas = {
 };
 export type WorkspaceAction = keyof typeof workspaceSchemas;
 export type WorkspaceSettings = { defaultDashboard: typeof defaultDashboards[number]; compactTables: boolean; notificationsEnabled: boolean; updatedAt: string | null; profileName: string; profileUpdatedAt: string };
+export type DailyCallPreferences = { userId: string; viewMode: "today" | "period"; columnsCollapsed: boolean; updatedAt: string | null };
+export type DailyCallPreferencePatch = Partial<Pick<DailyCallPreferences, "viewMode" | "columnsCollapsed">>;
 export type NotificationItem = { key: string; type?: "notice" | "vacation" | "daily" | "import"; title: string; body: string; href: string; createdAt: string; readAt: string | null; archivedAt: string | null; updatedAt?: string | null };
 export type NotificationSnapshot = { rows: NotificationItem[]; total: number; unread: number };
 export type NoticeItem = { id: string; title: string; body: string; audienceRole: "ADMIN" | "RH" | "GESTOR" | "LEITURA" | null; managerId: string | null; createdAt: string; updatedAt: string; archivedAt: string | null };

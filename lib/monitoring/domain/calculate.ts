@@ -121,6 +121,12 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
   const issues = [...preparedPunches.issues, ...preparedAccess.issues, ...journey.issues, ...location.issues, ...cafeteriaPairs.issues, ...perimeterPairs.issues];
   for (const finding of reconciled.sequence.findings) issues.push({code: finding.reason === "aligned" ? "ACCESS_SEQUENCE_ALIGNED" : "ACCESS_SEQUENCE_REVIEW_REQUIRED", eventIds: [finding.eventId, finding.punchEventId]});
   for (const area of incompleteAreas) issues.push({ code: "INCOMPLETE_AREA_MAPPING", eventIds: [], detail: `Mapa incompleto de entrada/saída: ${area}` });
+  for (const area of AREAS) {
+    if (!incompleteAreas.includes(area) && !coverage.some((item) => item.area === area && item.declaredComplete
+      && item.evidence.trim() && item.sourceIds.length > 0 && item.start < input.observationWindow.end && item.end > input.observationWindow.start)) {
+      issues.push({ code: "AREA_COVERAGE_MISSING", eventIds: [], detail: area });
+    }
+  }
   if (knownOperation < (workMs ?? 0)) issues.push({ code: "OPERATION_LOCATION_UNKNOWN", eventIds: [] });
   if (!input.schedule) issues.push({ code: "SCHEDULE_MISSING", eventIds: [] });
   if (!input.coffeeWindows?.length) issues.push({ code: "COFFEE_WINDOWS_NOT_CONFIGURED", eventIds: [] });

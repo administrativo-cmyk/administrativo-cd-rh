@@ -153,6 +153,18 @@ describe("punch corrections and baseline-gated bank ledger", () => {
     try { return await value<Record<string, unknown>>("select public.attendance_history($1,$2::jsonb) value", [action, JSON.stringify({ employeeId, start: "2026-10-01", end: "2026-10-02", ...extra })]); }
     finally { await db.exec("reset role"); }
   }
+  it("limits the period punch preview to the manager's employees and rejects an unapproved profile", async () => {
+    const own = await person(), other = await person();
+    await db.exec("insert into public.gestores(nome) values('Gestor sintético do histórico')");
+    await db.query("update public.perfis set gestor_id=(select id from public.gestores where nome='Gestor sintético do histórico') where id=$1", [actor(3)]);
+    await db.query("update public.colaboradores set gestor_id=(select gestor_id from public.perfis where id=$1) where id=$2", [actor(3), own]);
+    expect(await history("history", own, {}, actor(3))).toMatchObject({ canEdit: false });
+    await expect(history("history", other, {}, actor(3))).rejects.toThrow("ATTENDANCE_FORBIDDEN");
+    expect(await history("history", other, {}, actor(2))).toMatchObject({ canEdit: true });
+    await db.query("update public.perfis set status_usuario='BLOQUEADO',bloqueado_em=now(),bloqueado_por=$1 where id=$2", [actor(1), actor(3)]);
+    try { await expect(history("history", own, {}, actor(3))).rejects.toThrow("ATTENDANCE_FORBIDDEN"); }
+    finally { await db.query("update public.perfis set status_usuario='APROVADO',bloqueado_em=null,bloqueado_por=null where id=$1", [actor(3)]); }
+  });
   it("adds positive and negative days from the new effective baseline, excluding pending/dirty and old periods", async () => {
     const employee = await person(); const row = await create(employee);
     const add = (date: string, delta: number, state = "ready", dirty = false) => db.query("insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason,dirty) values($1,$2::date,0,'test','{}',$3::jsonb,'Synthetic calculation',$4)", [employee, date, JSON.stringify({ bankDay: { state, deltaMinutes: delta } }), dirty]);
