@@ -20,6 +20,8 @@ export type CloudReservation = z.infer<typeof cloudUploadReservationSchema>;
 export type CloudPhase = "idle" | "hashing" | "authorizing" | "uploading" | "confirming";
 export const cloudStatusLabels: Record<CloudJob["status"], string> = { uploading: "Aguardando confirmação do envio", queued: "Na fila da nuvem", processing: "Processando na nuvem", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 const errorLabels: Record<string, string> = {
+  "25006": "O banco está em somente leitura. Revise a capacidade do Supabase antes de retomar a importação.",
+  "53100": "O banco está sem espaço disponível. Revise a capacidade do Supabase; os lotes confirmados permanecem preservados.",
   INVALID_FILE_ENCODING: "A codificação do AFD não foi reconhecida. Clique em Tentar novamente para reler o original com detecção automática.",
   CLOUD_IDENTITY_AMBIGUOUS: "Não foi possível distinguir CPF de PIS com segurança. O original foi preservado; solicite a conferência ao administrador.",
   CLOUD_IDENTITY_TYPE_REQUIRED: "O leitor foi atualizado. Clique em Tentar novamente para identificar CPF/PIS.",

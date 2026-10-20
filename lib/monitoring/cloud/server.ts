@@ -38,7 +38,7 @@ function rpcError(error: { code?: string; message?: string }): never {
   const businessCode = error.message?.match(/\b(?:CLOUD|SOURCE|MONITORING)_[A-Z_]+\b/)?.[0];
   const code = error.code ?? "";
   const transient = !code || /^(08|53|57P|PGRST00)/.test(code) || ["40001", "40P01", "57014"].includes(code);
-  throw new CloudError(businessCode ?? (transient ? "CLOUD_UNAVAILABLE" : code));
+  throw new CloudError(businessCode ?? (["25006", "53100"].includes(code) ? code : transient ? "CLOUD_UNAVAILABLE" : code));
 }
 export async function cloudAdmin(action: string, data: unknown = {}) {
   const client = await createClient<CloudDatabase>();
@@ -78,6 +78,8 @@ export function dispatchHash(request: Request) {
   return createHash("sha256").update(token).digest("hex");
 }
 const messages: Record<string, string> = {
+  "25006": "O banco está em somente leitura. Revise a capacidade do Supabase antes de retomar a importação.",
+  "53100": "O banco está sem espaço disponível. Revise a capacidade do Supabase; os lotes confirmados permanecem preservados.",
   CLOUD_INVALID: "Revise o arquivo e a fonte selecionada.", CLOUD_NOT_FOUND: "Envio não encontrado.",
   CLOUD_STALE: "O envio mudou. Atualize a lista e tente novamente.", CLOUD_SOURCE_FORBIDDEN: "Fonte não autorizada neste servidor.",
   CLOUD_SOURCE_CHANGED: "A configuração da fonte mudou. Revise a fonte antes de enviar novamente.",

@@ -161,7 +161,7 @@ describe("Envio para processamento na nuvem", () => {
   it("remove alerta de polling após recuperação da consulta", async () => {
     vi.useFakeTimers(); const fetch = api([job("queued")]); const view = render(<CloudImportPanel />);
     await act(async () => { await Promise.resolve(); }); fetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ code: "CLOUD_UNAVAILABLE" }) });
-    await act(async () => vi.advanceTimersByTimeAsync(10000)); expect(screen.getByRole("alert")).toHaveTextContent("indisponível");
+    await act(async () => vi.advanceTimersByTimeAsync(10000)); expect(screen.getByRole("alert")).toHaveTextContent("interrompida no servidor");
     await act(async () => vi.advanceTimersByTimeAsync(10000)); expect(screen.queryByRole("alert")).not.toBeInTheDocument(); view.unmount();
   });
   it("aborta upload no unmount e não confirma trabalho após sair da tela", async () => {
