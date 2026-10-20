@@ -74,6 +74,36 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("freezes Latin-1 for an ISO AFD independently of the document route", async () => {
+    await db.exec("insert into private.monitoring_cloud_routes values('afd','iso','cloud-test','cpf')");
+    await upload(await create("latin1", admin, { autoDetect: true }));
+    const job = await claim();
+    const routed = (await worker("route", { id: job.id, leaseToken: job.leaseToken, kind: "afd", afdProfile: "iso", afdIdentityType: "cpf", encoding: "latin1" })).job;
+    expect(routed).toMatchObject({ cursor: 0, source: { afdProfile: "iso", encoding: "latin1", afdIdentityType: "cpf" } });
+  });
+
+  it("keeps incremental counters exact across resumed batches, overlapping exports and same-NSR conflicts", async () => {
+    const occurrence = (n: number, minute = 0) => ({ key: hash('occurrence-'+n), line: n, payloadHash: hash('payload-'+n+'-'+minute), issues: [], original: {},
+      event: { key: hash('event-'+n), type: "punch", identity: { type: "cpf", value: "12345678909" }, timestamp: `2026-10-08T11:${String(minute).padStart(2,'0')}:00.000Z`, device: "cloud-test", classification: "authorized", eligible: true, nsr: String(n).padStart(9,'0'), precisionSeconds: 60, original: { profile: "legacy", record: 'record-'+n+'-'+minute } } });
+    const ingest = async (rows: unknown[], fileHash: string, index: number, totalRows: number, totalBatches: number) => {
+      const value = { ...batch(fileHash,index,totalBatches), occurrences: rows, batch: { index, final: index === totalBatches-1, totalRows, occurrenceCount: totalRows, totalBatches } };
+      return (await db.query<{ value: Record<string,unknown> }>("select public.monitoring_ingest($1::jsonb) value", [JSON.stringify(value)])).rows[0].value;
+    };
+    const firstHash=hash('full-history');
+    await ingest([occurrence(1), {key:hash('bad-row'),line:2,payloadHash:hash('bad'),original:{},issues:[{code:'INVALID_CPF_CHECK_DIGIT',severity:'error'}]}],firstHash,0,4,2);
+    await ingest([occurrence(2), occurrence(3)],firstHash,1,4,2);
+    const before = (await db.query("select processed_rows,accepted_rows,new_events,repeated_events,conflict_rows,rejected_rows,status from public.monitoring_files where sha256=$1",[firstHash])).rows[0];
+    expect(before).toEqual({ processed_rows:4,accepted_rows:3,new_events:3,repeated_events:0,conflict_rows:0,rejected_rows:1,status:'complete' });
+    expect(await ingest([occurrence(2), occurrence(3)],firstHash,1,4,2)).toMatchObject({duplicate:true});
+    expect((await db.query("select processed_rows,accepted_rows,new_events,repeated_events,conflict_rows,rejected_rows,status from public.monitoring_files where sha256=$1",[firstHash])).rows[0]).toEqual(before);
+    await ingest([occurrence(1),occurrence(2),occurrence(4)],hash('overlap'),0,3,1);
+    expect((await db.query("select processed_rows,new_events,repeated_events,conflict_rows from public.monitoring_files where sha256=$1",[hash('overlap')])).rows[0]).toEqual({processed_rows:3,new_events:1,repeated_events:2,conflict_rows:0});
+    await ingest([occurrence(1,1)],hash('conflict'),0,1,1);
+    expect((await db.query("select processed_rows,new_events,repeated_events,conflict_rows,status from public.monitoring_files where sha256=$1",[hash('conflict')])).rows[0]).toEqual({processed_rows:1,new_events:0,repeated_events:0,conflict_rows:1,status:'conflict'});
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_events where source_id='cloud-test'")).rows[0].n).toBe(4);
+    expect((await db.query("select conflicted,eligible from public.monitoring_events where nsr='000000001'")).rows[0]).toEqual({conflicted:true,eligible:false});
+  });
+
   it("reinspects a completed partial import once, retaining its original and immutable old file", async () => {
     await upload(await create());const job=await claim();await persist(job);let done=(await worker("finish",{id:job.id,leaseToken:job.leaseToken})).job as Job;
     await db.exec("update public.monitoring_files set rejected_rows=4");
@@ -305,7 +335,11 @@ describe("durable cloud import SQL", () => {
       if (attempt < 5) {
         expect(await token()).toBeNull();
         await db.query("update private.monitoring_cloud_jobs set next_retry_at=clock_timestamp()-interval '1 second' where id=$1", [job.id]);
-      } else await reject(() => administrative("retry", { id: failed.id, expectedUpdatedAt: failed.updatedAt }), "CLOUD_RETRY_UNAVAILABLE");
+      } else {
+        expect(await token()).toBeNull();
+        await reject(() => administrative("retry", { id: failed.id, expectedUpdatedAt: failed.updatedAt }, gestor), "CLOUD_FORBIDDEN");
+        expect((await administrative("retry", { id: failed.id, expectedUpdatedAt: failed.updatedAt })).job).toMatchObject({ status: "queued", attempts: 0, cursor: 0 });
+      }
     }
   });
 
@@ -314,6 +348,8 @@ describe("durable cloud import SQL", () => {
     await db.query("update private.monitoring_cloud_jobs set attempts=5,lease_expires_at=clock_timestamp()-interval '1 second' where id=$1", [job.id]);
     expect(await token()).toBeNull();
     expect((await administrative("get", { id: job.id })).job).toMatchObject({ status: "failed", lastError: "CLOUD_ATTEMPTS_EXHAUSTED" });
+    const failed = (await administrative("get", { id: job.id })).job as Job;
+    await reject(() => administrative("retry", { id: failed.id, expectedUpdatedAt: failed.updatedAt }), "CLOUD_RETRY_UNAVAILABLE");
   });
 
   it("requires current CAS for manual retry and preserves the attempt counter", async () => {

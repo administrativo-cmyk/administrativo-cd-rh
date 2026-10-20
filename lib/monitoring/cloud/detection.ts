@@ -4,6 +4,13 @@ import { ImportError, normalizeLabel, normalizeIdentifier } from "../ingestion/v
 
 export type DetectedImport = { kind: "afd"; afdProfile: "legacy" | "iso"; afdIdentityType: "cpf" | "pis"; afdAllowAlternate?: boolean } | { kind: "defense-access" | "defense-person" };
 
+/** Clock firmware may export ISO timestamps with Latin-1 names in its header. */
+export function detectAfdEncoding(bytes: Buffer): "utf8" | "latin1" {
+  if (bytes.includes(0)) throw new ImportError("INVALID_FILE_ENCODING");
+  try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); return "utf8"; }
+  catch { return "latin1"; }
+}
+
 /** Inspect the stored original, never its name or a caller supplied MIME type. */
 export async function detectCloudImport(bytes: Buffer): Promise<DetectedImport> {
   if (bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {

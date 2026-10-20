@@ -1,12 +1,25 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { detectCloudImport } from "./detection";
+import { detectAfdEncoding, detectCloudImport } from "./detection";
+import { parseAfd } from "../ingestion/parsers";
 const pisBase = "1234567890";
 const digit = 11 - [...pisBase].reduce((sum, char, i) => sum + Number(char) * [3,2,9,8,7,6,5,4,3,2][i],0) % 11;
 const PIS = pisBase + (digit > 9 ? 0 : digit);
 const legacy = "0000000013" + "02102026" + "0800" + `0${PIS}` + "ABCD";
 const iso = "0000000023" + "2026-10-02T08:00:00-0300" + "012345678909" + "ABCD";
 describe("server import detection from original bytes", () => {
+  it("detects Latin-1 independently of ISO timestamps and preserves the original bytes", async () => {
+    const bytes = Buffer.from("0000000001Exportação do relógio\r\n" + iso, "latin1");
+    const detected = await detectCloudImport(bytes);
+    expect(detected).toMatchObject({ kind: "afd", afdProfile: "iso", afdIdentityType: "cpf" });
+    expect(detectAfdEncoding(bytes)).toBe("latin1");
+    const parsed = parseAfd(bytes, { id: "clock", kind: "afd", root: "", timeZone: "America/Sao_Paulo", encoding: detectAfdEncoding(bytes), afdProfile: "iso" });
+    expect(parsed.occurrences[0].original.record).toContain("Exportação");
+    expect(parsed.occurrences[1].event?.identity?.type).toBe("cpf");
+    expect(parsed.byteLength).toBe(bytes.length);
+    expect(detectAfdEncoding(Buffer.from("Exportação\n" + iso, "utf8"))).toBe("utf8");
+    expect(() => detectAfdEncoding(Buffer.from("\0" + iso))).toThrow("INVALID_FILE_ENCODING");
+  });
   it("detects both clock layouts without source or filename", async () => {
     expect(await detectCloudImport(Buffer.from(legacy))).toEqual({ kind: "afd", afdProfile: "legacy", afdIdentityType: "pis" });
     expect(await detectCloudImport(Buffer.from(iso))).toEqual({ kind: "afd", afdProfile: "iso", afdIdentityType: "cpf" });

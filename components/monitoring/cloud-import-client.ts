@@ -20,6 +20,7 @@ export type CloudReservation = z.infer<typeof cloudUploadReservationSchema>;
 export type CloudPhase = "idle" | "hashing" | "authorizing" | "uploading" | "confirming";
 export const cloudStatusLabels: Record<CloudJob["status"], string> = { uploading: "Aguardando confirmação do envio", queued: "Na fila da nuvem", processing: "Processando na nuvem", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 const errorLabels: Record<string, string> = {
+  INVALID_FILE_ENCODING: "A codificação do AFD não foi reconhecida. Clique em Tentar novamente para reler o original com detecção automática.",
   CLOUD_IDENTITY_AMBIGUOUS: "Não foi possível distinguir CPF de PIS com segurança. O original foi preservado; solicite a conferência ao administrador.",
   CLOUD_IDENTITY_TYPE_REQUIRED: "O leitor foi atualizado. Clique em Tentar novamente para identificar CPF/PIS.",
   CLOUD_FORMAT_UNKNOWN: "Conteúdo não reconhecido. Envie a exportação AFD ou Defense original.",
@@ -46,7 +47,7 @@ const errorLabels: Record<string, string> = {
   CLOUD_RETRY_UNAVAILABLE: "Não é possível repetir este envio. Confira se ele atingiu o limite de tentativas ou já foi recebido em outro envio.",
   CLOUD_ATTEMPTS_EXHAUSTED: "O limite de tentativas foi atingido. Confira o erro e a fonte antes de enviar o arquivo novamente.",
   CLOUD_STALE: "Este envio mudou em outra sessão. Atualize o histórico antes de tentar novamente.",
-  CLOUD_UNAVAILABLE: "O serviço de importação está indisponível. Atualize o histórico e tente novamente.",
+  CLOUD_UNAVAILABLE: "A leitura foi interrompida no servidor. Tentar novamente retoma os lotes confirmados sem duplicar batidas.",
   CLOUD_STORAGE_UNAVAILABLE: "O armazenamento não está disponível. Solicite a conferência da instalação ao administrador.",
   SOURCE_DISABLED: "A fonte foi desativada. Atualize a lista e escolha uma fonte ativa.",
   SOURCE_NOT_FOUND: "Fonte não encontrada. Atualize a lista antes de enviar.",
