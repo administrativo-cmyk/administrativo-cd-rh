@@ -127,16 +127,16 @@ describe("leituras consecutivas do torniquete", () => {
 });
 
 describe("causas verificáveis de localização desconhecida", () => {
-  it("identifica falta de mapa do perímetro sem inferir saída pelo torniquete", () => {
+  it("não exige mapa do perímetro observacional nem infere saída pelo torniquete", () => {
     const source = input([access("entry", "07:59:00")], { mappings: mappings.filter(mapping => mapping.id !== "perimeter-exit") });
     const result = calculateJourney(source);
-    expect(result.outsideCd).toMatchObject({ milliseconds: null, quality: "unavailable", knownMs: 0 });
-    expect(result.issues).toContainEqual({ code: "INCOMPLETE_AREA_MAPPING", eventIds: [], detail: "Mapa incompleto de entrada/saída: perimeter" });
+    expect(result.outsideCd).toMatchObject({ milliseconds: null, quality: "excluded", knownMs: 0 });
+    expect(result.issues.some(issue => issue.code === "INCOMPLETE_AREA_MAPPING")).toBe(false);
     expect(result.issues.filter(issue => issue.code === "AREA_COVERAGE_MISSING")).toEqual([]);
   });
   it("identifica falta de cobertura apesar dos leitores e acessos existentes", () => {
     const result = calculateJourney(input([access("entry", "07:59:00")], { coverage: [] }));
-    expect(result.issues.filter(issue => issue.code === "AREA_COVERAGE_MISSING").map(issue => issue.detail)).toEqual(["operation", "cafeteria", "perimeter"]);
+    expect(result.issues.filter(issue => issue.code === "AREA_COVERAGE_MISSING").map(issue => issue.detail)).toEqual(["operation", "cafeteria"]);
     expect(result.outsideOperation.knownMs).toBe(0);
   });
   it("não informa ausência total quando existe cobertura parcial válida", () => {

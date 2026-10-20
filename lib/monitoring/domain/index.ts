@@ -5,3 +5,4 @@ export * from "./events";
 export * from "./journeys";
 export * from "./location";
 export * from "./calculate";
+export * from "./perimeter-observation";

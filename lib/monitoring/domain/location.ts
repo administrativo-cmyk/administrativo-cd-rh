@@ -27,11 +27,11 @@ function pairCoverage(coverage: readonly Coverage[], area: Area, interval: Inter
   return [...groups.values()].some((intervals) => covers(intervals, interval));
 }
 
-export function locationTimeline(events: readonly MappedAccess[], coverage: readonly Coverage[], observationWindow: Interval, lookbackMs: number, initialReferenceAt = observationWindow.start): { intervals: LocationInterval[]; issues: Issue[] } {
+export function locationTimeline(events: readonly MappedAccess[], coverage: readonly Coverage[], observationWindow: Interval, lookbackMs: number, initialReferenceAt = observationWindow.start, areas: readonly Area[] = AREAS): { intervals: LocationInterval[]; issues: Issue[] } {
   const intervals: LocationInterval[] = [];
   const issues: Issue[] = [];
   const scanStart = observationWindow.start - lookbackMs;
-  for (const area of AREAS) {
+  for (const area of areas) {
     const complete = completeCoverage(coverage, area);
     const relevant = events.filter((event) => event.effects[area] && event.event.at >= scanStart && event.event.at <= observationWindow.end);
     const boundaries = [...new Set([scanStart, observationWindow.start, observationWindow.end, initialReferenceAt,

@@ -4,7 +4,8 @@ import { assertInstant, assertInterval, assertOperationalDate, durationMs, inter
 import { reconstructJourney } from "./journeys";
 import { reconcileAccessSequence } from "./access-sequence";
 import { mealsWithoutRest } from "./meals";
-import { AREAS, locationTimeline, pairedAreaIntervals, stateIntervals } from "./location";
+import { locationTimeline, pairedAreaIntervals, stateIntervals } from "./location";
+import { MONITORED_AREAS, perimeterObservationEventIds, unassessedPerimeterMetric } from "./perimeter-observation";
 import type { Eligibility, Indicator, Interval, JourneyCalculation, JourneyCalculationInput, Lateness, Metric, PairedVisit } from "./types";
 
 function metric(intervals: Interval[], knownMs: number, workMs: number | null, eligibility: Eligibility, completeJourney: boolean): Metric {
@@ -49,8 +50,9 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
   for (const coverage of input.coverage) assertInterval(coverage);
   for (const coffee of input.coffeeWindows ?? []) assertInterval(coffee);
   const preparedPunches = preparePunches(input.punchEvents.filter((event) => event.personId === input.personId), policy);
-  const preparedAccess = prepareAccess(input.accessEvents, input.mappings, input.operationalDate, input.personId, policy);
-  const incompleteAreas = AREAS.filter((area) => ["entry", "exit"].some((direction) => !input.mappings.some((mapping) => mapping.area === area && mapping.direction === direction && mapping.validated && mapping.eventClasses.length > 0 && isEffective(mapping, input.operationalDate))));
+  const observationalEvents = perimeterObservationEventIds(input.accessEvents, input.mappings, input.operationalDate);
+  const preparedAccess = prepareAccess(input.accessEvents.filter(event => !observationalEvents.has(event.id)), input.mappings, input.operationalDate, input.personId, policy);
+  const incompleteAreas = MONITORED_AREAS.filter((area) => ["entry", "exit"].some((direction) => !input.mappings.some((mapping) => mapping.area === area && mapping.direction === direction && mapping.validated && mapping.eventClasses.length > 0 && isEffective(mapping, input.operationalDate))));
   const coverage = input.coverage.map((item) => incompleteAreas.includes(item.area) ? { ...item, declaredComplete: false } : item);
   const journey = reconstructJourney(input, preparedPunches.events);
   // Unresolved accidental-mark candidates cannot silently create a one-minute official break.
@@ -66,9 +68,8 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
   const workMs = journey.work.length ? durationMs(journey.work) : journey.status === "complete" ? 0 : null;
   if (journey.work.some((interval) => interval.start < input.observationWindow.start || interval.end > input.observationWindow.end)) throw new Error("WORK_OUTSIDE_OBSERVATION_WINDOW");
   const initialReferenceAt = journey.firstEntry ?? input.schedule?.expectedStart ?? input.observationWindow.start;
-  const location = locationTimeline(preparedAccess.events, coverage, input.observationWindow, input.initialLookbackMs ?? 12 * 3_600_000, initialReferenceAt);
+  const location = locationTimeline(preparedAccess.events, coverage, input.observationWindow, input.initialLookbackMs ?? 12 * 3_600_000, initialReferenceAt, MONITORED_AREAS);
   const cafeteriaPairs = pairedAreaIntervals(preparedAccess.events, coverage, "cafeteria", "inside", input.observationWindow);
-  const perimeterPairs = pairedAreaIntervals(preparedAccess.events, coverage, "perimeter", "outside", input.observationWindow);
   const policies = input.indicatorPolicies ?? [];
   const snapshots = input.groupSnapshots ?? [];
   const eligibility = (indicator: Indicator) => resolveEligibility(input.personId, indicator, input.operationalDate, snapshots, policies);
@@ -77,8 +78,6 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
   const knownOperation = durationMs([...insideOperation, ...outsideOperation]);
   const cafeteriaWork = intersectIntervals(cafeteriaPairs.pairs, journey.work);
   const outsideCafeteria = stateIntervals(location.intervals, "cafeteria", "outside", journey.work);
-  const perimeterWork = intersectIntervals(perimeterPairs.pairs, journey.work);
-  const insidePerimeter = stateIntervals(location.intervals, "perimeter", "inside", journey.work);
   const completeJourney = journey.status === "complete";
   const cafeteriaEligibility = eligibility("cafeteria");
   const operationTransitions = preparedAccess.events.filter((event) => event.mapping.area === "operation"
@@ -110,18 +109,13 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
     kind: firstOperationEntry === undefined || interval.start < firstOperationEntry ? "lateOperationEntry" as const : "departure" as const,
     workMs: durationMs(intersectIntervals([interval], journey.work)),
   })).filter((episode) => episode.workMs > 0);
-  const betweenOperationExitAndPrincipalEntry: JourneyCalculation["betweenOperationExitAndPrincipalEntry"] = [];
-  for (const event of preparedAccess.events.filter((event) => event.mapping.area === "perimeter" && event.mapping.direction === "entry")) {
-    const previous = operationTransitions[lowerBound(operationTransitions, event.event.at, false) - 1];
-    if (previous?.mapping.direction === "exit") betweenOperationExitAndPrincipalEntry.push({ start: previous.event.at, end: event.event.at, exitEventId: previous.event.id, entryEventId: event.event.id, label: "interval-between-events" });
-  }
   const cafeteriaMetric = metric(cafeteriaWork, durationMs([...cafeteriaWork, ...outsideCafeteria]), workMs, cafeteriaEligibility, completeJourney);
   const observedCafeteriaOutside = stateIntervals(location.intervals, "cafeteria", "outside", [input.observationWindow]);
   const observedKnown = durationMs([...cafeteriaPairs.pairs, ...observedCafeteriaOutside]);
-  const issues = [...preparedPunches.issues, ...preparedAccess.issues, ...journey.issues, ...location.issues, ...cafeteriaPairs.issues, ...perimeterPairs.issues];
+  const issues = [...preparedPunches.issues, ...preparedAccess.issues, ...journey.issues, ...location.issues, ...cafeteriaPairs.issues];
   for (const finding of reconciled.sequence.findings) issues.push({code: finding.reason === "aligned" ? "ACCESS_SEQUENCE_ALIGNED" : "ACCESS_SEQUENCE_REVIEW_REQUIRED", eventIds: [finding.eventId, finding.punchEventId]});
   for (const area of incompleteAreas) issues.push({ code: "INCOMPLETE_AREA_MAPPING", eventIds: [], detail: `Mapa incompleto de entrada/saída: ${area}` });
-  for (const area of AREAS) {
+  for (const area of MONITORED_AREAS) {
     if (!incompleteAreas.includes(area) && !coverage.some((item) => item.area === area && item.declaredComplete
       && item.evidence.trim() && item.sourceIds.length > 0 && item.start < input.observationWindow.end && item.end > input.observationWindow.start)) {
       issues.push({ code: "AREA_COVERAGE_MISSING", eventIds: [], detail: area });
@@ -135,10 +129,10 @@ export function calculateJourney(input: JourneyCalculationInput): JourneyCalcula
     journey, workMs, restMs: durationMs(journey.rest), location: location.intervals, insideOperationMs: durationMs(insideOperation),
     outsideOperation: metric(outsideOperation, knownOperation, workMs, eligibility("outsideOperation"), completeJourney),
     cafeteria: cafeteriaMetric,
-    outsideCd: metric(perimeterWork, durationMs([...perimeterWork, ...insidePerimeter]), workMs, eligibility("outsideCd"), completeJourney),
+    outsideCd: unassessedPerimeterMetric(),
     coffeeDuringWorkMs: !input.coffeeWindows?.length || cafeteriaMetric.milliseconds === null ? null : durationMs(intersectIntervals(cafeteriaWork, input.coffeeWindows)),
     cafeteriaObservedMs: observedKnown === 0 || cafeteriaEligibility.state !== "eligible" ? null : durationMs(cafeteriaPairs.pairs),
-    cafeteriaVisits, mealsWithoutRest: mealsWithoutRest(input, journey, preparedPunches.events, cafeteriaVisits, cafeteriaMetric, cafeteriaPairs.issues), outsideOperationEpisodes, betweenOperationExitAndPrincipalEntry,
+    cafeteriaVisits, mealsWithoutRest: mealsWithoutRest(input, journey, preparedPunches.events, cafeteriaVisits, cafeteriaMetric, cafeteriaPairs.issues), outsideOperationEpisodes, betweenOperationExitAndPrincipalEntry: [],
     lateness: calculateLateness(input, journey.status === "inconsistent" ? null : journey.firstEntry, eligibility("lateness")),
     suppressions: [...preparedPunches.suppressions, ...preparedAccess.suppressions], issues,
   };

@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsForm } from "./settings-form";
 import { MonitoringAdmin } from "./monitoring-admin";
@@ -44,4 +44,31 @@ it("restoration sends displayed version and justification", async () => {
   await user.click(screen.getByRole("button", { name: "Confirmar restauração" }));
   const call = vi.mocked(fetch).mock.calls.find(([, options]) => options?.method === "POST");
   expect(JSON.parse(String(call?.[1]?.body))).toEqual({ action: "restore_setting", data: { id: setting.id, expectedUpdatedAt: setting.updated_at, reason: "Restauração sintética" } });
+});
+it("novas configurações só oferecem cobertura e indicadores calculáveis", async () => {
+  const user = userEvent.setup();
+  render(<SettingsForm employees={snapshot.employees} users={[]} today="2026-10-20" save={vi.fn()} />);
+  const kind = screen.getByRole("combobox", { name: "Configuração" });
+  await user.selectOptions(kind, "policy");
+  expect(within(screen.getByRole("combobox", { name: "Indicador" })).queryByRole("option", { name: "Fora do CD" })).not.toBeInTheDocument();
+  await user.selectOptions(kind, "mapping");
+  await user.selectOptions(screen.getByRole("combobox", { name: "Área" }), "perimeter");
+  expect(screen.getByText(/Entrada Principal registra somente controle/)).toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: /Efeito adicional/ })).not.toBeInTheDocument();
+  await user.selectOptions(kind, "coverage");
+  const area = screen.getByRole("combobox", { name: "Área coberta" });
+  expect(area).toHaveValue("operation");
+  expect(within(area).getAllByRole("option").map(option => option.textContent)).toEqual(["Operação", "Refeitório"]);
+});
+it.each([
+  { kind: "policy", payload: { indicator: "outsideCd", scope: "person", exclude: true }, field: "Indicador", value: "outsideCd" },
+  { kind: "coverage", payload: { area: "perimeter", start: "2026-10-08T00:00:00-03:00", end: "2026-10-09T00:00:00-03:00", sourceIds: ["defense"], declaredComplete: true, evidence: "Conferência anterior" }, field: "Área coberta", value: "perimeter" },
+])("preserva configuração histórica $kind desativada sem trocar silenciosamente a área", ({ kind, payload, field, value }) => {
+  const save = vi.fn();
+  render(<SettingsForm employees={snapshot.employees} users={[]} today="2026-10-20" initial={{ ...setting, kind, payload }} save={save} />);
+  expect(screen.getByRole("combobox", { name: field })).toHaveValue(value);
+  expect(screen.getByRole("combobox", { name: field })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Salvar nova revisão" })).toBeDisabled();
+  expect(screen.getByText(/Configuração histórica preservada/)).toBeInTheDocument();
+  expect(save).not.toHaveBeenCalled();
 });

@@ -1,8 +1,8 @@
-import type { Area, Issue, LocationInterval } from "@/lib/monitoring/domain/types";
+import type { Issue, LocationInterval } from "@/lib/monitoring/domain/types";
 import { instant } from "./shared";
 
-const areas: Area[] = ["operation", "cafeteria", "perimeter"];
-const areaLabels = { operation: "Operação", cafeteria: "Refeitório", perimeter: "Perímetro" };
+const areas = ["operation", "cafeteria"] as const;
+const areaLabels = { operation: "Operação", cafeteria: "Refeitório" };
 const stateLabels = { inside: "Dentro", outside: "Fora", unknown: "Desconhecido" };
 
 /** Compact only the presentation. The calculation keeps every evidence boundary. */
@@ -25,6 +25,7 @@ export function LocationTimeline({ intervals, issues }: { intervals: LocationInt
   return <section>
     <h3 className="mb-2 font-semibold">Linha do tempo por área</h3>
     <p className="mb-3 text-xs text-slate-600">Trechos consecutivos no mesmo estado aparecem juntos. Desconhecido significa falta de evidência suficiente; não representa tempo fora da área.</p>
+    <p className="mb-3 text-xs text-slate-600">A linha do tempo inclui trechos antes e depois da jornada. Um trecho desconhecido fora dos períodos trabalhados não reduz a cobertura do trabalho.</p>
     <div className="space-y-3">{areas.map(area => {
       const periods = compact.filter(period => period.area === area);
       if (!periods.length) return null;
@@ -33,7 +34,7 @@ export function LocationTimeline({ intervals, issues }: { intervals: LocationInt
       const unknown = periods.some(period => period.state === "unknown");
       return <section key={area} aria-label={`Linha do tempo: ${areaLabels[area]}`} className="rounded-lg border border-slate-200 p-3">
         <h4 className="mb-2 text-sm font-semibold">{areaLabels[area]}</h4>
-        {incompleteMapping ? <p className="mb-2 rounded bg-amber-50 p-2 text-xs text-amber-900">Falta validar o conjunto de leitores de entrada e saída desta área. {area === "perimeter" ? "A saída do torniquete indica saída da operação; não comprova saída do CD." : "Confira o mapeamento e a vigência dos leitores na Configuração."}</p>
+        {incompleteMapping ? <p className="mb-2 rounded bg-amber-50 p-2 text-xs text-amber-900">Falta validar o conjunto de leitores de entrada e saída desta área. Confira o mapeamento e a vigência dos leitores na Configuração.</p>
           : missingCoverage ? <p className="mb-2 rounded bg-amber-50 p-2 text-xs text-amber-900">Coleta completa desta área não confirmada neste período. Confira os arquivos e a cobertura na Configuração.</p>
           : unknown ? <p className="mb-2 text-xs text-slate-600">Há trechos sem estado confirmado. Confira a cobertura, passagens sem par e o primeiro acesso anterior ao trecho nas pendências abaixo.</p> : null}
         <ol className="space-y-1 text-xs">{periods.map((period, index) => <li key={index} className="grid gap-1 border-l-4 border-slate-300 bg-slate-50 p-2 sm:grid-cols-[150px_1fr]">

@@ -20,7 +20,8 @@ const fileLabels: Record<string, string> = { processing: "Em processamento", com
 function settingDescription(setting: AdminSnapshot["settings"][number]) {
   const p = setting.payload;
   if (setting.kind === "schedule") return `${p.name} · ${p.start} a ${p.end}`;
-  if (setting.kind === "mapping") return `${p.pointId} · ${p.direction === "entry" ? "Entrada" : "Saída"} · ${p.validated ? "Orientação validada" : "Orientação pendente"}`;
+  if (setting.kind === "mapping") return p.area === "perimeter" ? `${p.pointId} · Somente controle, sem cálculo de permanência` : `${p.pointId} · ${p.direction === "entry" ? "Entrada" : "Saída"} · ${p.validated ? "Orientação validada" : "Orientação pendente"}`;
+  if ((setting.kind === "policy" && p.indicator === "outsideCd") || (setting.kind === "coverage" && p.area === "perimeter")) return "Histórico de Perímetro/Fora do CD · cálculo desativado";
   if (setting.kind === "policy") return `${p.exclude ? "Exclusão" : "Inclusão"} de ${{ outsideOperation: "fora da operação", cafeteria: "refeitório", outsideCd: "fora do CD", lateness: "atraso" }[String(p.indicator)] ?? p.indicator}`;
   if (setting.kind === "coverage") return `${instant(String(p.start))} a ${instant(String(p.end))} · ${p.declaredComplete ? "Coleta completa declarada" : "Cobertura parcial"}`;
   if (setting.kind === "rule") return `Repetição: ponto ${p.punchRepeatSeconds}s, acesso ${p.accessRepeatSeconds}s · jornada até ${p.maxJourneyHours}h`;

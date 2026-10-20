@@ -2,7 +2,7 @@ import { isEffective } from "./eligibility";
 import { assertInstant } from "./intervals";
 import type { AccessEvent, AccessPointMapping, Area, Issue, LocationState, PunchEvent, RepetitionPolicy, Suppression } from "./types";
 
-export const RULE_VERSION = "monitoring-1.5.0";
+export const RULE_VERSION = "monitoring-1.6.0";
 /** Consecutive reads at the validated operation reader count once below one minute. */
 export const TURNSTILE_REPETITION_WINDOW_MS = 60_000;
 export const TURNSTILE_REPETITION_VERSION = "turnstile-repetition-1.0.0";

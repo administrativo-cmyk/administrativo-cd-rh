@@ -4,7 +4,7 @@ import { scheduledOn, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
 import { parseLocalTimestamp } from "./ingestion/validation";
 import {
-  calculateJourney, isEffective, normalizeGroups, RULE_VERSION, preparePunches, DEFAULT_REPETITION_POLICY,
+  calculateJourney, isEffective, normalizeGroups, RULE_VERSION, preparePunches, DEFAULT_REPETITION_POLICY, projectPerimeterAsObservation,
   type AccessEvent, type AccessPointMapping, type Coverage, type GroupSnapshot, type IndicatorPolicy,
   type JourneyCalculation, type JourneyCalculationInput, type PunchEvent, type Schedule,
 } from "./domain";
@@ -124,7 +124,7 @@ function provenanceFor(event: RawSnapshot["events"][number]) {
 }
 
 export function summarizeCalculation(result: JourneyCalculation, groups: string[], scheduleName: string | null): MonitoringResultSummary {
-  const metrics = [result.outsideOperation, result.cafeteria, result.outsideCd];
+  const metrics = [result.outsideOperation, result.cafeteria];
   const hasKnown = result.workMs !== null || metrics.some((metric) => metric.milliseconds !== null) || result.lateness.totalMs !== null;
   const quality = result.outsideOperation.quality === "excluded" ? "excluded" : !hasKnown ? "unavailable" : result.journey.status !== "complete" || metrics.some((metric) => ["partial", "unavailable"].includes(metric.quality)) || result.lateness.quality === "unavailable" ? "partial" : "complete";
   return {
@@ -132,11 +132,19 @@ export function summarizeCalculation(result: JourneyCalculation, groups: string[
     outsideSeconds: seconds(result.outsideOperation.milliseconds), cafeteriaSeconds: seconds(result.cafeteria.milliseconds),
     mealsWithoutRest: result.mealsWithoutRest?.count ?? null, mealQuality: result.mealsWithoutRest?.quality ?? "unavailable",
     outsideQuality: result.outsideOperation.quality, cafeteriaQuality: result.cafeteria.quality,
-    cafeSeconds: seconds(result.coffeeDuringWorkMs), outsideCdSeconds: seconds(result.outsideCd.milliseconds),
+    cafeSeconds: seconds(result.coffeeDuringWorkMs), outsideCdSeconds: null,
     unknownSeconds: result.outsideOperation.unknownMs / 1000, lateSeconds: seconds(result.lateness.totalMs), late: result.lateness.over15Minutes,
     quality, coverageRatio: result.outsideOperation.coverageRatio, groups,
     exclusions: [...metrics, result.lateness].flatMap((metric) => metric.eligibility.state === "excluded" ? metric.eligibility.reasons : []), scheduleName,
   };
+}
+
+/** Query-time compatibility projection. It does not relabel the original rule
+ * version or recompute work, corrections, attendance or bank balances.
+ */
+export function projectMonitoringEntryControlOnly(result: JourneyCalculation, summary: MonitoringResultSummary, observationEventIds: ReadonlySet<string> = new Set()): { result: JourneyCalculation; summary: MonitoringResultSummary } {
+  const projected = projectPerimeterAsObservation(result, observationEventIds);
+  return { result: projected, summary: { ...summary, ...summarizeCalculation(projected, summary.groups, summary.scheduleName) } };
 }
 
 /** Validate the DB envelope at the boundary; never infer trusted evidence from observed timestamps. */

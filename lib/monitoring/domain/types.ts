@@ -179,12 +179,14 @@ export interface JourneyCalculation {
   insideOperationMs: number;
   outsideOperation: Metric;
   cafeteria: Metric;
+  /** Legacy contract: excluded/null while principal entrance is observation-only. */
   outsideCd: Metric;
   coffeeDuringWorkMs: number | null;
   cafeteriaObservedMs: number | null;
   cafeteriaVisits: PairedVisit[];
   mealsWithoutRest?: MealCount;
   outsideOperationEpisodes: Array<Interval & { kind: "lateOperationEntry" | "departure"; workMs: number }>;
+  /** Legacy contract: empty while principal entrance is observation-only. */
   betweenOperationExitAndPrincipalEntry: Array<Interval & { exitEventId: string; entryEventId: string; label: "interval-between-events" }>;
   lateness: Lateness;
   suppressions: Suppression[];

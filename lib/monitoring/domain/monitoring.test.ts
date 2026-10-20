@@ -199,28 +199,28 @@ describe("refeitório, café e perímetro", () => {
     expect(result.outsideOperation.unknownMs).toBe(10 * minute);
     expect(result.outsideOperationEpisodes[0].kind).toBe("lateOperationEntry");
   });
-  it("saída e entrada identificadas com cobertura apuram 20 minutos fora do CD", () => {
+  it("perímetro permanece apenas observacional mesmo com par e cobertura legados", () => {
     const result = calculateJourney(input({ accessEvents: [access("operation-entry", "07:59"), access("perimeter-exit", "14:00"), access("perimeter-entry", "14:20")] }));
-    expect(result.outsideCd.milliseconds).toBe(20 * minute);
-    expect(result.outsideCd.quality).toBe("complete");
+    expect(result.outsideCd).toMatchObject({ milliseconds: null, quality: "excluded", knownMs: 0, unknownMs: 0, intervals: [] });
+    expect(result.location.some(interval => interval.area === "perimeter")).toBe(false);
+    expect(result.outsideOperation.milliseconds).toBe(0);
   });
   it("torniquete e entrada principal não provam duração fora do CD", () => {
     const original = input();
     const result = calculateJourney(input({ accessEvents: [access("operation-entry", "07:59"), access("operation-exit", "14:00"), access("perimeter-entry", "14:20")], coverage: original.coverage.map((coverage) => coverage.area === "perimeter" ? { ...coverage, declaredComplete: false } : coverage) }));
     expect(result.outsideCd.milliseconds).toBeNull();
-    expect(result.betweenOperationExitAndPrincipalEntry[0].end - result.betweenOperationExitAndPrincipalEntry[0].start).toBe(20 * minute);
-    expect(result.betweenOperationExitAndPrincipalEntry[0].label).toBe("interval-between-events");
+    expect(result.betweenOperationExitAndPrincipalEntry).toEqual([]);
   });
-  it("par sem cobertura não produz duração exata", () => {
+  it("perímetro sem cobertura não cria pendência de duração", () => {
     const result = calculateJourney(input({ accessEvents: [access("perimeter-exit", "14:00"), access("perimeter-entry", "14:20")], coverage: [] }));
     expect(result.outsideCd.milliseconds).toBeNull();
-    expect(result.issues.some((issue) => issue.code === "AREA_PAIR_COVERAGE_MISSING")).toBe(true);
+    expect(result.issues.some((issue) => issue.code === "AREA_PAIR_COVERAGE_MISSING")).toBe(false);
   });
-  it("cobertura declarada não substitui mapa ausente da saída do perímetro", () => {
+  it("área observacional não exige mapa de saída nem gera tempo desconhecido", () => {
     const result = calculateJourney(input({ mappings: mappings.filter((mapping) => mapping.id !== "perimeter-exit") }));
     expect(result.outsideCd.milliseconds).toBeNull();
-    expect(result.outsideCd.unknownMs).toBe(480 * minute);
-    expect(result.issues.some((issue) => issue.code === "INCOMPLETE_AREA_MAPPING")).toBe(true);
+    expect(result.outsideCd.unknownMs).toBe(0);
+    expect(result.issues.some((issue) => issue.code === "INCOMPLETE_AREA_MAPPING")).toBe(false);
   });
 });
 
@@ -357,12 +357,12 @@ describe("qualidade, conservação e elegibilidade", () => {
   });
   it("par não usa união de coberturas declaradas para conjuntos diferentes de fontes", () => {
     const base = input();
-    const perimeter = base.coverage[2];
+    const cafeteria = base.coverage[1];
     const result = calculateJourney({ ...base,
-      accessEvents: [access("perimeter-exit", "14:00"), { ...access("perimeter-entry", "14:20"), sourceId: "other-defense" }],
-      coverage: [...base.coverage.slice(0, 2), { ...perimeter, end: at("14:10") }, { ...perimeter, start: at("14:10"), sourceIds: ["other-defense"] }],
+      accessEvents: [access("cafeteria-entry", "14:00"), { ...access("cafeteria-exit", "14:20"), sourceId: "other-defense" }],
+      coverage: [base.coverage[0], base.coverage[2], { ...cafeteria, end: at("14:10") }, { ...cafeteria, start: at("14:10"), sourceIds: ["other-defense"] }],
     });
-    expect(result.outsideCd.intervals).toEqual([]);
+    expect(result.cafeteria.intervals).toEqual([]);
     expect(result.issues.some((issue) => issue.code === "AREA_PAIR_COVERAGE_MISSING")).toBe(true);
   });
   it("normaliza grupos múltiplos e exclusão preserva atraso e eventos", () => {

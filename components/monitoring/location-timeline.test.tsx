@@ -15,12 +15,13 @@ describe("linha do tempo explicada", () => {
     ];
     const original = structuredClone(intervals);
     const compact = compactLocationTimeline(intervals);
-    expect(compact).toHaveLength(4);
+    expect(compact).toHaveLength(3);
+    expect(compact.some(interval => interval.area === "perimeter")).toBe(false);
     expect(compact[1]).toMatchObject({ start: 20, end: 40, evidenceEventIds: ["e1", "e2"] });
     expect(compact[2].start).toBe(50);
     expect(intervals).toEqual(original);
   });
-  it("explica mapa e cobertura somente na área correspondente", () => {
+  it("mantém falhas reais das áreas monitoradas e omite o perímetro legado", () => {
     render(<LocationTimeline intervals={[
       { area: "operation", state: "unknown", start: 0, end: 1000, evidenceEventIds: [] },
       { area: "perimeter", state: "unknown", start: 0, end: 1000, evidenceEventIds: [] },
@@ -28,9 +29,10 @@ describe("linha do tempo explicada", () => {
       { code: "INCOMPLETE_AREA_MAPPING", detail: "Mapa incompleto de entrada/saída: perimeter", eventIds: [] },
       { code: "AREA_COVERAGE_MISSING", detail: "operation", eventIds: [] },
     ]} />);
-    expect(screen.getByText(/A saída do torniquete indica saída da operação/)).toBeInTheDocument();
+    expect(screen.queryByText(/Falta validar o conjunto de leitores/)).not.toBeInTheDocument();
     expect(screen.getByText(/Coleta completa desta área não confirmada/)).toBeInTheDocument();
-    expect(screen.getByText("Perímetro · Desconhecido")).toBeInTheDocument();
+    expect(screen.queryByText("Perímetro · Desconhecido")).not.toBeInTheDocument();
     expect(screen.getByText("Operação · Desconhecido")).toBeInTheDocument();
+    expect(screen.getByText(/Um trecho desconhecido fora dos períodos trabalhados não reduz a cobertura do trabalho/)).toBeInTheDocument();
   });
 });

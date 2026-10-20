@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { reprocessMonitoringSnapshot, reprocessRequestSchema } from "./reprocess";
+import { projectMonitoringEntryControlOnly, reprocessMonitoringSnapshot, reprocessRequestSchema, summarizeCalculation } from "./reprocess";
+import { perimeterObservationEventIds, type AccessEvent, type AccessPointMapping } from "./domain";
 
 const employeeId = "30000000-0000-4000-8000-000000000001";
 const actor = "20000000-0000-4000-8000-000000000001";
@@ -33,6 +34,79 @@ function snapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("entrada principal só registra acesso, sem exigir saída ou cobertura para qualidade completa", () => {
+    const raw = snapshot();
+    raw.settings = raw.settings.filter(row => !["mapping", "coverage"].includes(row.kind) || (row.payload as { area?: string }).area !== "perimeter");
+    raw.settings.push(setting("mapping", "Entrada Principal", { pointId: "Entrada Principal", portalId: "principal", area: "perimeter", direction: "entry", validated: false, eventClasses: ["Desbloqueio por rosto"] }, "principal"));
+    raw.events.push(event("access", "10:00", "principal-access", "Entrada Principal"));
+    const original = structuredClone(raw);
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.result.outsideCd).toMatchObject({ quality: "excluded", milliseconds: null, knownMs: 0, unknownMs: 0, intervals: [] });
+    expect(day.result.location.some(interval => interval.area === "perimeter")).toBe(false);
+    expect(day.summary).toMatchObject({ quality: "complete", outsideCdSeconds: null, workedSeconds: 480 * 60, restSeconds: 60 * 60 });
+    expect(day.result.issues.some(issue => ["INCOMPLETE_AREA_MAPPING", "UNMAPPED_ACCESS_POINT", "AREA_COVERAGE_MISSING", "AREA_PAIR_COVERAGE_MISSING", "OPEN_AREA_PAIR"].includes(issue.code))).toBe(false);
+    expect(raw).toEqual(original);
+    expect(raw.events.find(row => row.id === "principal-access")).toBeDefined();
+  });
+
+  it("não usa entrada principal nem política legada para fabricar presença na operação", () => {
+    const raw = snapshot();
+    raw.events = raw.events.filter(row => row.payload.type === "punch");
+    raw.events.push(event("access", "07:59", "principal-only", "Principal"));
+    raw.settings.push(setting("mapping", "Principal", { pointId: "Principal", portalId: "principal", area: "perimeter", direction: "entry", validated: true, eventClasses: ["Desbloqueio por rosto"], effects: { operation: "inside", cafeteria: "outside" } }, "principal"));
+    raw.settings.push(setting("policy", employeeId, { indicator: "outsideCd", scope: "person", exclude: false }, "old-policy"));
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.result.outsideOperation).toMatchObject({ quality: "unavailable", milliseconds: null, knownMs: 0 });
+    expect(day.result.outsideCd).toMatchObject({ quality: "excluded", milliseconds: null });
+    expect(day.summary.quality).toBe("partial");
+  });
+
+  it("projeta histórico sem alterar jornada, banco, versão original ou eventos", () => {
+    const day = reprocessMonitoringSnapshot(snapshot(), request, reference)[0];
+    const legacy = {
+      ...day.result, ruleVersion: "monitoring-1.4.0",
+      outsideCd: { ...day.result.outsideCd, quality: "unavailable" as const, unknownMs: day.result.workMs!, eligibility: { state: "eligible" as const, policyIds: [], reasons: [] } },
+      location: [...day.result.location, { ...day.result.location[0], area: "perimeter" as const, state: "unknown" as const }],
+      betweenOperationExitAndPrincipalEntry: [{ start: Date.parse(stamp("14:00")), end: Date.parse(stamp("14:20")), exitEventId: "exit", entryEventId: "principal", label: "interval-between-events" as const }],
+      issues: [
+        { code: "INCOMPLETE_AREA_MAPPING", eventIds: [], detail: "Mapa incompleto de entrada/saída: perimeter" },
+        { code: "AREA_COVERAGE_MISSING", eventIds: [], detail: "perimeter" },
+        { code: "UNMAPPED_ACCESS_POINT", eventIds: ["principal"] },
+        { code: "UNMAPPED_ACCESS_POINT", eventIds: ["other"] },
+        { code: "REPEATED_DIRECTION_WITHOUT_PAIR", eventIds: ["principal", "operation"] },
+      ],
+    };
+    const summary = { ...day.summary, quality: "partial" as const, outsideCdSeconds: 1200 };
+    const original = structuredClone({ legacy, summary });
+    const projected = projectMonitoringEntryControlOnly(legacy, summary, new Set(["principal"]));
+    expect(projected.summary).toMatchObject({ quality: "complete", outsideCdSeconds: null, workedSeconds: summary.workedSeconds, restSeconds: summary.restSeconds });
+    expect(projected.summary.bankDay).toBe(summary.bankDay);
+    expect(projected.result.journey).toBe(legacy.journey);
+    expect(projected.result.ruleVersion).toBe("monitoring-1.4.0");
+    expect(projected.result.location.some(interval => interval.area === "perimeter")).toBe(false);
+    expect(projected.result.betweenOperationExitAndPrincipalEntry).toEqual([]);
+    expect(projected.result.issues).toEqual(legacy.issues.slice(3));
+    expect({ legacy, summary }).toEqual(original);
+  });
+
+  it("qualidade ignora só perímetro; preserva jornada, operação, refeitório e atraso pendentes", () => {
+    const result = reprocessMonitoringSnapshot(snapshot(), request, reference)[0].result;
+    const oldPerimeter = { ...result.outsideCd, quality: "unavailable" as const, milliseconds: null };
+    expect(summarizeCalculation({ ...result, outsideCd: oldPerimeter }, [], null).quality).toBe("complete");
+    expect(summarizeCalculation({ ...result, cafeteria: { ...result.cafeteria, quality: "partial" } }, [], null).quality).toBe("partial");
+    expect(summarizeCalculation({ ...result, journey: { ...result.journey, status: "ongoing" } }, [], null).quality).toBe("partial");
+    expect(summarizeCalculation({ ...result, lateness: { ...result.lateness, quality: "unavailable" } }, [], null).quality).toBe("partial");
+    expect(summarizeCalculation({ ...result, outsideOperation: { ...result.outsideOperation, quality: "excluded" } }, [], null).quality).toBe("excluded");
+  });
+
+  it("ponto observacional exige mapeamento da área; nome e conflito não são inferidos", () => {
+    const event: AccessEvent = { id: "e", personId: employeeId, at: reference, pointId: "Entrada Principal", sourceId: "defense", eventClass: "face", authorized: true, identified: true };
+    const map: AccessPointMapping = { id: "m", pointId: event.pointId, portalId: "principal", area: "perimeter", direction: "entry", validated: false, validFrom: date, eventClasses: ["face"] };
+    expect(perimeterObservationEventIds([event], [], date).size).toBe(0);
+    expect(perimeterObservationEventIds([event], [map], date)).toEqual(new Set(["e"]));
+    expect(perimeterObservationEventIds([event], [map, { ...map, id: "other", area: "operation" }], date).size).toBe(0);
+  });
+
   it("aplica repetição do torniquete abaixo de 60s mesmo com regra anterior de 10s e preserva banco", () => {
     const raw = snapshot();
     const schedule = raw.settings.find(row => row.kind === "schedule")!;
@@ -49,7 +123,7 @@ describe("adaptação de snapshot persistido ao motor", () => {
     raw.events.push({ ...structuredClone(first), id: "a1-repeat", payload: { ...structuredClone(first.payload), key: "a1-repeat", timestamp: `${date}T08:00:59-03:00` } });
     const original = structuredClone(raw);
     const result = reprocessMonitoringSnapshot(confirmed, request, reference)[0];
-    expect(result.ruleVersion).toBe("monitoring-1.5.0");
+    expect(result.ruleVersion).toBe("monitoring-1.6.0");
     expect(result.result.suppressions).toContainEqual({ eventId: "a1-repeat", retainedEventId: "a1", rule: "access-repetition", ruleVersion: "turnstile-repetition-1.0.0", differenceMs: 59_000 });
     expect(result.result.outsideOperation).toEqual(baseline.result.outsideOperation);
     expect(result.result.journey).toEqual(baseline.result.journey);
