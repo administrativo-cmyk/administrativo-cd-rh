@@ -1,6 +1,6 @@
 import { describe,expect,it } from "vitest";
 import { digest } from "./format";
-import { equivalentPunch,indexMetadata,mergeIndexedPunch,parsePunchIndex,rollingWindow,shardFor,type IndexedPunch } from "./punch-index";
+import { equivalentPunch,indexMetadata,mergeIndexedPunch,parsePunchIndex,payrollWindow,shardFor,type IndexedPunch } from "./punch-index";
 const punch=(changes:Partial<IndexedPunch>={}):IndexedPunch=>({nsr:"000010001",key:"event",payloadHash:digest("raw"),at:"2026-10-08T11:00:00.000Z",precisionSeconds:60,
  identityType:"cpf",identityValue:"12345678909",profile:"legacy",conflicted:false,origins:[{fileSha256:digest("file"),line:1}],...changes});
 describe("immutable archive NSR index",()=>{
@@ -25,9 +25,16 @@ describe("immutable archive NSR index",()=>{
   const metadata=indexMetadata({version:1,sourceId:"clock-one",shard:1,punches:[punch()]});
   expect(metadata.sourceId).toBe("clock-one");expect(JSON.stringify(metadata)).not.toContain("12345678909");
  });
- it("uses rolling months instead of payroll cycles and includes the night boundary",()=>{
-  expect(rollingWindow("2026-10-21")).toEqual({months:3,cutoff:"2026-07-21",eventFrom:"2026-07-20T00:00:00-03:00"});
-  expect(rollingWindow("2026-05-31").cutoff).toBe("2026-02-28");
-  expect(rollingWindow("2024-05-31").cutoff).toBe("2024-02-29");
+ it.each([
+  ["2026-10-20","2026-07-21"],["2026-10-21","2026-08-21"],
+  ["2026-11-20","2026-08-21"],["2026-11-21","2026-09-21"],
+  ["2027-01-01","2026-10-21"],["2027-01-20","2026-10-21"],["2027-01-21","2026-11-21"],
+  ["2024-02-29","2023-12-21"],["2026-05-31","2026-03-21"],
+ ])("retains current payroll cycle and two predecessors on %s",(today,cutoff)=>{
+  expect(payrollWindow(today)).toEqual({payrollCycles:3,cutoff,eventFrom:new Date(Date.parse(cutoff)-86400000).toISOString().slice(0,10)+"T00:00:00-03:00"});
+ });
+ it("rejects invalid dates instead of widening the retention period",()=>{
+  for(const date of ["2026-02-30","2026-13-21","not-a-date"])
+   expect(()=>payrollWindow(date)).toThrow("ARCHIVE_RETENTION_INVALID");
  });
 });

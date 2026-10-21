@@ -1,6 +1,8 @@
-# Histórico privado e janela de três meses
+# Histórico privado e janela de três ciclos de folha
 
-O projeto é `administrativo-cd-rh` (`kqgtnucqxqqgwdyvhvdd`). A política autorizada em 21/10/2026 mantém os **últimos três meses corridos**, calculados pela data de São Paulo. Não usa três ciclos de folha. Em 21/10, a data operacional inicial é 21/07/2026; eventos de 20/07 também permanecem para proteger jornadas noturnas.
+O projeto é `administrativo-cd-rh` (`kqgtnucqxqqgwdyvhvdd`). A política revisada em 21/10/2026 mantém o **ciclo atual da folha e os dois anteriores**, sempre do dia 21 ao dia 20, pela data de São Paulo. Em 21/10 ficam os ciclos 21/08–20/09, 21/09–20/10 e 21/10–20/11. A data operacional inicial é 21/08/2026; eventos de 20/08 também permanecem para proteger jornadas noturnas.
+
+No dia 21/11, o início da janela passa automaticamente para 21/09. O ciclo 21/08–20/09 é copiado e verificado no histórico privado antes de sair do banco operacional. A virada depende do agendamento na nuvem, sem precisar manter um computador ligado. A rotina usa páginas limitadas, portanto a limpeza completa pode levar algumas rodadas. Os arquivos originais não são apagados.
 
 Os arquivos AFD originais continuam preservados. Nenhum plano pago é contratado automaticamente. Banco, Storage e transferência possuem quotas distintas. O orçamento da aplicação é 800 MiB de Storage no projeto; a ingestão pausa antes de o banco alcançar 470 MiB. Esses limites não ampliam as quotas do provedor.
 
@@ -41,7 +43,7 @@ node --env-file=.env.local --experimental-strip-types scripts/monitoring-archive
 
 Os comandos `start`, `restore` e `activate` do script de reconstrução são etapas separadas, protegidas pelo manifesto e executadas apenas numa manutenção autorizada. Não iniciar outra reconstrução durante um envio ativo. Após interrupção, consultar `state` e retomar a mesma execução, mantendo diretório, arquivos e identificador.
 
-O utilitário local `pnpm monitoring:archive` continua disponível para preparar, verificar, reconciliar e restaurar originais. Seus manifestos antigos versão 1 registram ciclos de folha apenas para verificação retrocompatível; a política da nuvem usa meses corridos.
+O utilitário local `pnpm monitoring:archive` continua disponível para preparar, verificar, reconciliar e restaurar originais. A janela operacional e os novos manifestos usam os mesmos três ciclos de folha. Manifestos anteriores permanecem imutáveis e documentam a política vigente quando foram criados.
 
 Ativação concluída exige: cópia privada publicada e relida, banco medido abaixo do limite, consulta por papel funcionando, scheduler ativo e ambos os envios completos e reconciliados. Build e testes locais, isoladamente, não comprovam esses resultados.
 

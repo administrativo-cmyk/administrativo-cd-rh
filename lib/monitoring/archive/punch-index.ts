@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { CanonicalImportEvent } from "../ingestion/types.ts";
 import { normalizeIdentifier } from "../ingestion/validation.ts";
-import { digest } from "./format.ts";
+import { digest,retentionWindow } from "./format.ts";
 
 export const nsrShardSize = 10_000;
 const originSchema = z.object({ fileSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(), line: z.number().int().positive().optional(),
@@ -50,11 +50,8 @@ export function indexMetadata(index:PunchIndex) {
     identityHashes:[...new Set(index.punches.map(punch=>identityHash(punch.identityType,punch.identityValue)))].sort()};
 }
 
-/** Calendar months, matching Postgres date - interval '3 months', including month-end clamping. */
-export function rollingWindow(asOf:string) {
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(asOf)||!Number.isFinite(Date.parse(asOf))||new Date(asOf).toISOString().slice(0,10)!==asOf)throw new Error("ARCHIVE_RETENTION_INVALID");
-  const [year,month,day]=asOf.split("-").map(Number);const base=new Date(Date.UTC(year,month-4,1));
-  const last=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+1,0)).getUTCDate();
-  const cutoff=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),Math.min(day,last)));
-  return {months:3,cutoff:cutoff.toISOString().slice(0,10),eventFrom:new Date(cutoff.getTime()-86400000).toISOString().slice(0,10)+"T00:00:00-03:00"};
+/** Current payroll cycle and its two predecessors; retain the overnight boundary. */
+export function payrollWindow(asOf:string) {
+  const window=retentionWindow(asOf,3);
+  return {payrollCycles:window.payrollCycles,cutoff:window.operationalFrom,eventFrom:window.eventFrom};
 }

@@ -35,6 +35,27 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("advances the payroll window only on the 21st, including year and leap boundaries",async()=>{
+    for(const [day,cutoff] of [
+      ['2026-10-20','2026-07-21'],['2026-10-21','2026-08-21'],
+      ['2026-11-20','2026-08-21'],['2026-11-21','2026-09-21'],
+      ['2027-01-01','2026-10-21'],['2027-01-21','2026-11-21'],['2024-02-29','2023-12-21'],
+    ]){
+      expect((await db.query<{cutoff:string}>("select private.monitoring_archive_payroll_cutoff($1::date)::text cutoff",[day])).rows[0].cutoff).toBe(cutoff);
+    }
+    expect((await db.query<{allowed:boolean}>("select has_function_privilege('authenticated','private.monitoring_archive_payroll_cutoff(date)','EXECUTE') allowed")).rows[0].allowed).toBe(false);
+  });
+  it("archives expired punches but retains the complete overnight boundary",async()=>{
+    await db.exec(`update private.monitoring_archive_control set active=true;
+      update public.monitoring_events set occurred_at=((private.monitoring_archive_cutoff()-1)::timestamp at time zone 'America/Sao_Paulo')
+        -case when event_key='key-1' then interval '1 second' else interval '0 seconds' end;
+      insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind)
+        values('indices/boundary.gz',repeat('a',64),20,repeat('a',64),20,'nsr_index');
+      insert into private.monitoring_archive_indices values('archive-test',0,'indices/boundary.gz',2);`);
+    const page=await call('retention_page');
+    expect(page).toMatchObject({table:'public.monitoring_events',rows:1});
+    expect(JSON.parse(String(page.raw)).rows.map((row:{event_key:string})=>row.event_key)).toEqual(['key-1']);
+  });
   it("archives redundant recent AFD references while retaining a canonical reference",async()=>{
     await db.exec(`insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)
       select 'aa110000-0000-4000-8000-000000000001',k,1,repeat('a',64),id,'{}'::jsonb from public.monitoring_events cross join(values('a'),('b')) keys(k) where event_key='key-1';

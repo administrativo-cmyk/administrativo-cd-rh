@@ -13,11 +13,18 @@ describe("authorized employee archive input",()=>{
   const input={events:[]};expect(await augmentArchivedInput(input,{employeeId,start:"2026-10-08",end:"2026-10-08"})).toEqual({input,archive:undefined});
   expect(mocks.rpc).not.toHaveBeenCalled();
  });
+ it("loads the archive scope for a cycle retired by the new payroll policy",async()=>{
+  mocks.rpc.mockResolvedValue({active:true,maintenance:false,cutoff:"2026-08-21",bindings:[],files:[],objects:[]});
+  const period={employeeId,start:"2026-08-01",end:"2026-08-01"};
+  const result=await augmentArchivedInput({events:[]},period);
+  expect(mocks.rpc).toHaveBeenCalledWith("history_scope",period);
+  expect(result.archive).toMatchObject({used:true,cutoff:"2026-08-21"});
+ });
  it("returns only bound identities in their effective dates and preserves existing canonical events",async()=>{
   const punch={nsr:"000000001",key:"punch:1",payloadHash:"a".repeat(64),at:"2026-06-15T11:00:00Z",precisionSeconds:1 as const,profile:"iso" as const,identityType:"cpf" as const,identityValue:"12345678909",conflicted:false,origins:[]};
   const index:PunchIndex={version:1,sourceId:"clock",shard:0,punches:[punch,{...punch,nsr:"000000002",key:"punch:2",identityValue:"11144477735"},{...punch,nsr:"000000003",key:"punch:3",at:"2026-06-16T11:00:00Z"}]};
   const packed=packObject("index.gz",Buffer.from(JSON.stringify(index)));const object={...packed.object,kind:"nsr_index",metadata:indexMetadata(index)};
-  mocks.rpc.mockResolvedValue({active:true,maintenance:false,cutoff:"2026-07-21",files:[],objects:[object],bindings:[{sourceId:"clock",identityType:"cpf",identityValue:punch.identityValue,validFrom:"2026-06-15",validTo:"2026-06-15"}]});
+  mocks.rpc.mockResolvedValue({active:true,maintenance:false,cutoff:"2026-08-21",files:[],objects:[object],bindings:[{sourceId:"clock",identityType:"cpf",identityValue:punch.identityValue,validFrom:"2026-06-15",validTo:"2026-06-15"}]});
   mocks.download.mockResolvedValue(packed.compressed);
   const period={employeeId,start:"2026-06-15",end:"2026-06-16"};
   const result=await augmentArchivedInput({events:[],version:2},period);
@@ -28,7 +35,7 @@ describe("authorized employee archive input",()=>{
   expect((await augmentArchivedInput({events:[existing]},period)).input).toEqual({events:[existing]});
  });
  it("fails closed when a private object cannot be verified",async()=>{
-  mocks.rpc.mockResolvedValue({active:true,maintenance:false,cutoff:"2026-07-21",bindings:[],files:[],objects:[{path:"broken.gz"}]});
+  mocks.rpc.mockResolvedValue({active:true,maintenance:false,cutoff:"2026-08-21",bindings:[],files:[],objects:[{path:"broken.gz"}]});
   mocks.download.mockRejectedValue(new Error("private details"));
   await expect(augmentArchivedInput({events:[]},{employeeId,start:"2026-06-15",end:"2026-06-15"})).rejects.toThrow("ARCHIVE_HISTORY_UNAVAILABLE");
  });

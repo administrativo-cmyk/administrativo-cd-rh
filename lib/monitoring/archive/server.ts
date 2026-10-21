@@ -4,7 +4,7 @@ import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 import { ArchiveCloudStore } from "./cloud-store";
 import { archiveObject,type CatalogObject } from "./prepare-cloud";
 import { unpackObject } from "./format";
-import { mergeIndexedPunch,parsePunchIndex,rollingWindow,type IndexedPunch } from "./punch-index";
+import { mergeIndexedPunch,parsePunchIndex,payrollWindow,type IndexedPunch } from "./punch-index";
 
 export function serverArchiveStore() {
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.MONITORING_SUPABASE_SERVICE_ROLE_KEY;
@@ -21,7 +21,7 @@ function dateOf(at:string){const parts=Object.fromEntries(localDate.formatToPart
 /** Caller must first authorize employeeId through the existing authenticated
  * history RPC or own the fenced worker claim. Never send this scope to a browser. */
 export async function augmentArchivedInput(raw:unknown,period:{employeeId:string;start:string;end:string}) {
- const cutoff=rollingWindow(todayInSaoPaulo()).cutoff;
+ const cutoff=payrollWindow(todayInSaoPaulo()).cutoff;
  if(period.start>=cutoff)return {input:raw,archive:undefined};
  const client=serverArchiveStore();const scope=scopeSchema.parse(await client.rpc("history_scope",period));
  if(scope.maintenance)throw new Error("ARCHIVE_MAINTENANCE");
