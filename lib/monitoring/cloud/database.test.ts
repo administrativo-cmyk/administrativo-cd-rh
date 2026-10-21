@@ -74,6 +74,13 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("waits for queued imports before claiming automatic daily calculations",async()=>{
+    const job=await upload(await create('calculation-gate'));
+    await db.exec("update private.monitoring_archive_control set active=true where id");
+    expect(await rpc('service_role','','monitoring_worker','claim',{sourceIds:['cloud-test'],limit:1})).toMatchObject({jobs:[],waitingForImport:true});
+    await db.query("update private.monitoring_cloud_jobs set status='cancelled' where id=$1",[job.id]);
+    expect(await rpc('service_role','','monitoring_worker','claim',{sourceIds:['cloud-test'],limit:1})).not.toHaveProperty('waitingForImport');
+  });
   it("commits archived cold punches without rehydrating them and retains the frozen replay contract",async()=>{
     const fileHash=hash('archived-full');await upload(await create('archived-full'));const job=await claim();
     await db.query("insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind) values('fixture/manifest.gz',$1,20,$1,30,'manifest')",[hash('archive')]);
