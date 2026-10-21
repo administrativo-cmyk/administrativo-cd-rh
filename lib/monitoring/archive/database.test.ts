@@ -75,9 +75,11 @@ describe("server-only frozen archive export", () => {
     await db.exec("update public.monitoring_occurrences set conflict=true where occurrence_key='old'");
     expect(await call("retention_commit",{path:"retention/old.gz",raw:page.raw})).toMatchObject({stale:true,ok:false});
     const revised=await call("retention_page");await put("retention/revised.gz",revised);
+    await db.exec(`insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)
+      select file_id,'aaa-new',2,payload_hash,event_id,'{}'::jsonb from public.monitoring_occurrences where occurrence_key='old'`);
     expect(await call("retention_commit",{path:"retention/revised.gz",raw:revised.raw})).toMatchObject({ok:true,rows:1});
     expect(await call("retention_commit",{path:"retention/revised.gz",raw:revised.raw})).toMatchObject({replayed:true});
-    expect(await call("retention_page")).toMatchObject({table:"public.monitoring_events",rows:1});
+    expect(await call("retention_page")).toMatchObject({table:"public.monitoring_occurrences",rows:1});
     expect((await db.query("select * from public.monitoring_files")).rows).toHaveLength(1);
   });
   it("rebuilds only the verified working set, rejects changed content, and resumes without truncating restored rows", async () => {
