@@ -35,6 +35,13 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("preserves Defense group observations while compacting repeated raw access cells",async()=>{
+    const row={original:{large:"raw access cells"},issues:[{severity:"warning",code:"INFO"},{severity:"error",code:"REJECTED"}],event:{identity:{type:"defense",value:"employee"},original:{groups:"T1,T2",name:"Pessoa sintética",other:"raw"}}};
+    const compact=(await db.query<{v:typeof row}>("select private.monitoring_archive_compact_payload('defense-access',$1) v",[JSON.stringify(row)])).rows[0].v;
+    expect(compact.event.identity).toEqual(row.event.identity);expect(compact.event.original).toEqual({groups:"T1,T2",name:"Pessoa sintética"});
+    expect(compact.issues).toEqual([row.issues[1]]);expect(compact).not.toHaveProperty('original');
+    expect((await db.query<{v:unknown}>("select private.monitoring_archive_compact_payload('defense-person',$1) v",[JSON.stringify(row)])).rows[0].v).toEqual(row);
+  });
   it("removes a rolling page only after its exact cloud proof, keeps originals, and refuses a concurrently changed row",async()=>{
     await db.exec(`update public.monitoring_events set occurred_at='2001-01-01T12:00:00Z' where event_key='key-1';
       insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)

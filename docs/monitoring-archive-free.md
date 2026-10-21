@@ -12,7 +12,7 @@ Antes da redução inicial, a manutenção congela as 18 tabelas do Monitorament
 
 A reconstrução limita-se a `monitoring_events`, `monitoring_occurrences`, `monitoring_results` e `monitoring_jobs`. Um segundo manifesto identifica o conjunto operacional a restaurar. O servidor exige snapshot selado, contagens originais estáveis, cópia operacional conferida e ausência de dependências externas antes de liberar espaço. A restauração usa os mesmos identificadores e compara cada linha; respostas perdidas podem ser repetidas. A ativação exige todas as contagens conferidas e banco abaixo de 450 MiB.
 
-As ocorrências AFD mantêm proveniência compacta no banco. O conteúdo original repetido fica no histórico. Os payloads Defense continuam completos para preservar grupos e suas mudanças.
+As ocorrências AFD mantêm proveniência compacta no banco. As ocorrências de acesso Defense mantêm identidade, nome, grupos e erros necessários à detecção de mudanças. Os cadastros Defense e eventos canônicos continuam completos. As células originais repetidas ficam preservadas no histórico.
 
 A consulta individual primeiro passa pela autorização existente do histórico. Só depois o servidor combina os relógios e devolve batidas da identidade e vigência vinculadas àquela pessoa. A chave privada, documentos de outras pessoas e caminhos internos não chegam ao navegador. Falha de integridade interrompe a leitura; não vira ausência de batidas.
 

@@ -24,16 +24,22 @@ export class ArchiveCloudStore {
     }
   }
   async rpc<T = Record<string, unknown>>(action: string, data: unknown = {}): Promise<T> {
+    const retryable=["state","policy","catalog","page","indices","file","objects","exported","export_status","register_file","register_index","begin","seal","restore","rebuild_status","retention_page","retention_commit","retention_done"].includes(action);
+    for(let attempt=0;;attempt++){try{
     const response = await this.request(this.url("/rest/v1/rpc/monitoring_archive_worker"), {
       method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify({ p_action: action, p_data: data }), redirect: "error", cache: "no-store", signal: AbortSignal.timeout(120_000),
-    },["state","policy","catalog","page","indices","file","objects","exported","export_status","register_file","register_index","begin","seal"].includes(action));
+    });
     const value = await response.json();
     if (!response.ok) {
       const code = typeof value.message === "string" ? value.message.match(/\bARCHIVE_[A-Z_]+\b/)?.[0] : null;
       throw new Error(code ?? "ARCHIVE_RPC_FAILED");
     }
     return value as T;
+    }catch(error){
+      if(!retryable||attempt>=3||error instanceof Error&&/^ARCHIVE_/.test(error.message)&&!["ARCHIVE_NETWORK_ERROR","ARCHIVE_RPC_FAILED"].includes(error.message))throw error;
+      await new Promise(resolve=>setTimeout(resolve,500*2**attempt));
+    }}
   }
   async download(object: Pick<ArchiveObject, "path" | "sha256" | "bytes">): Promise<Buffer> {
     for(let attempt=0;;attempt++){
