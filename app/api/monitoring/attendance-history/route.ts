@@ -5,6 +5,7 @@ import { historyPeriodSchema, punchCorrectionSchema } from "@/lib/monitoring/att
 import { reprocessMonitoringSnapshot } from "@/lib/monitoring/reprocess";
 import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
 import type { Json } from "@/lib/monitoring/database";
+import { augmentArchivedInput } from "@/lib/monitoring/archive/server";
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
 type HistoryDatabase = { public: { Tables: Record<never, never>; Views: Record<never, never>; Enums: Record<never, never>; CompositeTypes: Record<never, never>; Functions: {
@@ -27,19 +28,20 @@ export async function GET(request: Request) {
   try {
     const period = historyPeriodSchema.parse(Object.fromEntries(new URL(request.url).searchParams));
     const raw = z.object({ input: z.unknown(), bank: z.unknown(), canEdit: z.boolean(), correctionHistory: z.array(z.unknown()) }).parse(await rpc("history", period));
+    const historical = await augmentArchivedInput(raw.input,period);
     const corrections = z.object({ corrections: z.array(z.object({ date: z.string(), updatedAt: z.string() })).default([]) }).parse(raw.input).corrections;
     const days = [];
     const now = Date.now();
     for (let date = period.start; date <= period.end; date = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
       try {
-        const [day] = reprocessMonitoringSnapshot(raw.input, { employeeId: period.employeeId, start: date, end: date, reason: "Consulta do histórico de ponto" }, now);
+        const [day] = reprocessMonitoringSnapshot(historical.input, { employeeId: period.employeeId, start: date, end: date, reason: "Consulta do histórico de ponto" }, now);
         days.push({ date, bankDay: day.summary.bankDay ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "MONITORING_FUTURE_PERIOD") throw error;
         days.push({ date, bankDay: null, correctionVersion: null });
       }
     }
-    return Response.json({ days, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory }, { headers });
+    return Response.json({ days, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory,...(historical.archive?{archive:historical.archive}:{}) }, { headers });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

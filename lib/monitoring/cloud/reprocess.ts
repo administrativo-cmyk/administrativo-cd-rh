@@ -5,6 +5,7 @@ import { dateSchema } from "@/lib/monitoring/contracts";
 import { buildReprocessResults } from "@/lib/monitoring/reprocess";
 import type { Json } from "@/lib/monitoring/database";
 import { CloudError } from "./server";
+import {augmentArchivedInput} from "@/lib/monitoring/archive/server";
 
 const claimSchema = z.object({ pending: z.number().int().nonnegative(), jobs: z.array(z.object({
   employeeId: z.string().uuid(), date: dateSchema, leaseToken: z.string().uuid(), reason: z.string().min(5).max(1000), input: z.unknown(),
@@ -23,7 +24,8 @@ export async function reprocessCloudDays(signal: AbortSignal, deadline: number) 
     const job = data.jobs[0]; if (!job) break;
     try {
       signal.throwIfAborted();
-      const [day] = buildReprocessResults(job.input, { employeeId: job.employeeId, start: job.date, end: job.date, reason: job.reason }, Date.now());
+      const archived=await augmentArchivedInput(job.input,{employeeId:job.employeeId,start:job.date,end:job.date});
+      const [day] = buildReprocessResults(archived.input, { employeeId: job.employeeId, start: job.date, end: job.date, reason: job.reason }, Date.now());
       if (!day) throw new CloudError("CLOUD_REPROCESS_FAILED");
       const finish = await client.rpc("monitoring_worker", { p_action: "finish", p_data: { ...day, leaseToken: job.leaseToken, reason: job.reason, actor: null } as unknown as Json }).abortSignal(signal);
       if (finish.error) throw finish.error;

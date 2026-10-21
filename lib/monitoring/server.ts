@@ -7,6 +7,7 @@ import { monitoringErrorCode, monitoringErrorMessage } from "./errors";
 import { monitoringQueryView, readCompleteMonitoring } from "./query-view";
 
 const businessErrors:Record<string,string>={
+ ARCHIVE_MAINTENANCE:'O histórico está em manutenção. Os dados estão preservados; tente novamente após a conclusão.',
  BINDING_STALE:'O vínculo mudou. Atualize a consulta antes de continuar.',
  BINDING_SUPERSEDED:'Use a revisão mais recente deste vínculo.',
  BINDING_INVALID:'Revise o identificador completo, colaborador, fonte e vigência.',

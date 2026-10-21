@@ -15,6 +15,7 @@ const sourceSchema = z.object({
   afdProfile: z.enum(["legacy", "iso"]).optional(), afdIdentityType: z.enum(["cpf", "pis"]).optional(), afdAllowAlternate: z.boolean().optional(), encoding: z.enum(["utf8", "latin1"]).optional(),
 });
 export const cloudJobSchema = z.object({
+  archivedRows:z.number().int().nonnegative().optional(),
   autoDetect: z.boolean().default(false), rejectedRows: z.number().int().nonnegative().optional(), reviewVersion: z.number().int().nonnegative().optional(), id: z.string().uuid(), sourceId: z.string(), source: sourceSchema,
   fileName: z.string().min(1).max(240), objectPath: z.string().min(1), bucket: z.literal(cloudBucket),
   byteLength: z.number().int().positive().max(cloudMaxFileBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -35,7 +36,7 @@ export class CloudError extends Error {
   constructor(readonly code: string) { super(code); }
 }
 function rpcError(error: { code?: string; message?: string }): never {
-  const businessCode = error.message?.match(/\b(?:CLOUD|SOURCE|MONITORING)_[A-Z_]+\b/)?.[0];
+  const businessCode = error.message?.match(/\b(?:ARCHIVE|CLOUD|SOURCE|MONITORING)_[A-Z_]+\b/)?.[0];
   const code = error.code ?? "";
   const transient = !code || /^(08|53|57P|PGRST00)/.test(code) || ["40001", "40P01", "57014"].includes(code);
   throw new CloudError(businessCode ?? (["25006", "53100"].includes(code) ? code : transient ? "CLOUD_UNAVAILABLE" : code));
@@ -57,6 +58,7 @@ export function cloudJob(value: unknown): CloudJob {
 }
 export function publicCloudJob(job: CloudJob) {
   return {
+    archivedRows:job.archivedRows??0,
     rejectedRows: job.rejectedRows ?? 0, canReinspect: job.status === "completed" && (job.rejectedRows ?? 0) > 0 && (job.reviewVersion ?? 0) === 0 && job.source.kind === "afd", autoDetect: job.autoDetect, id: job.id, fileName: job.fileName, sourceId: job.sourceId, status: job.status, bytes: job.byteLength,
     batchesDone: job.cursor, totalBatches: job.totalBatches, processedRows: job.processedRows, totalRows: job.totalRows,
     attempts: job.attempts, maxAttempts: job.maxAttempts, nextRetryAt: job.nextRetryAt, errorCode: job.lastError,
@@ -78,6 +80,9 @@ export function dispatchHash(request: Request) {
   return createHash("sha256").update(token).digest("hex");
 }
 const messages: Record<string, string> = {
+  ARCHIVE_MAINTENANCE:"O histórico está em manutenção. Os arquivos e lotes confirmados estão preservados.",
+  ARCHIVE_DATABASE_CAPACITY:"A importação foi pausada antes do limite do banco. A administração precisa conferir a manutenção do histórico.",
+  ARCHIVE_STORAGE_BUDGET_EXCEEDED:"O armazenamento do histórico se aproxima do limite gratuito. A administração precisa revisar o espaço antes de continuar.",
   "25006": "O banco está em somente leitura. Revise a capacidade do Supabase antes de retomar a importação.",
   "53100": "O banco está sem espaço disponível. Revise a capacidade do Supabase; os lotes confirmados permanecem preservados.",
   CLOUD_INVALID: "Revise o arquivo e a fonte selecionada.", CLOUD_NOT_FOUND: "Envio não encontrado.",

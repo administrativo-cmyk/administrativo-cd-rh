@@ -3,6 +3,7 @@ import { z } from "zod";
 export const cloudFileLimit = 20 * 1024 * 1024;
 export const cloudStatusSchema = z.enum(["uploading", "queued", "processing", "completed", "failed", "cancelled"]);
 export const cloudJobSchema = z.object({
+  archivedRows:z.number().int().nonnegative().optional(),
   id: z.string().min(1), fileName: z.string(), sourceId: z.string(), status: cloudStatusSchema,
   rejectedRows: z.number().int().nonnegative().optional(), canReinspect: z.boolean().optional(), autoDetect: z.boolean().optional(), bytes: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string(),
   batchesDone: z.number().int().nonnegative(), totalBatches: z.number().int().nonnegative().nullable(), errorCode: z.string().nullable(),
@@ -20,6 +21,9 @@ export type CloudReservation = z.infer<typeof cloudUploadReservationSchema>;
 export type CloudPhase = "idle" | "hashing" | "authorizing" | "uploading" | "confirming";
 export const cloudStatusLabels: Record<CloudJob["status"], string> = { uploading: "Aguardando confirmação do envio", queued: "Na fila da nuvem", processing: "Processando na nuvem", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 const errorLabels: Record<string, string> = {
+  ARCHIVE_MAINTENANCE:"O histórico está em manutenção. Os arquivos e lotes confirmados estão preservados.",
+  ARCHIVE_DATABASE_CAPACITY:"A importação foi pausada antes do limite do banco. Solicite a conferência da manutenção do histórico.",
+  ARCHIVE_STORAGE_BUDGET_EXCEEDED:"O histórico se aproxima do limite gratuito de armazenamento. Solicite a revisão ao administrador.",
   "25006": "O banco está em somente leitura. Revise a capacidade do Supabase antes de retomar a importação.",
   "53100": "O banco está sem espaço disponível. Revise a capacidade do Supabase; os lotes confirmados permanecem preservados.",
   INVALID_FILE_ENCODING: "A codificação do AFD não foi reconhecida. Clique em Tentar novamente para reler o original com detecção automática.",

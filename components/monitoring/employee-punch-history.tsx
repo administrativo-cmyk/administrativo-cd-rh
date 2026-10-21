@@ -11,7 +11,7 @@ import { bankAdminSnapshotSchema, type BankAdminMutation, type BankAdminSnapshot
 const roles: Record<PunchRole, string> = { start: "Entrada", breakStart: "Saída para intervalo", breakEnd: "Retorno do intervalo", end: "Saída do expediente" };
 const roleOrder = ["start", "breakStart", "breakEnd", "end"] as const;
 type Day = { date: string; bankDay: BankDay | null; correctionVersion: string | null };
-type Snapshot = { days: Day[]; canEdit: boolean; bank: { saldo_minutos: number; aplica_a_partir_de: string; automatic: boolean; movementMinutes: number } | null; correctionHistory: Array<{ date: string; at: string; reason: string; actorName: string }> };
+type Snapshot = { days: Day[]; canEdit: boolean; bank: { saldo_minutos: number; aplica_a_partir_de: string; automatic: boolean; movementMinutes: number } | null; correctionHistory: Array<{ date: string; at: string; reason: string; actorName: string }>;archive?:{cutoff:string;used:boolean;records:number} };
 const time = (at: number) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(at);
 const localInput = (at: number | null) => at === null ? "" : new Date(at - 3 * 3_600_000).toISOString().slice(0, 16);
 async function request(url: string, body?: unknown, signal?: AbortSignal) {
@@ -82,6 +82,7 @@ export function EmployeePunchHistory({ employeeId, date = todayInSaoPaulo(), ini
     {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p> : null}
     {notice ? <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p> : null}
     {snapshot ? <>
+      {snapshot.archive?.used?<p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">Histórico privado: {snapshot.archive.records} batida(s) recuperada(s) do arquivo. O banco operacional mantém os últimos três meses, desde {snapshot.archive.cutoff.split("-").reverse().join("/")}. Os originais estão preservados.</p>:null}
       <div className="rounded-lg bg-slate-50 p-3 text-sm"><p>Prévia dos dias apurados: <strong className={total < 0 ? "text-rose-800" : "text-emerald-800"}>{formatSignedMinutes(total)}</strong> · {snapshot.days.length - ready.length} dia(s) pendente(s).</p>
         {snapshot.bank ? <><p className="mt-2">Saldo do banco: <strong>{formatSignedMinutes(snapshot.bank.saldo_minutos)}</strong> · Vigência: {snapshot.bank.aplica_a_partir_de.split("-").reverse().join("/")}</p><p className="mt-1 text-xs">{snapshot.bank.automatic ? `Movimentos já processados desde a vigência: ${formatSignedMinutes(snapshot.bank.movementMinutes)}. Dias pendentes não movimentam o banco.` : "Cálculo automático aguardando a nova medição datada. Esta prévia não altera o saldo oficial atual."}</p></> : <p className="mt-2">Sem medição do banco. Envie o extrato atualizado com a data de vigência.</p>}
         {snapshot.canEdit ? <div className="mt-3 flex flex-wrap gap-2"><button className={button} disabled={saving} onClick={() => void openBank("edit")}>Editar saldo manual</button><button className={button} disabled={saving} onClick={() => void openBank("new")}>Nova medição datada</button></div> : null}

@@ -4,7 +4,10 @@ import type { CloudBatchPlan, CloudProcessorOptions, CloudSnapshotJob } from "..
 import type { IngestBatch } from "../lib/monitoring/ingestion/types.ts";
 import type { CloudJob } from "../lib/monitoring/cloud/server";
 
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), download: vi.fn(), process: vi.fn(), reprocess: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), download: vi.fn(), process: vi.fn(), reprocess: vi.fn(),archive:vi.fn(),retention:vi.fn() }));
+vi.mock("@/lib/monitoring/archive/server",()=>({serverArchiveStore:()=>({})}));
+vi.mock("@/lib/monitoring/archive/prepare-cloud",()=>({ensureArchivedSnapshot:mocks.archive}));
+vi.mock("@/lib/monitoring/archive/retention",()=>({retainRecentMonths:mocks.retention}));
 vi.mock("@/lib/monitoring/server", () => ({ workerClient: () => ({ rpc: (name: string, args: unknown) => ({ abortSignal: (signal: AbortSignal) => mocks.rpc(name, args, signal) }) }) }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/monitoring/cloud/storage", () => ({ downloadCloudObject: mocks.download }));
@@ -36,6 +39,7 @@ const defaultRpc = async (_name: string, args: { p_action: string }) => success(
 
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("MONITORING_INGEST_SOURCE_IDS", "cloud-test");
+  mocks.archive.mockResolvedValue({active:true});mocks.retention.mockResolvedValue({pending:false,archived:0});
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   mocks.rpc.mockImplementation(defaultRpc); mocks.download.mockResolvedValue(bytes); mocks.reprocess.mockResolvedValue({ processed: 0, pending: 0, failed: 0 });
   mocks.process.mockImplementation(async (_job: CloudSnapshotJob, _bytes: Buffer, options: CloudProcessorOptions) => {
@@ -46,6 +50,11 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe("cloud runner orchestration", () => {
+  it("blocks persistence until the private archive is verified and retries a transport interruption",async()=>{
+    mocks.archive.mockRejectedValue(new Error("ARCHIVE_DOWNLOAD_FAILED"));
+    const response=await POST(request());expect(await response.json()).toMatchObject({state:"retry",code:"ARCHIVE_DOWNLOAD_FAILED"});
+    expect(mocks.process).not.toHaveBeenCalled();expect(actions()).toEqual(["claim","fail"]);
+  });
   it("rejects malformed dispatches before any database call or download", async () => {
     for (const authorization of [null, "Bearer service-role-is-not-a-dispatch", `Bearer ${token} extra`]) {
       const result = await POST(request(authorization)); expect(result.status).toBe(401);
@@ -91,7 +100,7 @@ describe("cloud runner orchestration", () => {
     let acknowledgment: unknown;
     mocks.process.mockImplementation(async (received: CloudSnapshotJob, input: Buffer, options: CloudProcessorOptions) => {
       expect(received).toMatchObject({ id: job.id, parserVersion: job.parserVersion, nextBatch: 0, sha256: job.sha256, source: job.source });
-      expect(input).toBe(bytes); expect(options.maxBatches).toBe(25);
+      expect(input).toBe(bytes); expect(options.maxBatches).toBe(100);
       acknowledgment = await options.persist(batch, { jobId: job.id, expectedCursor: 0, nextCursor: 1, plan, signal: options.signal!, deadline: options.deadline });
       return { status: "complete", nextBatch: 1, plan, processedBatches: 1, photoReferences: 0 };
     });

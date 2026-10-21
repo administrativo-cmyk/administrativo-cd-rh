@@ -6,6 +6,9 @@ import { assertCloudSource, cloudFailure, cloudJobSchema, cloudWorker, dispatchH
 import { downloadCloudObject } from "@/lib/monitoring/cloud/storage";
 import { processCloudSnapshot, cloudBatchPlanSchema } from "@/lib/monitoring/cloud/processor";
 import { reprocessCloudDays } from "@/lib/monitoring/cloud/reprocess";
+import {ensureArchivedSnapshot} from "@/lib/monitoring/archive/prepare-cloud";
+import {serverArchiveStore} from "@/lib/monitoring/archive/server";
+import {retainRecentMonths} from "@/lib/monitoring/archive/retention";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -13,6 +16,7 @@ const claimSchema = z.object({ job: cloudJobSchema.nullable(), reprocess: z.bool
 const headers = { "Cache-Control": "private, no-store" };
 function failureCode(error: unknown): string {
   if (error instanceof CloudError) return error.code;
+  if(error instanceof Error&&/^ARCHIVE_[A-Z_]+$/.test(error.message))return error.message;
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string" && /^[A-Z][A-Z0-9_]{1,99}$/.test(error.code)) return error.code;
   return "CLOUD_PROCESSING_FAILED";
 }
@@ -54,12 +58,13 @@ export async function POST(request: Request) {
         job = z.object({ job: cloudJobSchema }).parse(await cloudWorker("route", { ...lease, ...detected, ...(encoding ? { encoding } : {}), ...(identifiers.length ? {identifiers} : {}) }, signal)).job;
         assertCloudSource(job.sourceId);
       }
+      await ensureArchivedSnapshot(serverArchiveStore(),{source:{...job.source,declaredCoverage:job.source.declaredCoverage??undefined},sha256:job.sha256,byteLength:job.byteLength,parserVersion:job.parserVersion},bytes);
       const result = await processCloudSnapshot({
         id: job.id, source: { ...job.source, declaredCoverage: job.source.declaredCoverage ?? undefined },
         sha256: job.sha256, byteLength: job.byteLength, fileName: job.fileName, parserVersion: job.parserVersion, nextBatch: job.cursor,
         ...(job.plan ? { plan: cloudBatchPlanSchema.parse(job.plan) } : {}),
       }, bytes, {
-        signal, deadline, maxBatches: 25,
+        signal, deadline, maxBatches: 100,
         persist: async (batch, context) => {
           const persisted = await cloudWorker("persist", { ...lease, expectedCursor: context.expectedCursor, batch, plan: context.plan }, context.signal);
           const response = z.object({ result: z.object({ accepted: z.boolean().optional() }).passthrough() }).parse(persisted).result;
@@ -70,13 +75,16 @@ export async function POST(request: Request) {
       await cloudWorker(result.status === "complete" ? "finish" : "release", lease, AbortSignal.timeout(8000));
     } catch (error) {
       const code = failureCode(error);
-      const retryable = signal.aborted || ["CLOUD_DOWNLOAD_FAILED", "CLOUD_UNAVAILABLE", "CLOUD_PROCESSING_FAILED", "CLOUD_ROUND_ABORTED", "CLOUD_ROUND_DEADLINE_EXCEEDED"].includes(code);
+      const retryable = signal.aborted || ["ARCHIVE_MAINTENANCE","ARCHIVE_NETWORK_ERROR","ARCHIVE_DOWNLOAD_FAILED","ARCHIVE_UPLOAD_FAILED","ARCHIVE_RPC_FAILED","CLOUD_DOWNLOAD_FAILED", "CLOUD_UNAVAILABLE", "CLOUD_PROCESSING_FAILED", "CLOUD_ROUND_ABORTED", "CLOUD_ROUND_DEADLINE_EXCEEDED"].includes(code);
       // Fencing makes this harmless if a later worker already owns the expired lease.
       await cloudWorker("fail", { ...lease, code, retryable }, AbortSignal.timeout(5000)).catch(() => undefined);
       console.error("[monitoring-cloud]", { jobId: job.id, code });
       return Response.json({ accepted: true, state: retryable ? "retry" : "failed", code }, { headers });
     }
   }
+  let retention:{pending:boolean;archived?:number};
+  try{retention=await retainRecentMonths(serverArchiveStore(),Math.min(deadline,Date.now()+40000));}
+  catch(error){console.error("[monitoring-retention]",{code:failureCode(error)});retention={pending:true};}
   const reprocess = await reprocessCloudDays(signal, deadline).catch(() => ({ pending: true }));
-  return Response.json({ accepted: true, state: job ? "processed" : "idle", reprocess }, { headers });
+  return Response.json({ accepted: true, state: job ? "processed" : "idle", reprocess,retention }, { headers });
 }

@@ -6,7 +6,8 @@ export const archiveVersion = 1;
 export const archiveChunkRows = 5_000;
 export const archiveObjectLimit = 20 * 1024 * 1024;
 export const archiveExpandedLimit = 32 * 1024 * 1024;
-export const archiveStorageBudget = 400 * 1024 * 1024;
+// Organization Free quota is 1 GB; reserve headroom for originals and other features.
+export const archiveStorageBudget = 800 * 1024 * 1024;
 const monthFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" });
 
 export type ArchiveObject = {

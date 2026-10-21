@@ -18,4 +18,5 @@ export const attendanceHistorySnapshotSchema = z.object({
  }).nullable() })).max(31), canEdit: z.boolean(),
  bank: z.object({ saldo_minutos: z.number(), aplica_a_partir_de: dateSchema, automatic: z.boolean(), movementMinutes: z.number() }).nullable(),
  correctionHistory: z.array(z.object({ date: dateSchema, at: z.string(), reason: z.string(), actorName: z.string() })),
+ archive:z.object({cutoff:dateSchema,used:z.boolean(),records:z.number().int().nonnegative()}).optional(),
 });

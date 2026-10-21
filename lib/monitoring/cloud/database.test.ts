@@ -74,6 +74,21 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("commits archived cold punches without rehydrating them and retains the frozen replay contract",async()=>{
+    const fileHash=hash('archived-full');await upload(await create('archived-full'));const job=await claim();
+    await db.query("insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind) values('fixture/manifest.gz',$1,20,$1,30,'manifest')",[hash('archive')]);
+    await db.query("insert into private.monitoring_archive_files(source_id,sha256,parser_version,manifest_path,rows,punches) values('cloud-test',$1,'monitoring-import/1.0.0','fixture/manifest.gz',2,2)",[fileHash]);
+    await db.exec("update private.monitoring_archive_control set active=true where id");
+    const occurrence=(n:number,timestamp:string)=>({key:hash('archive-row-'+n),line:n,payloadHash:hash('archive-payload-'+n),issues:[],original:{record:'original'},
+      event:{key:hash('archive-event-'+n),type:'punch',identity:{type:'cpf',value:'12345678909'},timestamp,device:'cloud-test',classification:'authorized',eligible:true,nsr:String(n).padStart(9,'0'),precisionSeconds:60,original:{record:'original'}}});
+    const value={...batch(fileHash),occurrences:[occurrence(1,'2020-01-01T11:00:00.000Z'),occurrence(2,'2026-10-08T11:00:00.000Z')],batch:{index:0,final:true,totalRows:2,occurrenceCount:2,totalBatches:1}};
+    expect(await persist(job,value,plan(1,2))).toMatchObject({result:{fileStatus:'complete'}});
+    expect((await db.query("select processed_rows,accepted_rows,archived_rows,new_events from public.monitoring_files where sha256=$1",[fileHash])).rows[0]).toEqual({processed_rows:2,accepted_rows:2,archived_rows:1,new_events:1});
+    expect((await db.query("select count(*)::int n from public.monitoring_events where source_id='cloud-test'")).rows[0]).toEqual({n:1});
+    expect((await db.query<{payload:unknown}>("select payload from public.monitoring_occurrences")).rows[0].payload).toEqual({event:true,issues:[],originalPreserved:true});
+    expect(await persist(job,value,plan(1,2))).toMatchObject({replayed:true});
+    await expect(db.query("select public.monitoring_ingest($1::jsonb)",[JSON.stringify({...value,file:{...value.file,sha256:hash('direct-cold')},occurrences:[value.occurrences[0]]})])).rejects.toThrow("ARCHIVE_CLOUD_REQUIRED");
+  });
   it("freezes Latin-1 for an ISO AFD independently of the document route", async () => {
     await db.exec("insert into private.monitoring_cloud_routes values('afd','iso','cloud-test','cpf')");
     await upload(await create("latin1", admin, { autoDetect: true }));
