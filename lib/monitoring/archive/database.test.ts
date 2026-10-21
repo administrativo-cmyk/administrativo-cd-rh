@@ -4,9 +4,9 @@ import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 let db: PGlite;
-async function call(action: string, data: unknown = {}, role = "service_role") {
+async function call(action: string, data: unknown = {}, role = "service_role",fn="monitoring_archive_worker") {
   await db.exec("savepoint archive_call;set role " + role);
-  try { return (await db.query<{ value: Record<string, unknown> }>("select public.monitoring_archive_worker($1,$2::jsonb) value", [action, JSON.stringify(data)])).rows[0].value; }
+  try { return (await db.query<{ value: Record<string, unknown> }>(`select public.${fn}($1,$2::jsonb) value`, [action, JSON.stringify(data)])).rows[0].value; }
   catch (error) { await db.exec("rollback to savepoint archive_call"); throw error; }
   finally { await db.exec("reset role;release savepoint archive_call"); }
 }
@@ -35,6 +35,21 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("finishes bounded day batches atomically and safely replays a lost acknowledgment",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'BACKFILL-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    const jobs=(await db.query<{row:Record<string,unknown>}>(`insert into public.monitoring_jobs(employee_id,operational_date,reason,lease_token,leased_until)
+      select $1::uuid,d::date,'Cálculo sintético',gen_random_uuid(),clock_timestamp()+interval '5 minutes' from generate_series('2001-01-01'::date,'2001-01-02'::date,interval '1 day') d
+      returning jsonb_build_object('employeeId',employee_id,'date',operational_date,'leaseToken',lease_token,'reason',reason,'version',(select version from private.monitoring_revision),'ruleVersion','test','result','{}'::jsonb,'summary','{}'::jsonb) row`,[employee])).rows.map(r=>r.row);
+    const request={id:'aa140000-0000-4000-8000-000000000001',jobs};
+    await expect(call('finish_many',{...request,jobs:[jobs[0],{...jobs[1],leaseToken:'aa140000-0000-4000-8000-000000000002'}]},'service_role','monitoring_worker')).rejects.toThrow('MONITORING_LEASE_LOST');
+    expect((await db.query('select * from public.monitoring_results')).rows).toHaveLength(0);
+    expect(await call('finish_many',request,'service_role','monitoring_worker')).toMatchObject({finished:2});
+    expect(await call('finish_many',request,'service_role','monitoring_worker')).toMatchObject({finished:2,replayed:true});
+    await expect(call('finish_many',{...request,jobs:[jobs[0]]},'service_role','monitoring_worker')).rejects.toThrow('MONITORING_BATCH_CHANGED');
+    await expect(call('finish_many',request,'authenticated','monitoring_worker')).rejects.toThrow(/permission denied/);
+    expect((await db.query('select * from public.monitoring_jobs')).rows).toHaveLength(0);
+  });
   it("preserves Defense group observations while compacting repeated raw access cells",async()=>{
     const row={original:{large:"raw access cells"},issues:[{severity:"warning",code:"INFO"},{severity:"error",code:"REJECTED"}],event:{identity:{type:"defense",value:"employee"},original:{groups:"T1,T2",name:"Pessoa sintética",other:"raw"}}};
     const compact=(await db.query<{v:typeof row}>("select private.monitoring_archive_compact_payload('defense-access',$1) v",[JSON.stringify(row)])).rows[0].v;
