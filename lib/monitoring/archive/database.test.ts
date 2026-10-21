@@ -35,6 +35,27 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("archives redundant recent AFD references while retaining a canonical reference",async()=>{
+    await db.exec(`insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)
+      select 'aa110000-0000-4000-8000-000000000001',k,1,repeat('a',64),id,'{}'::jsonb from public.monitoring_events cross join(values('a'),('b')) keys(k) where event_key='key-1';
+      insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind) values('indices/recent.gz',repeat('a',64),20,repeat('a',64),20,'nsr_index');
+      insert into private.monitoring_archive_indices values('archive-test',0,'indices/recent.gz',2);
+      update private.monitoring_archive_control set active=true;`);
+    const page=await call('retention_page');expect(page).toMatchObject({table:'public.monitoring_occurrences',rows:1});
+    expect(JSON.parse(String(page.raw)).rows[0].occurrence_key).toBe('b');
+    await db.exec("update public.monitoring_events set conflicted=true where event_key='key-1'");
+    expect(await call('retention_page')).toMatchObject({rows:0});
+  });
+  it("defers only a currently fenced job to a bounded future start",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001',token='aa140000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'DEFER-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query("insert into public.monitoring_jobs(employee_id,operational_date,reason,lease_token,leased_until) values($1,'2026-10-21','Turno ainda não iniciado',$2,clock_timestamp()+interval '5 minutes')",[employee,token]);
+    const request={employeeId:employee,date:'2026-10-21',leaseToken:token,until:new Date(Date.now()+3600000).toISOString()};
+    await expect(call('defer',{...request,until:new Date(Date.now()+26*3600000).toISOString()},'service_role','monitoring_worker')).rejects.toThrow('MONITORING_DEFER_INVALID');
+    expect(await call('defer',request,'service_role','monitoring_worker')).toMatchObject({ok:true});
+    expect((await db.query("select lease_token,last_error,leased_until>clock_timestamp() delayed from public.monitoring_jobs")).rows[0]).toEqual({lease_token:null,last_error:'AWAITING_SHIFT_START',delayed:true});
+    await expect(call('defer',request,'service_role','monitoring_worker')).rejects.toThrow('MONITORING_LEASE_LOST');
+  });
   it("limits individual calculation settings to the employee while keeping shared rules",async()=>{
     const employee='aa130000-0000-4000-8000-000000000001';
     await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'SCOPE-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);

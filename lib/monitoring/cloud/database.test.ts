@@ -94,6 +94,12 @@ describe("durable cloud import SQL", () => {
     expect((await db.query("select count(*)::int n from public.monitoring_events where source_id='cloud-test'")).rows[0]).toEqual({n:1});
     expect((await db.query<{payload:unknown}>("select payload from public.monitoring_occurrences")).rows[0].payload).toEqual({event:true,issues:[],originalPreserved:true});
     expect(await persist(job,value,plan(1,2))).toMatchObject({replayed:true});
+    await worker('finish',{id:job.id,leaseToken:job.leaseToken});
+    const repeatedHash=hash('archived-reexport');await upload(await create('archived-reexport'));const repeatedJob=await claim();
+    await db.query("insert into private.monitoring_archive_files(source_id,sha256,parser_version,manifest_path,rows,punches) values('cloud-test',$1,'monitoring-import/1.0.0','fixture/manifest.gz',2,2)",[repeatedHash]);
+    await persist(repeatedJob,{...value,file:{...value.file,sha256:repeatedHash}},plan(1,2));
+    expect((await db.query("select processed_rows,accepted_rows,archived_rows,new_events,repeated_events from public.monitoring_files where sha256=$1",[repeatedHash])).rows[0]).toEqual({processed_rows:2,accepted_rows:2,archived_rows:2,new_events:0,repeated_events:1});
+    expect((await db.query("select count(*)::int n from public.monitoring_occurrences")).rows[0]).toEqual({n:1});
     await expect(db.query("select public.monitoring_ingest($1::jsonb)",[JSON.stringify({...value,file:{...value.file,sha256:hash('direct-cold')},occurrences:[value.occurrences[0]]})])).rejects.toThrow("ARCHIVE_CLOUD_REQUIRED");
   });
   it("freezes Latin-1 for an ISO AFD independently of the document route", async () => {
