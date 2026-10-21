@@ -161,7 +161,7 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     const scheduled = scheduleFor(settings, request.employeeId, date, snapshot.calendar);
     const calendar = snapshot.calendar.find(day => day.date === date);
     const window = windowFor(settings, request.employeeId, date, attributionFor(settings, request.employeeId, date, snapshot.calendar), snapshot.calendar);
-    if (window.start > referenceAt) throw Object.assign(new Error("MONITORING_FUTURE_PERIOD"), { code: "MONITORING_FUTURE_PERIOD" });
+    if (window.start > referenceAt) throw Object.assign(new Error("MONITORING_FUTURE_PERIOD"), { code: "MONITORING_FUTURE_PERIOD",availableAt:window.start });
     const observationWindow = { start: window.start, end: Math.min(window.end, referenceAt) };
     const active = settings.filter((setting) => isEffective(setting, date));
     const evidenceSetting = uniqueSetting(settings, "evidence", request.employeeId, date);

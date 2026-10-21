@@ -11,6 +11,14 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe("bounded cloud attendance backfill", () => {
+ it("defers a shift that has not started without marking the day as failed",async()=>{
+  const availableAt=Date.now()+3600000;let claimed=false;
+  mocks.calculate.mockImplementation(()=>{throw Object.assign(new Error('MONITORING_FUTURE_PERIOD'),{availableAt});});
+  mocks.rpc.mockImplementation(async(_name,args)=>args.p_action==='claim'?{data:{pending:1,jobs:claimed?[]:(claimed=true,[{employeeId,date:'2026-10-21',reason:'Turno ainda não iniciado',leaseToken:'40000000-0000-4000-8000-000000000001',input:{}}])}}:{error:null});
+  const result=await reprocessCloudDays(new AbortController().signal,Date.now()+230000);
+  expect(result).toMatchObject({processed:0,failed:0,deferred:1});
+  expect(mocks.rpc.mock.calls.find(([,args])=>args.p_action==='defer')?.[1].p_data.until).toBe(new Date(availableAt+60000).toISOString());
+ });
  it("continues beyond thirty days while time remains, with no unused leases", async () => {
   let claims = 0; let finishes = 0;
   mocks.rpc.mockImplementation(async (_name, args) => {

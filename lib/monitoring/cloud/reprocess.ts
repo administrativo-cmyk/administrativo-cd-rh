@@ -12,7 +12,7 @@ const claimSchema = z.object({ pending: z.number().int().nonnegative(), jobs: z.
 })).max(1) });
 export async function reprocessCloudDays(signal: AbortSignal, deadline: number) {
   const sourceIds = [...new Set(process.env.MONITORING_INGEST_SOURCE_IDS?.split(",").map(value => value.trim()).filter(Boolean) ?? [])];
-  let processed = 0; let failed = 0; let pending = 0;
+  let processed = 0; let failed = 0; let pending = 0;let deferred=0;
   if (!sourceIds.length) return { processed, failed, pending };
   const client = workerClient();
   // Drain while budget remains; a small fixed cap can strand a monthly import for hours.
@@ -30,11 +30,15 @@ export async function reprocessCloudDays(signal: AbortSignal, deadline: number) 
       const finish = await client.rpc("monitoring_worker", { p_action: "finish", p_data: { ...day, leaseToken: job.leaseToken, reason: job.reason, actor: null } as unknown as Json }).abortSignal(signal);
       if (finish.error) throw finish.error;
       processed++; pending = Math.max(0, pending - 1);
-    } catch {
+    } catch(error) {
+      if(error instanceof Error&&error.message==='MONITORING_FUTURE_PERIOD'&&'availableAt' in error&&typeof error.availableAt==='number'&&Number.isFinite(error.availableAt)&&error.availableAt>Date.now()){
+        const defer=await client.rpc("monitoring_worker",{p_action:"defer",p_data:{employeeId:job.employeeId,date:job.date,leaseToken:job.leaseToken,until:new Date(error.availableAt+60000).toISOString()}}).abortSignal(AbortSignal.timeout(5000));
+        if(!defer.error){deferred++;continue;}
+      }
       failed++;
       const retry = await client.rpc("monitoring_worker", { p_action: "retry", p_data: { employeeId: job.employeeId, date: job.date, leaseToken: job.leaseToken, code: "CLOUD_REPROCESS_FAILED" } }).abortSignal(AbortSignal.timeout(5000));
       if (retry.error || signal.aborted) break;
     }
   }
-  return { processed, failed, pending };
+  return { processed, failed, pending,deferred };
 }
