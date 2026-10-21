@@ -35,6 +35,17 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("limits individual calculation settings to the employee while keeping shared rules",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'SCOPE-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query(`insert into public.monitoring_settings(kind,target,valid_from,payload,reason) values
+      ('group_snapshot',$1,'2026-10-01','{"groups":["A"],"evidence":"Sintético"}','Grupo sintético'),
+      ('group_snapshot','aa130000-0000-4000-8000-000000000002','2026-10-01','{"groups":["B"],"evidence":"Sintético"}','Outro colaborador'),
+      ('policy','shared-group','2026-10-01','{"scope":"group","indicator":"outsideOperation","exclude":true}','Regra compartilhada')`,[employee]);
+    const input=(await db.query<{v:{settings:Array<{kind:string;target:string}>}}>("select private.monitoring_input($1,'2026-10-08','2026-10-08') v",[employee])).rows[0].v;
+    expect(input.settings.map(s=>s.target)).toContain(employee);expect(input.settings.map(s=>s.target)).toContain('shared-group');
+    expect(input.settings.map(s=>s.target)).not.toContain('aa130000-0000-4000-8000-000000000002');
+  });
   it("finishes bounded day batches atomically and safely replays a lost acknowledgment",async()=>{
     const employee='aa130000-0000-4000-8000-000000000001';
     await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'BACKFILL-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
