@@ -148,6 +148,9 @@ export interface Lateness {
   eligibility: Eligibility;
 }
 export interface JourneyCalculationInput {
+  /** Pairing evidence is independent of the employee's expected working hours. */
+  punchPairing?: Schedule["pairing"];
+  maxJourneySpanMs?: number;
   /** Complete clock collection; used only for partial meal observations between two marks. */
   punchCollectionComplete?: boolean;
   personId: string;

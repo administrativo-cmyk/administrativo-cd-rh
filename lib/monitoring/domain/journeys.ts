@@ -1,11 +1,12 @@
 import { assertInstant, durationMs, normalizeIntervals } from "./intervals";
 import type { Journey, JourneyCalculationInput, PunchEvent } from "./types";
 
-/** Caller supplies the operational journey window from a confirmed schedule or reconciliation. */
+/** Caller supplies an attributed window and independent boundary/pairing evidence. */
 export function reconstructJourney(input: JourneyCalculationInput, punches: readonly PunchEvent[]): Journey {
   const result: Journey = { status: "empty", work: [], rest: [], provisionalWork: [], firstEntry: null, lastExit: null, retainedPunchIds: punches.map((punch) => punch.id), issues: [] };
   if (!punches.length) return result;
   const { evidence, schedule } = input;
+  const pairing = input.punchPairing ?? schedule?.pairing;
   if (schedule) {
     assertInstant(schedule.expectedStart);
     assertInstant(schedule.expectedEnd);
@@ -19,14 +20,14 @@ export function reconstructJourney(input: JourneyCalculationInput, punches: read
   const first = punches[0];
   const final = punches.at(-1)!;
   const typed = punches.every((punch) => punch.role !== undefined);
-  const startConfirmed = evidence.startConfirmed && (first.role === "start" || (!first.role && schedule?.pairing === "alternating"));
+  const startConfirmed = evidence.startConfirmed && (first.role === "start" || (!first.role && pairing === "alternating"));
   if (!startConfirmed) {
     result.status = "partial";
     result.issues.push({ code: "JOURNEY_START_UNCONFIRMED", eventIds: [first.id] });
     return result;
   }
   result.firstEntry = first.at;
-  const maxSpan = schedule?.maxSpanMs ?? 24 * 60 * 60 * 1000;
+  const maxSpan = schedule?.maxSpanMs ?? input.maxJourneySpanMs ?? 24 * 60 * 60 * 1000;
   if (final.at - first.at > maxSpan) {
     result.status = "inconsistent";
     result.issues.push({ code: "JOURNEY_EXCEEDS_MAX_SPAN", eventIds: [first.id, final.id] });
@@ -37,7 +38,7 @@ export function reconstructJourney(input: JourneyCalculationInput, punches: read
     result.issues.push({ code: "MIXED_PUNCH_ROLES", eventIds: punches.map((punch) => punch.id) });
     return result;
   }
-  if (!typed && schedule?.pairing !== "alternating") {
+  if (!typed && pairing !== "alternating") {
     result.status = "partial";
     result.issues.push({ code: "PAIRING_RULE_MISSING", eventIds: punches.map((punch) => punch.id) });
     return result;

@@ -118,6 +118,25 @@ function windowFor(settings: Setting[], employeeId: string, date: string, settin
   return { start: Math.floor((previous.end + current.start) / 2), end: Math.floor((current.end + next.start) / 2) };
 }
 function seconds(value: number | null): number | null { return value === null ? null : value / 1000; }
+function completePunchCollection(snapshot: RawSnapshot, start: number, end: number): boolean {
+  const linked = snapshot.sources.filter(source => snapshot.punchSourceIds.includes(source.id));
+  return snapshot.punchSourceIds.length > 0 && linked.length === snapshot.punchSourceIds.length && linked.every(source => {
+    const coverage = source.configuration.declaredCoverage as { from?: string; to?: string; continuous?: boolean } | undefined;
+    return source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true && coverage?.continuous === true
+      && Date.parse(coverage.from ?? "") <= start && Date.parse(coverage.to ?? "") >= end;
+  });
+}
+/** Without a roster, require a full 12h collection margin without adjacent-day
+ * punches. This conservatively prevents splitting a night shift at midnight. */
+function isolatedUnscheduledSequence(snapshot: RawSnapshot, punches: PunchEvent[], window: { start: number; end: number }, referenceAt: number): boolean {
+  if (!punches.length) return false;
+  const start = punches[0].at - 12 * 3_600_000;
+  const end = punches.at(-1)!.at + 12 * 3_600_000;
+  return end <= referenceAt && completePunchCollection(snapshot, start, end) && !snapshot.events.some(event => {
+    const at = Date.parse(event.payload.timestamp);
+    return event.payload.type === "punch" && at > start && at < end && (at < window.start || at >= window.end);
+  });
+}
 function provenanceFor(event: RawSnapshot["events"][number]) {
   const occurrences = (Array.isArray(event.provenance) ? event.provenance : event.provenance ? [event.provenance] : []).map((item) => ({ ...item, sourceId: item.sourceId ?? event.sourceId }));
   return { sourceId: event.sourceId, fileId: occurrences[0]?.fileId, row: occurrences[0]?.row, occurrences };
@@ -160,7 +179,8 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
   return allDates.map((date) => {
     const scheduled = scheduleFor(settings, request.employeeId, date, snapshot.calendar);
     const calendar = snapshot.calendar.find(day => day.date === date);
-    const window = windowFor(settings, request.employeeId, date, attributionFor(settings, request.employeeId, date, snapshot.calendar), snapshot.calendar);
+    const attribution = attributionFor(settings, request.employeeId, date, snapshot.calendar);
+    const window = windowFor(settings, request.employeeId, date, attribution, snapshot.calendar);
     if (window.start > referenceAt) throw Object.assign(new Error("MONITORING_FUTURE_PERIOD"), { code: "MONITORING_FUTURE_PERIOD",availableAt:window.start });
     const observationWindow = { start: window.start, end: Math.min(window.end, referenceAt) };
     const active = settings.filter((setting) => isEffective(setting, date));
@@ -196,12 +216,7 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     }
     // Full declared collection + an unambiguous alternating sequence is independent
     // evidence. File min/max and the partial export never establish these boundaries.
-    const linkedSources = snapshot.sources.filter(source => snapshot.punchSourceIds.includes(source.id));
-    const fullCollection = snapshot.punchSourceIds.length > 0 && linkedSources.length === snapshot.punchSourceIds.length && linkedSources.every(source => {
-      const coverage = source.configuration.declaredCoverage as {from?:string;to?:string;continuous?:boolean} | undefined;
-      return source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true && coverage?.continuous === true
-        && Date.parse(coverage.from ?? "") <= window.start && Date.parse(coverage.to ?? "") >= window.end;
-    });
+    const fullCollection = completePunchCollection(snapshot, window.start, window.end);
     const originalPunches = selectedEvents.filter(event => event.payload.type === "punch" && Date.parse(event.payload.timestamp) >= window.start).map(event => ({id:event.id,at:Date.parse(event.payload.timestamp),sourceId:event.sourceId}));
     const correction = snapshot.corrections.find(row => row.date === date);
     if (correction) {
@@ -212,9 +227,10 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       })));
     }
     const sortedPunches = preparePunches(punchEvents, DEFAULT_REPETITION_POLICY).events;
-    const autoBoundaries = (!evidenceSetting || correction) && scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes === 60 && (fullCollection || correction) && window.end <= referenceAt
+    const autoBoundaries = (!evidenceSetting || correction) && (fullCollection || correction) && window.end <= referenceAt
       && sortedPunches.length >= 4 && sortedPunches.length <= 6 && sortedPunches.length % 2 === 0
       && sortedPunches.every((p,index)=>index===0 || p.at-sortedPunches[index-1].at >= 120_000)
+      && (attribution || correction || isolatedUnscheduledSequence(snapshot, sortedPunches, window, referenceAt))
       && !selectedEvents.some(event=>event.payload.type==="punch" && event.conflicted && Date.parse(event.payload.timestamp)>=window.start);
     if (autoBoundaries) { evidence.startConfirmed=true; evidence.endConfirmed=true; evidence.startCoverageConfirmed=true; }
     const mappings: AccessPointMapping[] = active.flatMap((setting) => setting.kind === "mapping" ? [{ ...setting.payload, id: setting.id, validFrom: setting.validFrom, validTo: setting.validTo }] : []);
@@ -231,6 +247,8 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     const calculationInput: JourneyCalculationInput = {
       personId: request.employeeId, operationalDate: date, observationWindow, referenceAt,
       punchEvents, accessEvents, mappings, coverage, schedule, evidence, coffeeWindows, groupSnapshots, indicatorPolicies,
+      punchPairing: autoBoundaries ? attribution?.payload.pairing ?? "alternating" : undefined,
+      maxJourneySpanMs: (rule?.maxJourneyHours ?? 24) * 3_600_000,
       punchCollectionComplete: fullCollection && Boolean(scheduled && !scheduled.payload.estimated),
       initialLookbackMs: (rule?.initialLookbackSeconds ?? 43_200) * 1000,
       repetitionPolicy: rule ? { punchWindowMs: rule.punchRepeatSeconds * 1000, accessWindowMs: rule.accessRepeatSeconds * 1000, suppressUntypedPunches: rule.suppressUntypedPunches, version: `${RULE_VERSION}:${ruleSetting!.id}` } : undefined,

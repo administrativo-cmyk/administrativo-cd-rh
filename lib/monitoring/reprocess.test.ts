@@ -33,7 +33,108 @@ function snapshot() {
   };
 }
 
+function completeUnscheduledSnapshot() {
+  const raw = snapshot();
+  raw.settings = raw.settings.filter(row => !["schedule", "evidence"].includes(row.kind));
+  return { ...raw, punchSourceIds: ["rep"], sources: [{ id: "rep", kind: "afd", configuration: {
+    sourceIdentityConfirmed: true, declaredCoverage: { from: stamp("00:00", "2026-10-01"), to: stamp("00:00", "2026-10-13"), continuous: true },
+  } }] };
+}
+
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("apura trabalho e acessos sem escala, mantendo atraso, extra e banco pendentes", () => {
+    const raw = completeUnscheduledSnapshot();
+    const original = structuredClone(raw);
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.result.journey.status).toBe("complete");
+    expect(day.summary).toMatchObject({ workedSeconds: 8 * 3600, restSeconds: 3600, outsideSeconds: 20 * 60,
+      lateSeconds: null, overtimeSeconds: null, expectedWorkSeconds: null, scheduleName: null, quality: "partial" });
+    expect(day.summary.bankDay).toMatchObject({ state: "pending", deltaMinutes: null, reason: "Horário padrão precisa ser confirmado" });
+    expect(day.result.issues.some(issue => issue.code === "SCHEDULE_MISSING")).toBe(true);
+    expect(raw).toEqual(original);
+  });
+
+  it.each([2, 3, 5])("não fecha sequência de %i batidas sem escala", count => {
+    const raw = completeUnscheduledSnapshot();
+    raw.events = raw.events.filter(row => row.payload.type !== "punch" || ["p1", "p2", "p3", "p4"].slice(0, count).includes(row.id));
+    if (count === 5) raw.events.push(event("punch", "18:00", "p5"));
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.summary.workedSeconds).toBeNull();
+    expect(day.summary.bankDay?.deltaMinutes).toBeNull();
+  });
+
+  it("não usa cobertura parcial, relógio ausente ou conflito para fechar jornada sem escala", () => {
+    const raw = completeUnscheduledSnapshot();
+    raw.sources[0].configuration.declaredCoverage.to = stamp("12:00");
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+    raw.sources[0].configuration.declaredCoverage.to = stamp("00:00", "2026-10-13");
+    raw.punchSourceIds.push("second-clock-missing");
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+    raw.punchSourceIds.pop();
+    raw.events[1].conflicted = true;
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+  });
+
+  it("preserva revisão explícita que não confirma o início", () => {
+    const raw = completeUnscheduledSnapshot();
+    raw.settings.push(setting("evidence", employeeId, { startConfirmed: false, endConfirmed: false, startCoverageConfirmed: false }));
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+  });
+
+  it("aguarda a margem real de coleta e preserva duração máxima sem escala", () => {
+    const raw = completeUnscheduledSnapshot();
+    expect(reprocessMonitoringSnapshot(raw, request, Date.parse(stamp("03:00", "2026-10-06")))[0].summary.workedSeconds).toBeNull();
+    raw.settings.push(setting("rule", "global", { punchRepeatSeconds: 60, accessRepeatSeconds: 10, initialLookbackSeconds: 3600, maxJourneyHours: 8, suppressUntypedPunches: false }));
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.summary.workedSeconds).toBeNull();
+    expect(day.result.issues.some(issue => issue.code === "JOURNEY_EXCEEDS_MAX_SPAN")).toBe(true);
+  });
+
+  it("não divide turno noturno sem escala mesmo com quatro batidas após meia-noite", () => {
+    const raw = completeUnscheduledSnapshot();
+    raw.events = [event("punch", "22:00", "previous", "rep", "2026-10-04"),
+      ...["00:00", "02:00", "03:00", "06:00"].map((time, i) => event("punch", time, `night-${i}`))];
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+    // Absence of the neighboring mark only helps when collection also covers the margin.
+    raw.events.shift();
+    raw.sources[0].configuration.declaredCoverage.from = stamp("00:00");
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+  });
+
+  it("usa escala estimada só para atribuir o dia, sem criar atraso ou débito", () => {
+    const raw = completeUnscheduledSnapshot();
+    raw.settings.push(setting("schedule", employeeId, { name: "Estimado", start: "08:00", end: "17:00",
+      days: [0, 1, 2, 3, 4, 5, 6], lunchMinutes: 60, estimated: true, weeklyRosterConfirmed: false,
+      allowNoBreak: false, pairing: "alternating", coffeeWindows: [] }));
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.summary.workedSeconds).toBe(8 * 3600);
+    expect(day.summary.lateSeconds).toBeNull();
+    expect(day.summary.overtimeSeconds).toBeNull();
+    expect(day.summary.bankDay?.deltaMinutes).toBeNull();
+  });
+
+  it("preserva a atribuição noturna estimada e o pareamento explícito configurado", () => {
+    const raw = completeUnscheduledSnapshot();
+    const schedule = setting("schedule", employeeId, { name: "Noturno estimado", start: "22:00", end: "06:20",
+      days: [0, 1, 2, 3, 4, 5, 6], lunchMinutes: 60, estimated: true, weeklyRosterConfirmed: false,
+      allowNoBreak: false, pairing: "alternating", coffeeWindows: [] });
+    raw.settings.push(schedule);
+    raw.events = [event("punch", "22:00", "n1"), ...["02:00", "03:00", "06:20"].map((time, i) => event("punch", time, `n${i + 2}`, "rep", "2026-10-06"))];
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.result.journey).toMatchObject({ status: "complete", firstEntry: Date.parse(stamp("22:00")), lastExit: Date.parse(stamp("06:20", "2026-10-06")) });
+    expect(day.summary.workedSeconds).toBe(440 * 60);
+    expect(day.summary.lateSeconds).toBeNull();
+    expect(day.summary.bankDay?.deltaMinutes).toBeNull();
+    schedule.payload = { ...(schedule.payload as object), pairing: "explicit" };
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+  });
+
+  it("conserva como ambígua a sequência sem escala próxima das batidas do próximo dia", () => {
+    const raw = completeUnscheduledSnapshot();
+    raw.events.push(event("punch", "03:00", "next-night", "rep", "2026-10-06"));
+    expect(reprocessMonitoringSnapshot(raw, request, reference)[0].summary.workedSeconds).toBeNull();
+  });
+
   it("entrada principal só registra acesso, sem exigir saída ou cobertura para qualidade completa", () => {
     const raw = snapshot();
     raw.settings = raw.settings.filter(row => !["mapping", "coverage"].includes(row.kind) || (row.payload as { area?: string }).area !== "perimeter");
@@ -123,7 +224,7 @@ describe("adaptação de snapshot persistido ao motor", () => {
     raw.events.push({ ...structuredClone(first), id: "a1-repeat", payload: { ...structuredClone(first.payload), key: "a1-repeat", timestamp: `${date}T08:00:59-03:00` } });
     const original = structuredClone(raw);
     const result = reprocessMonitoringSnapshot(confirmed, request, reference)[0];
-    expect(result.ruleVersion).toBe("monitoring-1.6.0");
+    expect(result.ruleVersion).toBe("monitoring-1.7.0");
     expect(result.result.suppressions).toContainEqual({ eventId: "a1-repeat", retainedEventId: "a1", rule: "access-repetition", ruleVersion: "turnstile-repetition-1.0.0", differenceMs: 59_000 });
     expect(result.result.outsideOperation).toEqual(baseline.result.outsideOperation);
     expect(result.result.journey).toEqual(baseline.result.journey);
