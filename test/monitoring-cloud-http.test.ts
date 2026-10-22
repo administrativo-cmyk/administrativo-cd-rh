@@ -57,6 +57,13 @@ describe("cloud uploads authorization and contract", () => {
     const response = await GET(); expect(response.status).toBe(200); const body = await response.json();
     expect(body.jobs[0]).toMatchObject({ id, bytes: 3, batchesDone: 0 }); expect(JSON.stringify(body)).not.toContain(job.objectPath); expect(JSON.stringify(body)).not.toContain(job.sha256);
   });
+  it("returns freshness only for allowed sources and never includes private watermark fields",async()=>{
+    const watermark={sourceId:'ponto',name:'Relógio',kind:'afd',lastImportAt:'2026-10-21T14:49:00Z',lastRecordAt:'2026-10-20T13:08:00Z'};
+    mocks.rpc.mockResolvedValue({data:{jobs:[],sources:[source],automationReady:true,freshness:[{...watermark,internalPath:'private-original'}, {...watermark,sourceId:'not-allowed'}]},error:null});
+    const response=await GET();const body=await response.json();
+    expect(response.status).toBe(200);expect(body.freshness).toEqual([watermark]);
+    expect(JSON.stringify(body)).not.toContain('private-original');
+  });
   it("recognizes completed duplicates and recovers a stored upload without overwriting it", async () => {
     mocks.rpc.mockImplementation((_name, args) => Promise.resolve({ data: args.p_action === "list" ? { jobs: [], sources: [source], automationReady: true } : { job: { ...job, status: "completed" }, duplicate: true }, error: null }));
     const done = await POST(request(input)); expect((await done.json()).alreadyUploaded).toBe(true); expect(mocks.sign).not.toHaveBeenCalled();

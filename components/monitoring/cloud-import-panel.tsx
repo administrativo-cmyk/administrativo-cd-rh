@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { ImportFreshnessSummary } from "./import-freshness";
 import { dashboardButton as button, dashboardInput as input, dashboardInstant } from "@/components/dashboards/format";
 import { cloudActionSchema, cloudError, cloudFileHash, cloudFileLimit, cloudRequest, cloudReservationSchema, cloudSnapshotSchema, cloudStatusLabels, uploadCloudFile, validateCloudFile, type CloudJob, type CloudPhase, type CloudSnapshot } from "./cloud-import-client";
 
@@ -9,7 +10,7 @@ const phaseLabels: Record<CloudPhase, string> = { idle: "", hashing: "1 de 3: co
 const pending = (job: CloudJob) => ["uploading", "queued", "processing"].includes(job.status);
 const bytesLabel = (bytes: number) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(bytes / 1024 / 1024)} MiB`;
 
-export function CloudImportPanel({ onCompleted }: { onCompleted?: () => void }) {
+export function CloudImportPanel({ onCompleted, refreshVersion = 0 }: { onCompleted?: () => void; refreshVersion?: number }) {
   const [snapshot, setSnapshot] = useState<CloudSnapshot | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [readError, setReadError] = useState(""); const [notice, setNotice] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -38,10 +39,14 @@ export function CloudImportPanel({ onCompleted }: { onCompleted?: () => void }) 
   }, [onCompleted]);
 
   useEffect(() => {
-    let disposed = false; mounted.current = true;
+    mounted.current = true;
+    return () => { mounted.current = false; readAbort.current?.abort(); writeAbort.current?.abort(); };
+  }, []);
+  useEffect(() => {
+    let disposed = false;
     queueMicrotask(() => { if (!disposed) void refresh(); });
-    return () => { disposed = true; mounted.current = false; readAbort.current?.abort(); writeAbort.current?.abort(); };
-  }, [refresh]);
+    return () => { disposed = true; };
+  }, [refresh, refreshVersion]);
   useEffect(() => {
     if (!hasPending) return;
     const poll = () => { if (document.visibilityState === "visible" && (!readAbort.current || readAbort.current.signal.aborted)) void refresh(); };
@@ -105,6 +110,7 @@ export function CloudImportPanel({ onCompleted }: { onCompleted?: () => void }) 
   const pages = Math.max(1, Math.ceil(jobs.length / 10)); const currentPage = Math.min(page, pages - 1);
   return <section aria-labelledby="cloud-import-title" className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="cloud-import-title" className="font-semibold text-slate-900">Enviar arquivos para a nuvem</h3><p className="mt-1 max-w-3xl text-sm text-slate-600">Envie a exportação do ponto ou do Defense. Após a confirmação do recebimento, o processamento continua mesmo com o computador desligado. A exportação de novos arquivos continua sendo feita no equipamento ou no Defense.</p></div><button type="button" className={button} disabled={busy || loading} onClick={() => { setError(""); setLoading(true); void refresh(); }}>Atualizar envios</button></div>
+    {snapshot ? <ImportFreshnessSummary rows={snapshot.freshness} /> : null}
     {loading && !snapshot ? <p role="status" className="mt-4 text-sm text-slate-600">Carregando fontes e histórico…</p> : null}
     {snapshot && !snapshot.automationReady ? <p id="cloud-activation-help" role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Aguardando ativação da automação no servidor. Novos envios estão desabilitados. O histórico continua disponível; solicite a ativação ao administrador e depois clique em Atualizar envios.</p> : null}
     {snapshot ? <form onSubmit={submit} className="mt-5 space-y-3" aria-label="Envio de arquivo para processamento na nuvem">

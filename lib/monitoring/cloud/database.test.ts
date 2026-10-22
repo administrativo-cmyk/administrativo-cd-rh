@@ -74,6 +74,40 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("keeps separate import and record timestamps for both clocks and facial readers, including after archival",async()=>{
+    await db.exec(`insert into public.monitoring_sources(id,kind,identity_namespace,label) values
+      ('clock-two','afd','clock-two','Segundo relógio'),('facial','defense-access','facial','Faciais'),('people','defense-person','facial','Cadastros');
+      insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,payload,nsr) values
+      ('cloud-test','point-one',repeat('a',64),'punch','cpf','12345678909','2026-10-20T13:08:00Z','authorized',true,'{}','000000001'),
+      ('clock-two','point-two',repeat('b',64),'punch','cpf','12345678909','2026-10-20T13:17:00Z','authorized',true,'{}','000000002'),
+      ('facial','face-one',repeat('c',64),'access','defense','1','2026-10-19T02:54:09Z','authorized',true,'{}',null);
+      insert into public.monitoring_files(source_id,sha256,byte_length,relative_path,parser_version,status,expected_batches,metadata,completed_at)
+      values('cloud-test',repeat('a',64),100,'point.txt','fixture','complete',1,'{}','2026-10-21T14:49:00Z');`);
+    const rows=(await administrative('list')).freshness as Array<{sourceId:string;lastImportAt:string|null;lastRecordAt:string|null}>;
+    expect(rows).toHaveLength(3);expect(rows.some(row=>row.sourceId==='people')).toBe(false);
+    const first=rows.find(row=>row.sourceId==='cloud-test')!;
+    expect(Date.parse(first.lastImportAt!)).toBe(Date.parse('2026-10-21T14:49:00Z'));
+    expect(Date.parse(first.lastRecordAt!)).toBe(Date.parse('2026-10-20T13:08:00Z'));
+    expect(Date.parse(rows.find(row=>row.sourceId==='clock-two')!.lastRecordAt!)).toBe(Date.parse('2026-10-20T13:17:00Z'));
+    expect(Date.parse(rows.find(row=>row.sourceId==='facial')!.lastRecordAt!)).toBe(Date.parse('2026-10-19T02:54:09Z'));
+    await db.exec("delete from public.monitoring_events;update public.monitoring_sources set heartbeat_at=now(),last_success_at=now();update public.monitoring_files set archived_rows=42");
+    expect((await administrative('list')).freshness).toEqual(rows);
+    expect((await administrative('list',{},rh)).freshness).toEqual(rows);
+    await expect(administrative('list',{},gestor)).rejects.toThrow('CLOUD_FORBIDDEN');
+    expect((await db.query<{allowed:boolean}>("select has_table_privilege('authenticated','private.monitoring_import_progress','SELECT') allowed")).rows[0].allowed).toBe(false);
+  });
+  it("does not treat queued or failed uploads as a completed import or regress on older reexports",async()=>{
+    const job=await create('watermark');
+    expect((await administrative('list')).freshness).toMatchObject([{lastImportAt:null,lastRecordAt:null}]);
+    await db.query("update private.monitoring_cloud_jobs set status='failed',completed_at='2026-10-22T12:00:00Z' where id=$1",[job.id]);
+    expect((await administrative('list')).freshness).toMatchObject([{lastImportAt:null}]);
+    await db.query("update private.monitoring_cloud_jobs set status='completed',completed_at='2026-10-21T12:00:00Z' where id=$1",[job.id]);
+    const last=(await administrative('list')).freshness;
+    await db.query("update private.monitoring_cloud_jobs set status='processing',completed_at=null,lease_token=gen_random_uuid(),lease_expires_at=now()+interval '5 minutes' where id=$1",[job.id]);
+    expect((await administrative('list')).freshness).toEqual(last);
+    await db.query("update private.monitoring_cloud_jobs set status='completed',completed_at='2026-10-20T12:00:00Z',lease_token=null,lease_expires_at=null where id=$1",[job.id]);
+    expect((await administrative('list')).freshness).toEqual(last);
+  });
   it("waits for queued imports before claiming automatic daily calculations",async()=>{
     const job=await upload(await create('calculation-gate'));
     await db.exec("update private.monitoring_archive_control set active=true where id");

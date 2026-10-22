@@ -4,6 +4,7 @@ import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
 import { ingestionParserVersion } from "@/lib/monitoring/ingestion/parsers";
 import { assertCloudSource, cloudAdmin, cloudBucket, cloudFailure, cloudJob, cloudJobSchema, cloudMaxFileBytes, cloudObjectPath, publicCloudJob, CloudError } from "@/lib/monitoring/cloud/server";
 import { allowedIngestSource } from "@/lib/monitoring/ingest-security";
+import { importFreshnessSchema } from "@/lib/monitoring/import-freshness";
 
 export const runtime = "nodejs";
 const noStore = { "Cache-Control": "private, no-store" };
@@ -14,6 +15,7 @@ const requestSchema = z.object({
   afdProfile: z.enum(["legacy", "iso"]).optional(),
 }).strict();
 const listSchema = z.object({
+  freshness: z.array(importFreshnessSchema).optional(),
   jobs: z.array(cloudJobSchema), sources: z.array(z.object({ id: z.string(), name: z.string(), kind: z.enum(["afd", "defense-access", "defense-person"]) })),
   total: z.number().optional(), offset: z.number().optional(), limit: z.number().optional(),
   automationReady: z.boolean().default(false),
@@ -22,7 +24,7 @@ export async function GET() {
   const session = await monitoringSession(true); if (session.response) return session.response;
   try {
     const data = listSchema.parse(await cloudAdmin("list", { limit: 100 }));
-    return Response.json({ ...data, jobs: data.jobs.filter(job => allowedIngestSource(job.sourceId)).map(publicCloudJob), sources: data.sources.filter(source => allowedIngestSource(source.id)), maxFileBytes: cloudMaxFileBytes }, { headers: noStore });
+    return Response.json({ ...data, freshness: data.freshness?.filter(source => allowedIngestSource(source.sourceId)), jobs: data.jobs.filter(job => allowedIngestSource(job.sourceId)).map(publicCloudJob), sources: data.sources.filter(source => allowedIngestSource(source.id)), maxFileBytes: cloudMaxFileBytes }, { headers: noStore });
   } catch (error) { return cloudFailure(error); }
 }
 export async function POST(request: Request) {

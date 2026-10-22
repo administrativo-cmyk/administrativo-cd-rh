@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { importFreshnessSchema } from "@/lib/monitoring/import-freshness";
 
 export const cloudFileLimit = 20 * 1024 * 1024;
 export const cloudStatusSchema = z.enum(["uploading", "queued", "processing", "completed", "failed", "cancelled"]);
@@ -9,6 +10,7 @@ export const cloudJobSchema = z.object({
   batchesDone: z.number().int().nonnegative(), totalBatches: z.number().int().nonnegative().nullable(), errorCode: z.string().nullable(),
 });
 export const cloudSnapshotSchema = z.object({
+  freshness: z.array(importFreshnessSchema).optional(),
   sources: z.array(z.object({ id: z.string(), name: z.string(), kind: z.enum(["afd", "defense-access", "defense-person"]), afdProfile: z.enum(["legacy", "iso"]).optional().nullable() })),
   jobs: z.array(cloudJobSchema), maxFileBytes: z.number().int().positive(), automationReady: z.boolean().default(false),
 });

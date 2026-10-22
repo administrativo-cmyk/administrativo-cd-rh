@@ -32,6 +32,19 @@ beforeEach(() => { upload.mockReset().mockResolvedValue({ error: null }); storag
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("Envio para processamento na nuvem", () => {
+  it("refreshes source dates after an external import without resetting the upload draft",async()=>{
+    const fetch=api();
+    const source={sourceId:'clock',name:'Relógio PIS',kind:'afd',lastImportAt:'2026-10-21T14:49:00Z',lastRecordAt:'2026-10-20T13:08:00Z'};
+    fetch.mockResolvedValueOnce(ok({sources,jobs:[],maxFileBytes:cloudFileLimit,automationReady:true,freshness:[source]}));
+    const user=userEvent.setup();const view=render(<CloudImportPanel refreshVersion={0}/>);
+    await choose(user);
+    expect(await screen.findByText(/20\/10\/2026.*10:08:00/)).toBeInTheDocument();
+    fetch.mockResolvedValueOnce(ok({sources,jobs:[],maxFileBytes:cloudFileLimit,automationReady:true,freshness:[{...source,lastRecordAt:'2026-10-21T13:08:00Z'}]}));
+    view.rerender(<CloudImportPanel refreshVersion={1}/>);
+    expect(await screen.findByText(/21\/10\/2026.*10:08:00/)).toBeInTheDocument();
+    expect((screen.getByLabelText('Arquivo de importação') as HTMLInputElement).files).toHaveLength(1);
+    expect(upload).not.toHaveBeenCalled();
+  });
   it.each([false, undefined])("bloqueia novo upload quando automação não está confirmada: %s", async (automationReady) => {
     const fetch = api(); fetch.mockResolvedValue(ok({ sources, jobs: [job("failed")], maxFileBytes: cloudFileLimit, ...(automationReady === undefined ? {} : { automationReady }) }));
     render(<CloudImportPanel />);
