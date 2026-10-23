@@ -230,6 +230,39 @@ describe("durable cloud import SQL", () => {
     expect(await ingest("iso", "real-conflict", "2026-10-02T11:02:00Z")).toMatchObject({ conflicts: 1 });
     expect((await db.query<{conflicted:boolean}>("select conflicted from public.monitoring_events")).rows[0].conflicted).toBe(true);
   });
+  it.each(["cpf", "pis"] as const)("discards verified duplicate %s rows before storage, including lower-precision re-exports", async (identityType) => {
+    await db.exec("update private.monitoring_archive_control set active=true where id");
+    await db.query("insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind) values('duplicate/manifest.gz',$1,20,$1,30,'manifest')",[hash('manifest')]);
+    async function send(suffix:string,format:"legacy"|"iso",nsr:string,timestamp:string,raw:string) {
+      await upload(await create(suffix));const job=await claim();
+      const value=batch(hash(suffix));value.batch.totalRows=1;value.batch.occurrenceCount=1;
+      value.occurrences=[{key:hash(suffix),line:1,payloadHash:hash(raw),original:{record:raw},issues:[],event:{
+        key:hash('clock-'+nsr),type:'punch',identity:{type:identityType,value:identityType==='cpf'?'12345678909':'12044539877'},
+        timestamp,device:'cloud-test',classification:'authorized',eligible:true,nsr,rawTimestamp:timestamp,rawIdentifier:'original',
+        precisionSeconds:format==='legacy'?60:1,original:{profile:format,record:raw},
+      }}];
+      await db.query("insert into private.monitoring_archive_files(source_id,sha256,parser_version,manifest_path,rows,punches) values('cloud-test',$1,'monitoring-import/1.0.0','duplicate/manifest.gz',1,1)",[hash(suffix)]);
+      const saved=await persist(job,value,plan(1,1));
+      expect(await persist(job,value,plan(1,1))).toMatchObject({replayed:true});
+      await worker('finish',{id:job.id,leaseToken:job.leaseToken});
+      return saved;
+    }
+    await send('precise','iso','000000001','2026-10-08T11:00:37Z','precise-original');
+    await send('same-renamed','iso','000000001','2026-10-08T11:00:37Z','precise-original');
+    await send('legacy-overlap','legacy','000000001','2026-10-08T11:00:00Z','legacy-original');
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_events")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_occurrences")).rows[0].n).toBe(1);
+    expect((await db.query("select processed_rows,new_events,repeated_events,archived_rows,conflict_rows,status from public.monitoring_files where sha256=$1",[hash('legacy-overlap')])).rows[0])
+      .toEqual({processed_rows:1,new_events:0,repeated_events:1,archived_rows:1,conflict_rows:0,status:'complete'});
+    const stored=(await db.query<{payload:Record<string,unknown>;logical:Record<string,unknown>}>("select payload,private.monitoring_event_payload(e) logical from public.monitoring_events e")).rows[0];
+    expect(stored.payload).toHaveProperty('_monitoringColumns');
+    expect(stored.logical).toMatchObject({timestamp:'2026-10-08T11:00:37Z',identity:{type:identityType},original:{record:'precise-original'}});
+    await send('new-punch','iso','000000002','2026-10-08T15:00:00Z','new-original');
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_events")).rows[0].n).toBe(2);
+    expect(await send('changed-punch','iso','000000001','2026-10-08T11:02:00Z','changed-original')).toMatchObject({result:{conflicts:1}});
+    expect((await db.query("select conflicted,eligible from public.monitoring_events where nsr='000000001'")).rows[0]).toEqual({conflicted:true,eligible:false});
+    expect((await db.query<{n:number}>("select count(*)::int n from storage.objects where bucket_id='monitoramento-originais'")).rows[0].n).toBe(5);
+  });
   it("classifies stored originals under a fenced lease before any ingest", async () => {
     await db.exec("insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis')");
     const draft = await create("automatic", admin, { autoDetect: true });
