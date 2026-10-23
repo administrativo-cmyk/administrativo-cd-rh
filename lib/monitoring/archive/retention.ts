@@ -15,7 +15,9 @@ export async function retainRecentMonths(client:ArchiveCloudStore,deadline:numbe
   if(!page.rows){pending=false;break;}
   if(!page.raw||!page.table||digest(Buffer.from(page.raw))!==page.sha256)throw new Error("ARCHIVE_RETENTION_INVALID");
   const packed=packObject("pending.gz",Buffer.from(page.raw));
-  const object:StoredArchiveObject={...packed.object,path:`${details?"details":"retention"}/${page.table}/${page.sha256}.json.gz`,kind:"snapshot",metadata:{type:details?"result-details":"rolling-retention",table:page.table,rows:page.rows}};
+  // Gzip headers/encoders can differ between the Windows maintenance runner
+  // and Linux. Address immutable objects by their actual compressed bytes.
+  const object:StoredArchiveObject={...packed.object,path:`${details?"details":"retention"}/${page.table}/${packed.object.sha256}.json.gz`,kind:"snapshot",metadata:{type:details?"result-details":"rolling-retention",table:page.table,rows:page.rows}};
   await client.put(object,packed.compressed);
   const result=await client.rpc<{ok:boolean;rows?:number;stale?:boolean}>(details?"details_commit":"retention_commit",{path:object.path,raw:page.raw});
   if(result.stale)break;

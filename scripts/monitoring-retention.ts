@@ -14,4 +14,7 @@ async function run(){
  const after=await client.rpc<{databaseBytes:number;storageBytes:number}>("state");
  return {before:{databaseBytes:before.databaseBytes,storageBytes:before.storageBytes},...result,after:{databaseBytes:after.databaseBytes,storageBytes:after.storageBytes}};
 }
-run().then(value=>console.log(JSON.stringify(value))).catch(()=>{console.error("Manutenção interrompida; registros sem cópia verificada foram preservados.");process.exitCode=1;});
+run().then(value=>console.log(JSON.stringify(value))).catch(error=>{
+ const code=error instanceof Error&&/^(ARCHIVE|MONITORING)_[A-Z_]+$/.test(error.message)?error.message:"MAINTENANCE_FAILED";
+ console.error(JSON.stringify({code,message:"Manutenção interrompida; registros sem cópia verificada foram preservados."}));process.exitCode=1;
+});

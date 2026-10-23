@@ -21,6 +21,7 @@ describe("cloud rolling retention",()=>{
   const put=vi.fn().mockResolvedValue(undefined);const client={rpc,put} as unknown as ArchiveCloudStore;
   expect(await retainRecentMonths(client,Date.now()+30000)).toEqual({archived:0,compacted:1,pending:false});
   expect(put.mock.calls[0][0]).toMatchObject({metadata:{type:"result-details"}});
+  expect(put.mock.calls[0][0].path).toBe(`details/public.monitoring_result_details/${put.mock.calls[0][0].sha256}.json.gz`);
   expect(rpc.mock.calls.map(call=>call[0])).toContain("details_commit");expect(rpc.mock.calls.map(call=>call[0])).not.toContain("retention_commit");
  });
 });
