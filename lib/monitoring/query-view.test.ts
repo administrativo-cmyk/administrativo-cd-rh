@@ -12,6 +12,18 @@ describe("agrupamento e ordenação de todo o período",()=>{
   expect(view.total).toBe(2);expect(view.recordTotal).toBe(3);expect(view.groups?.[0].employeeId).toBe(id(1));expect(view.groups?.[0].summary?.workedSeconds).toBe(300);expect(view.rows).toHaveLength(2);
   expect(monitoringQueryView(source,{...filters,orderBy:"workedSeconds",direction:"desc",offset:1}).groups?.[0].employeeId).toBe(id(2));
  });
+ it("listas incluem colaboradores e escalas fora da página, sem duplicar dias",()=>{
+  const source=snapshot([
+   {...row(1),summary:{scheduleName:"Manhã"}},
+   {...row(1,"2026-10-09"),summary:{scheduleName:"Manhã"}},
+   {...row(2),summary:{scheduleName:"Noite"}},
+   {...row(3),summary:null},
+  ]);
+  const view=monitoringQueryView(source,filters);
+  expect(view.groups).toHaveLength(1);
+  expect(view.options?.employees?.map(employee=>employee.id)).toEqual([id(1),id(2),id(3)]);
+  expect(view.options?.schedules).toEqual(["Manhã","Noite"]);
+ });
  it("distingue zero conhecido, total parcial e ausência de apuração",()=>{
   const groups=monitoringGroups([row(1,"2026-10-08",100),row(1,"2026-10-09",null),row(2,"2026-10-08",null)]);
   expect(groups[0]).toMatchObject({assessedDays:1,totalDays:2,metricDays:{workedSeconds:1,outsideSeconds:1,cafeteriaSeconds:0},summary:{workedSeconds:100,outsideSeconds:0,cafeteriaSeconds:null}});

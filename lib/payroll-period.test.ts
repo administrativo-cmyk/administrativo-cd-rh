@@ -23,11 +23,9 @@ describe("fechamento da folha do dia 21 ao dia 20", () => {
       expect(validPeriod(current.startDate, current.endDate)).toBe(true);
     }
   });
-  it("lista meses anteriores e futuros com a competência atual", () => {
-    const options = payrollPeriodOptions("2026-10-19");
-    expect(options).toHaveLength(37);
-    expect(options[24]).toMatchObject({ key: "2026-10", label: "SET/OUT 2026" });
-    expect(new Set(options.map(option => option.key)).size).toBe(37);
+  it("lista somente competências com dados, sem duplicatas ou meses intermediários", () => {
+    expect(payrollPeriodOptions(["2026-10", "2026-08", "2026-10"]).map(period => period.key)).toEqual(["2026-10", "2026-08"]);
+    expect(payrollPeriodOptions([])).toEqual([]);
   });
   it.each(["", "2026-13", "2026-00", "26-10", "2026-10-21"])("recusa competência inválida %s", value => {
     expect(() => payrollPeriodForMonth(value)).toThrow("INVALID_PAYROLL_MONTH");

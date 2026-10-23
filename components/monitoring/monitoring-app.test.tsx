@@ -42,10 +42,12 @@ describe("Monitoramento integrado", () => {
     render(<MonitoringApp profile={profile} initialFilters={filters} initialSnapshot={snapshot} />);
     expect(screen.getByRole("table")).toHaveTextContent("Parcial");
     expect(screen.getByRole("table")).toHaveTextContent("Não apurável");
-    await user.type(screen.getByRole("textbox", { name: "Buscar colaborador" }), "Bruno");
+    await user.click(screen.getByRole("combobox", { name: "Colaborador" }));
+    await user.type(screen.getByRole("combobox", { name: "Pesquisar por nome ou matrícula…" }), "FICT-001");
+    await user.click(screen.getByRole("option", { name: "Ana Sintética · FICT-001" }));
     expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining("query=&"));
     await user.click(screen.getByRole("button", { name: "Aplicar filtros" }));
-    await waitFor(() => expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining("query=Bruno")));
+    await waitFor(() => expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining(`employeeId=${employeeId}`)));
     expect(screen.getByText("Nenhum colaborador encontrado nos filtros e permissões atuais.")).toBeInTheDocument();
   });
   it.each(["GESTOR", "LEITURA"] as const)("%s não recebe controles administrativos", (role) => {
@@ -87,6 +89,40 @@ describe("Monitoramento integrado", () => {
     expect(screen.getByLabelText("Data final")).toHaveValue("2028-02-29");
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/monitoring"))).toHaveLength(0);
     expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining("start=2026-10-17"));
+  });
+  it("mês atual termina hoje em São Paulo; limpar restaura o período inicial", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-24T01:30:00Z"));
+    try {
+      const initial = { ...filters, start: "2026-10-01", end: "2026-10-23" };
+      render(<MonitoringApp profile={profile} initialFilters={initial} initialSnapshot={snapshot} />);
+      expect(screen.getByLabelText("Preencher período por mês")).toHaveValue("2026-10");
+      fireEvent.change(screen.getByLabelText("Preencher período por mês"), { target: { value: "2026-09" } });
+      expect(screen.getByLabelText("Data final")).toHaveValue("2026-09-30");
+      fireEvent.change(screen.getByLabelText("Preencher período por mês"), { target: { value: "2026-10" } });
+      expect(screen.getByLabelText("Data inicial")).toHaveValue("2026-10-01");
+      expect(screen.getByLabelText("Data final")).toHaveValue("2026-10-23");
+      fireEvent.click(screen.getByRole("button", { name: "Limpar campos" }));
+      expect(screen.getByLabelText("Data final")).toHaveValue("2026-10-23");
+    } finally { vi.useRealTimers(); }
+  });
+  it("pesquisa escala sem acento, seleciona por teclado e mantém opções após aplicar", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValue(response({ ...snapshot, rows: [], total: 0 }));
+    const initial = { ...snapshot, options: { units: [], managers: [], schedules: ["Manhã", "Noite"] } };
+    render(<MonitoringApp profile={profile} initialFilters={filters} initialSnapshot={initial} />);
+    await user.click(screen.getByRole("combobox", { name: "Escala" }));
+    await user.type(screen.getByRole("combobox", { name: "Pesquisar escala…" }), "manha");
+    expect(screen.queryByRole("option", { name: "Noite" })).not.toBeInTheDocument();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(screen.getByRole("combobox", { name: "Escala" })).toHaveTextContent("Manhã");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/monitoring?"))).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Aplicar filtros" }));
+    await waitFor(() => expect(screen.getByRole("link", { name: /Exportar consulta/ })).toHaveAttribute("href", expect.stringContaining(`schedule=${encodeURIComponent("Manhã")}`)));
+    await user.click(screen.getByRole("combobox", { name: "Escala" }));
+    expect(screen.getByRole("option", { name: "Noite" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Todas as escalas" }));
+    expect(screen.getByRole("combobox", { name: "Escala" })).toHaveTextContent("Todas as escalas");
   });
   it("salva regras no alvo global reconhecido pelo cálculo", async () => {
     const user = userEvent.setup();

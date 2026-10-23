@@ -50,6 +50,13 @@ export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], 
 }
 
 export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: MonitoringFilters): MonitoringSnapshot {
+  // Build filter lists from the complete authorized dataset before pagination.
+  snapshot = { ...snapshot, options: {
+    units: snapshot.options?.units ?? [...new Set(snapshot.rows.map(row => row.unit))],
+    managers: snapshot.options?.managers ?? [],
+    employees: [...new Map(snapshot.rows.map(row => [row.employeeId, { id: row.employeeId, name: row.name, employeeNumber: row.employeeNumber }])).values()].sort((a, b) => collator.compare(a.name, b.name)),
+    schedules: [...new Set(snapshot.rows.flatMap(row => typeof row.summary?.scheduleName === "string" && row.summary.scheduleName ? [row.summary.scheduleName] : []))].sort(collator.compare),
+  } };
   const grouped=filters.start !== filters.end;
   if (!grouped) return {...snapshot,grouped:false,recordTotal:snapshot.total,rows:sortMonitoringRows(snapshot.rows,filters.orderBy,filters.direction).slice(filters.offset,filters.offset+filters.limit)};
   const groups=sortMonitoringRows(monitoringGroups(snapshot.rows),filters.orderBy,filters.direction,true);

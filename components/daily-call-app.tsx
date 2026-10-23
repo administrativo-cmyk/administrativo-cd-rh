@@ -76,7 +76,7 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
               <button onClick={daily.refresh} disabled={daily.loading} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"><RefreshCw size={14} className={daily.loading ? "animate-spin" : ""} />Atualizar</button>
             </div>
           </header>
-          <DailyCallFilters filters={daily.filters} managerOptions={daily.managerOptions} unitOptions={unitOptions} hideManagerFilter={isManager} activeCount={daily.activeFilterCount} updateFilter={daily.updateFilter} clearFilters={daily.clearFilters} onPeriodChange={daily.changePayrollPeriod} />
+          <DailyCallFilters payrollPeriods={daily.payrollPeriods} filters={daily.filters} managerOptions={daily.managerOptions} unitOptions={unitOptions} hideManagerFilter={isManager} activeCount={daily.activeFilterCount} updateFilter={daily.updateFilter} clearFilters={daily.clearFilters} onPeriodChange={daily.changePayrollPeriod} />
           <DailyCallMetrics metrics={daily.metrics} />
           {canWrite ? <DailyCallBatch employees={daily.filteredEmployees} date={daily.selectedDate} onChanged={daily.refresh} disabled={daily.loading || daily.error} /> : null}
           <DailyCallPending start={daily.filters.startDate} end={daily.filters.endDate} canWrite={canWrite} onChanged={daily.refresh} refreshToken={daily.mutationVersion} />

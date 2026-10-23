@@ -19,8 +19,7 @@ export function payrollPeriodForDate(date: string) {
   return payrollPeriodForMonth(monthKey(new Date(Date.UTC(year, month - 1 + Number(day >= 21), 20))));
 }
 
-export function payrollPeriodOptions(date: string) {
-  const { key } = payrollPeriodForDate(date);
-  const [year, month] = key.split("-").map(Number);
-  return Array.from({ length: 37 }, (_, index) => payrollPeriodForMonth(monthKey(new Date(Date.UTC(year, month - 25 + index, 20)))));
+/** Only cycles with persisted attendance, without filling gaps in the history. */
+export function payrollPeriodOptions(closingMonths: readonly string[]) {
+  return [...new Set(closingMonths)].sort((a, b) => b.localeCompare(a)).map(payrollPeriodForMonth);
 }

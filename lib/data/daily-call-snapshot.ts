@@ -41,6 +41,7 @@ const resultSchema = z.object({
   startDate: z.string(),
   endDate: z.string(),
   employees: z.array(employeeSchema),
+  payrollPeriods: z.array(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).optional(),
 });
 
 const situations = situationLabels as Record<WorkforceSituation, EmployeeSituation>;
@@ -53,6 +54,7 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
   const result = resultSchema.parse(raw);
   return {
     date: result.date,
+    payrollPeriods: result.payrollPeriods,
     startDate: result.startDate,
     endDate: result.endDate,
     employees: result.employees.map((row): Employee => {

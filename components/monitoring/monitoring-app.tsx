@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, RefreshCw, Search } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -11,6 +11,8 @@ import { filtersSchema, snapshotSchema, type MonitoringFilters, type MonitoringS
 import { cn } from "@/lib/utils";
 import { MonitoringDetail } from "./monitoring-detail";
 import { MonitoringAdmin } from "./monitoring-admin";
+import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
+import { SearchFilter } from "./search-filter";
 import { GroupFilter } from "./group-filter";
 import { buttonClass, calendarDate, duration, Field, inputClass, instant, primaryClass, qualityLabels, requestJson } from "./shared";
 
@@ -49,6 +51,14 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
   function sort(key: MonitoringSortKey) { const direction=(applied.orderBy??"name")===key && (applied.direction??"asc")==="asc"?"desc":"asc";setFilters(current=>({...current,orderBy:key,direction,offset:0}));void load({ ...applied, orderBy:key, direction, offset:0 }); }
   const unitOptions = snapshot?.options?.units ?? [...new Set(snapshot?.rows.map((row) => row.unit))];
   const managerOptions = snapshot?.options?.managers ?? [...new Map(snapshot?.rows.filter((row) => row.managerId).map((row) => [row.managerId!, row.manager])).entries()].map(([id, name]) => ({ id, name: name ?? "Sem gestor" }));
+  const employeeOptions = useMemo(() => [...new Map([initialSnapshot, snapshot].flatMap(data =>
+    (data?.options?.employees ?? data?.rows ?? []).map(employee => {
+      const id = "id" in employee ? employee.id : employee.employeeId;
+      return [id, { value: id, label: `${employee.name} · ${employee.employeeNumber}` }] as const;
+    }))).values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR")), [initialSnapshot, snapshot]);
+  const scheduleOptions = useMemo(() => [...new Set([initialSnapshot, snapshot].flatMap(data =>
+    data?.options?.schedules ?? data?.rows.flatMap(row => typeof row.summary?.scheduleName === "string" && row.summary.scheduleName ? [row.summary.scheduleName] : []) ?? []))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR")).map(name => ({ value: name, label: name })), [initialSnapshot, snapshot]);
   async function exportRecords() {
     if (exporting) return;
     setExporting(true); setError("");
@@ -65,7 +75,8 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
     if (!/^\d{4}-\d{2}$/.test(month)) return;
     const [year, number] = month.split("-").map(Number);
     const lastDay = new Date(Date.UTC(year, number, 0)).getUTCDate();
-    setFilters((current) => ({ ...current, start: `${month}-01`, end: `${month}-${lastDay}`, offset: 0 }));
+    const today = todayInSaoPaulo();
+    setFilters((current) => ({ ...current, start: `${month}-01`, end: month === today.slice(0, 7) ? today : `${month}-${String(lastDay).padStart(2, "0")}`, offset: 0 }));
   }
   return <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
     <AppSidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} role={profile.papel_usuario} activeLabel="Monitoramento" />
@@ -76,14 +87,14 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
         <nav aria-label="Seções do Monitoramento" className="flex gap-2 overflow-x-auto border-b border-slate-200 pb-2">{([["query", "Consulta"], ...(canAdmin ? [["import", "Importação"], ["reconcile", "Conciliação"], ["settings", "Configuração"]] : [])] as [Tab, string][]).map(([value, label]) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)} className={cn(buttonClass, "shrink-0", tab === value && "border-blue-300 bg-blue-50 text-blue-800")}>{label}</button>)}</nav>
         {tab !== "query" && canAdmin ? <MonitoringAdmin section={tab} today={initialFilters.end} /> : <>
           <form onSubmit={(event) => { event.preventDefault(); void load({ ...filters, offset: 0 }); }} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Filtros do Monitoramento">
-            <div className="sm:col-span-2 xl:col-span-4"><Field label="Preencher período por mês"><input type="month" className={`${inputClass} sm:max-w-64`} onChange={(event) => selectMonth(event.target.value)} /></Field></div>
+            <div className="sm:col-span-2 xl:col-span-4"><Field label="Preencher período por mês"><input type="month" value={filters.start.slice(0, 7) === filters.end.slice(0, 7) ? filters.start.slice(0, 7) : ""} className={`${inputClass} sm:max-w-64`} onChange={(event) => selectMonth(event.target.value)} /></Field></div>
             <Field label="De"><input aria-label="Data inicial" type="date" required className={inputClass} value={filters.start} onChange={(event) => update("start", event.target.value)} /></Field>
             <Field label="Até"><input aria-label="Data final" type="date" required className={inputClass} value={filters.end} onChange={(event) => update("end", event.target.value)} /></Field>
-            <Field label="Colaborador"><input aria-label="Buscar colaborador" className={inputClass} value={filters.query} onChange={(event) => update("query", event.target.value)} placeholder="Nome ou matrícula exata" /></Field>
+            <SearchFilter label="Colaborador" placeholder="Pesquisar por nome ou matrícula…" allLabel="Todos os colaboradores" value={filters.employeeId} options={employeeOptions} onChange={employeeId => setFilters(current => ({ ...current, employeeId, query: "", offset: 0 }))} />
             <Field label="Unidade"><select className={inputClass} value={filters.unit} onChange={(event) => update("unit", event.target.value)}><option value="">Todas</option>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
             {profile.papel_usuario !== "GESTOR" ? <Field label="Gestor"><select className={inputClass} value={filters.managerId} onChange={(event) => update("managerId", event.target.value)}><option value="">Todos do escopo</option>{managerOptions.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}</select></Field> : null}
             <GroupFilter value={filters.group} onChange={group => update("group", group)} />
-            <Field label="Escala"><input className={inputClass} value={filters.schedule} onChange={(event) => update("schedule", event.target.value)} placeholder="Nome exato da escala" /></Field>
+            <SearchFilter label="Escala" placeholder="Pesquisar escala…" allLabel="Todas as escalas" value={filters.schedule} options={scheduleOptions} onChange={schedule => update("schedule", schedule)} />
             <Field label="Qualidade"><select className={inputClass} value={filters.quality} onChange={(event) => update("quality", event.target.value as MonitoringFilters["quality"])}><option value="">Todas</option>{Object.entries(qualityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
             <div className="flex flex-wrap items-end gap-2 sm:col-span-2 xl:col-span-4"><button className={primaryClass} disabled={loading}><Search size={16} />Aplicar filtros</button><button type="button" className={buttonClass} onClick={() => setFilters(initialFilters)}>Limpar campos</button><a className={cn(buttonClass, "sm:ml-auto")} href={`/api/monitoring/export?${params(applied)}`} download aria-disabled={exporting} onClick={(event) => { event.preventDefault(); void exportRecords(); }}><Download size={16} />{exporting ? "Exportando…" : "Exportar consulta CSV"}</a></div>
           </form>

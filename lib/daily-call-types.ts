@@ -68,4 +68,4 @@ export type DailyCallFilters = {
   endDate: string;
 };
 export type DailyCallMetrics = { collaborators: number; present: number; daysOff: number; absences: number; compensate: number; replace: number };
-export type DailyCallSnapshot = { date: string; startDate: string; endDate: string; employees: Employee[]; loadedAt?: string };
+export type DailyCallSnapshot = { date: string; startDate: string; endDate: string; employees: Employee[]; payrollPeriods?: string[]; loadedAt?: string };

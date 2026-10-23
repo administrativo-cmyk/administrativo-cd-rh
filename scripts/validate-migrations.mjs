@@ -1062,6 +1062,33 @@ try {
   if (error.code !== 'ENOENT') throw error;
 }
 
+// Payroll options come from actual attendance and retain the reader's team scope.
+await database.exec("begin");
+try {
+  await database.exec(`
+    insert into public.colaboradores (id,matricula,nome,unidade_id,gestor_id,situacao) values
+      ('30000000-0000-4000-8000-000000000091','PAYROLL-A','Payroll A',(select id from public.unidades where codigo='CD I'),'20000000-0000-0000-0000-000000000001','ATIVO'),
+      ('30000000-0000-4000-8000-000000000092','PAYROLL-B','Payroll B',(select id from public.unidades where codigo='CD I'),'20000000-0000-0000-0000-000000000002','ATIVO');
+    insert into public.chamada_diaria(colaborador_id,data,status) values
+      ('30000000-0000-4000-8000-000000000091','2035-01-20','P'),
+      ('30000000-0000-4000-8000-000000000091','2035-01-21','P'),
+      ('30000000-0000-4000-8000-000000000091','2035-01-22','P'),
+      ('30000000-0000-4000-8000-000000000092','2035-06-21','P');
+  `);
+  const periodsFor = async actor => (await asAuthenticated(actor, () => database.query(`
+    select public.daily_call_read('2026-10-23','2026-10-21','2026-11-20') as snapshot;
+  `))).rows[0].snapshot.payrollPeriods;
+  const adminPeriods = await periodsFor(authUsers.admin);
+  const managerPeriods = await periodsFor(authUsers.manager);
+  if (!adminPeriods.includes('2035-07') || !managerPeriods.includes('2035-01') || !managerPeriods.includes('2035-02')
+      || managerPeriods.includes('2035-07') || adminPeriods.includes('2035-03')
+      || new Set(adminPeriods).size !== adminPeriods.length) throw new Error('payroll period data/scope mismatch');
+  await database.exec(`update public.perfis set gestor_id=null where id='${authUsers.unlinkedManager}';`);
+  if ((await periodsFor(authUsers.unlinkedManager)).length) throw new Error('unlinked manager obtained payroll periods');
+  await expectAuthenticatedFailure('pending cannot read payroll periods',authUsers.pendingAdminRole,
+    `select public.daily_call_read('2026-10-23','2026-10-21','2026-11-20');`);
+} finally { await database.exec("rollback"); }
+
 console.log(JSON.stringify({
   migrationsApplied: migrations.length,
   integrityRegressionsVerified: true,

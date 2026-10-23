@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { calculateDailyCallMetrics, countActiveFilters, filterEmployees, filtersForDate, groupEmployeesByManager } from "@/lib/daily-call-selectors";
 import { validDate, validPeriod } from "@/lib/data/daily-call-dates";
-import { payrollPeriodForMonth } from "@/lib/payroll-period";
+import { payrollPeriodForDate, payrollPeriodForMonth } from "@/lib/payroll-period";
 import { reportOperationalError } from "@/lib/security/operational-error";
 import type { AttendanceCode, DailyCallFilters, DailyCallSnapshot, Employee } from "@/lib/daily-call-types";
 
@@ -29,6 +29,10 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const lastRequestKey = useRef(`${initialDate}|${filters.startDate}|${filters.endDate}||0`);
   const employees = useMemo(() => error ? [] : snapshot?.employees ?? [], [snapshot, error]);
+  const payrollPeriods = useMemo(() => error ? [] : [...new Set([
+    ...(snapshot?.payrollPeriods ?? []),
+    ...employees.flatMap(employee => Object.keys(employee.attendance).map(date => payrollPeriodForDate(date).key)),
+  ])], [snapshot, employees, error]);
   const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId) ?? null, [employees, selectedEmployeeId]);
   const filteredEmployees = useMemo(() => filterEmployees(employees, filters, selectedDate), [employees, filters, selectedDate]);
   const metrics = useMemo(() => calculateDailyCallMetrics(filteredEmployees, selectedDate), [filteredEmployees, selectedDate]);
@@ -155,5 +159,5 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   }, []);
   const isSaving = useCallback((employee: Employee, date: string) => savingKeys.has(`${employee.id}|${date}`), [savingKeys]);
 
-  return { employees, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, changePayrollPeriod, refresh, loading, error, lastSuccessfulAt, mutationVersion, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
+  return { employees, payrollPeriods, filteredEmployees, filters, updateFilter, clearFilters, activeFilterCount, metrics, managerGroups, managerOptions, selectedDate, changeDate, changePayrollPeriod, refresh, loading, error, lastSuccessfulAt, mutationVersion, viewMode, setViewMode, groupByManager, setGroupByManager, selectedEmployee, setSelectedEmployee, saveAttendance, isSaving };
 }

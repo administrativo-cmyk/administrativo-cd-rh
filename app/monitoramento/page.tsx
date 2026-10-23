@@ -10,7 +10,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: P
   const profile = await requireApprovedProfile();
   const params = await searchParams;
   const today = todayInSaoPaulo();
-  const filters = filtersSchema.parse({ start: today, end: today });
+  const filters = filtersSchema.parse({ start: `${today.slice(0, 7)}-01`, end: today });
   let snapshot: MonitoringSnapshot | null = null;
   let initialError: string | undefined;
   try { snapshot = await loadMonitoring(filters); }
