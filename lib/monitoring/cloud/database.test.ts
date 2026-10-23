@@ -102,7 +102,9 @@ describe("durable cloud import SQL", () => {
       select 'cloud-test','readiness-'||n,repeat('a',64),'punch','cpf','12345678909',
        ((now() at time zone 'America/Sao_Paulo')::date-n)::timestamp at time zone 'America/Sao_Paulo','authorized',true,lpad(n::text,9,'0'),'{}'
       from unnest(array[0,1,30]) n;
-      update public.monitoring_sources set last_success_at=now()-interval '2 hours',worker_state='running' where id='cloud-test';`);
+      update public.monitoring_sources set last_success_at=now()-interval '2 hours',worker_state='running',
+       configuration=jsonb_build_object('sourceIdentityConfirmed',true,'declaredCoverage',jsonb_build_object('continuous',true,'from',now()-interval '45 days','to',now()+interval '2 days'))
+       where id='cloud-test';`);
     await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
       select $1,((now() at time zone 'America/Sao_Paulo')::date-n),1,'synthetic','{}','{}','synthetic' from unnest(array[0,1,30]) n`,[employee]);
     await db.exec('delete from public.monitoring_jobs');
@@ -121,10 +123,108 @@ describe("durable cloud import SQL", () => {
     if(change==='initial')await db.exec("update public.monitoring_sources set last_success_at=null where id='cloud-test'");
     if(change==='recovery')await db.exec("update public.monitoring_sources set worker_state='error' where id='cloud-test'");
     await db.exec('update public.monitoring_results set dirty=false;delete from public.monitoring_jobs');
-    const changes={initial:"last_success_at=now()",configuration:"configuration=configuration||'{\"sourceIdentityConfirmed\":true}'",error:"worker_state='error'",recovery:"worker_state='running'",regression:"last_success_at=now()-interval '1 day'"};
+    const changes={initial:"last_success_at=now()",configuration:"configuration=configuration||'{\"sourceIdentityConfirmed\":false}'",error:"worker_state='error'",recovery:"worker_state='running'",regression:"last_success_at=now()-interval '1 day'"};
     await db.exec(`update public.monitoring_sources set ${changes[change as keyof typeof changes]} where id='cloud-test'`);
     expect((await db.query<{dirty:boolean}>(`select dirty from public.monitoring_results where operational_date=(now() at time zone 'America/Sao_Paulo')::date-30`)).rows[0].dirty).toBe(true);
     expect((await db.query<{n:number}>(`select count(*)::int n from public.monitoring_jobs where operational_date=(now() at time zone 'America/Sao_Paulo')::date-30`)).rows[0].n).toBe(1);
+  });
+  it.each(['ended','undeclared'])("does not recreate days when advancing success leaves %s coverage unchanged",async(mode)=>{
+    await readinessFixture();
+    await db.exec(mode==='ended'
+      ? "update public.monitoring_sources set configuration=jsonb_set(configuration,'{declaredCoverage,to}',to_jsonb(now()-interval '3 days')) where id='cloud-test'"
+      : "update public.monitoring_sources set configuration=configuration-'declaredCoverage' where id='cloud-test'");
+    await db.exec("update public.monitoring_results set dirty=false;delete from public.monitoring_jobs;update public.monitoring_sources set last_success_at=now() where id='cloud-test'");
+    expect((await db.query('select count(*)::int n from public.monitoring_jobs')).rows[0]).toEqual({n:0});
+    expect((await db.query('select count(*)::int n from public.monitoring_results where dirty')).rows[0]).toEqual({n:0});
+  });
+
+  async function incrementalFixture(kind:'afd'|'defense-access'='afd') {
+    const first='cb160000-0000-4000-8000-000000000001',second='cb160000-0000-4000-8000-000000000002';
+    const sourceId=kind==='afd'?'cloud-test':'incremental-access';
+    const identityType=kind==='afd'?'cpf':'defense';
+    if(kind!=='afd')await db.query('insert into public.monitoring_sources(id,kind,identity_namespace) values($1,$2,$1)',[sourceId,kind]);
+    await db.query(`insert into public.colaboradores(id,matricula,nome,unidade_id,admissao)
+      select id::uuid,matricula,'Pessoa sintética',(select id from public.unidades limit 1),current_date-90
+      from(values($1,'INCREMENTAL-A'),($2,'INCREMENTAL-B'))t(id,matricula)`,[first,second]);
+    await db.query(`insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by)
+      values($1,$2,'12345678909',$3,current_date-90,'Vínculo sintético',$5),($1,$2,'98765432100',$4,current_date-90,'Vínculo sintético',$5)`,[sourceId,identityType,first,second,admin]);
+    await db.query(`insert into public.monitoring_settings(kind,target,valid_from,payload,reason,created_by)
+      select 'schedule',id::text,current_date-90,'{"name":"Escala sintética","start":"08:00","end":"17:00","days":[0,1,2,3,4,5,6]}','Escala sintética',$1
+      from public.colaboradores where id in($2,$3)`,[admin,first,second]);
+    await db.query(`update public.monitoring_sources set last_success_at=now()-interval '2 hours',worker_state='running',
+      configuration=jsonb_build_object('sourceIdentityConfirmed',true,'declaredCoverage',jsonb_build_object('continuous',true,'from',now()-interval '40 days','to',now()-interval '10 days')) where id=$1`,[sourceId]);
+    const today=(await db.query<{date:string}>('select current_date::text as date')).rows[0].date;
+    const stamp=(age:number)=>new Date(Date.parse(today+'T11:00:00Z')-age*86400000).toISOString();
+    const occurrence=(n:number,age:number,identity='12345678909',seconds=0,precision=60)=>({
+      key:'incremental-row-'+n,line:n,payloadHash:hash(`incremental-${n}-${age}-${seconds}-${precision}`),issues:[],original:{},
+      event:{key:'incremental-event-'+n,type:kind==='afd'?'punch':'access',identity:{type:identityType,value:identity},
+        timestamp:new Date(Date.parse(stamp(age))+seconds*1000).toISOString(),device:sourceId,classification:'authorized',eligible:true,
+        nsr:String(n).padStart(9,'0'),precisionSeconds:precision,original:{profile:precision===60?'legacy':'iso',record:'synthetic-'+n}}
+    });
+    const ingest=async(rows:unknown[],suffix:string)=>{
+      const input={...batch(hash(suffix)),source:{...batch().source,id:sourceId,kind,identityNamespace:sourceId},
+        batch:{index:0,final:true,totalRows:rows.length,occurrenceCount:rows.length,totalBatches:1},occurrences:rows};
+      return (await db.query<{value:Record<string,unknown>}>('select public.monitoring_ingest($1::jsonb) value',[JSON.stringify(input)])).rows[0].value;
+    };
+    await ingest([occurrence(1,30),occurrence(2,25,'98765432100')],'incremental-initial');
+    await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
+      select id,current_date-age,1,'synthetic','{}','{"quality":"valid"}','Resultado sintético preservado'
+      from public.colaboradores cross join generate_series(0,40) age where id in($1,$2)`,[first,second]);
+    await db.exec('delete from public.monitoring_jobs');
+    const pending=async()=>(await db.query<{employee_id:string;age:number}>(`select employee_id,current_date-operational_date age from public.monitoring_jobs order by employee_id,age`)).rows;
+    const clear=()=>db.exec('update public.monitoring_results set dirty=false;delete from public.monitoring_jobs');
+    return {first,second,sourceId,stamp,occurrence,ingest,pending,clear};
+  }
+  it.each(['afd','defense-access'] as const)("recalculates only changed employee/day neighbors in mixed %s exports",async(kind)=>{
+    const f=await incrementalFixture(kind);
+    const old=(await db.query("select id,computed_at,summary from public.monitoring_results where operational_date=current_date-30 and employee_id=$1",[f.first])).rows[0];
+    expect(await f.ingest([f.occurrence(1,30),f.occurrence(2,25,'98765432100'),f.occurrence(3,5)],'incremental-overlap')).toMatchObject({newEvents:1,conflicts:0});
+    expect(await f.pending()).toEqual([4,5,6].map(age=>({employee_id:f.first,age})));
+    expect((await db.query('select count(*)::int n from public.monitoring_results where dirty')).rows[0]).toEqual({n:3});
+    expect((await db.query("select id,computed_at,summary from public.monitoring_results where operational_date=current_date-30 and employee_id=$1",[f.first])).rows[0]).toEqual(old);
+  });
+  it("leaves clean declared coverage unchanged for a duplicate-only export and an exact replay",async()=>{
+    const f=await incrementalFixture();
+    const rows=[f.occurrence(1,30),f.occurrence(2,25,'98765432100')];
+    expect(await f.ingest(rows,'incremental-duplicates')).toMatchObject({newEvents:0,conflicts:0});
+    expect(await f.ingest(rows,'incremental-duplicates')).toMatchObject({duplicate:true});
+    expect(await f.pending()).toEqual([]);
+    expect((await db.query('select count(*)::int n from public.monitoring_results where dirty')).rows[0]).toEqual({n:0});
+  });
+  it("invalidates refined timestamps and first conflicts once, preserving unrelated duplicate days",async()=>{
+    const f=await incrementalFixture();
+    expect(await f.ingest([f.occurrence(1,30,'12345678909',37,1),f.occurrence(2,25,'98765432100')],'incremental-refinement')).toMatchObject({newEvents:0,conflicts:0});
+    expect(await f.pending()).toEqual([29,30,31].map(age=>({employee_id:f.first,age})));
+    await f.clear();
+    expect(await f.ingest([f.occurrence(1,30,'12345678909',120,1),f.occurrence(2,25,'98765432100')],'incremental-conflict')).toMatchObject({conflicts:1});
+    // A new coverage blocker legitimately revisits the declared coverage for both people.
+    expect((await f.pending()).some(row=>row.employee_id===f.second&&row.age===25)).toBe(true);
+    await f.clear();
+    expect(await f.ingest([f.occurrence(1,30,'12345678909',120,1)],'incremental-conflict-repeated')).toMatchObject({conflicts:1});
+    expect(await f.pending()).toEqual([]);
+  });
+  it("initializes an uncomputed coverage day without recreating clean days",async()=>{
+    const f=await incrementalFixture();
+    await db.query('delete from public.monitoring_results where employee_id=$1 and operational_date=current_date-20',[f.second]);
+    await f.ingest([f.occurrence(1,30)],'incremental-missing');
+    expect(await f.pending()).toEqual([{employee_id:f.second,age:20}]);
+  });
+  it("does not restart a queued or leased dirty day when an unchanged export completes",async()=>{
+    const f=await incrementalFixture();
+    await db.query('update public.monitoring_results set dirty=true where employee_id=$1 and operational_date=current_date-20',[f.second]);
+    await db.query(`insert into public.monitoring_jobs(employee_id,operational_date,reason,lease_token,leased_until)
+      values($1,current_date-20,'Trabalho em andamento',gen_random_uuid(),now()+interval '5 minutes')`,[f.second]);
+    const before=(await db.query('select * from public.monitoring_jobs')).rows;
+    await f.ingest([f.occurrence(1,30)],'incremental-already-queued');
+    expect((await db.query('select * from public.monitoring_jobs')).rows).toEqual(before);
+  });
+  it("revisits absence evidence when a completed file resolves a previous unreadable attempt",async()=>{
+    const f=await incrementalFixture();
+    await db.query("update public.monitoring_files set completed_at=now()-interval '2 hours' where source_id=$1",[f.sourceId]);
+    await db.query("insert into public.monitoring_attempts(source_id,relative_path,code,created_at) values($1,'synthetic.txt','AFD_INCOMPLETE_LAST_RECORD',now()-interval '1 hour')",[f.sourceId]);
+    await f.clear();
+    await f.ingest([f.occurrence(1,30)],'incremental-recovery');
+    expect((await f.pending()).some(row=>row.employee_id===f.second&&row.age===20)).toBe(true);
   });
   it("avoids redundant job writes but revokes a leased calculation on every invalidation",async()=>{
     const employee=await readinessFixture();
