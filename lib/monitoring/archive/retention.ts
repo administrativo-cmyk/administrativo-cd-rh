@@ -6,18 +6,21 @@ import {digest,packObject} from "./format.ts";
 export async function retainRecentMonths(client:ArchiveCloudStore,deadline:number,maxPages=20){
  const policy=await client.rpc<{active:boolean;maintenance:boolean}>("policy");
  if(!policy.active||policy.maintenance)return {pending:false,archived:0};
- let archived=0,pages=0,pending=true;
+ let archived=0,compacted=0,pages=0,pending=true;
  while(pages<maxPages&&Date.now()<deadline-12000){
-  const page=await client.rpc<{raw?:string;sha256?:string;table?:string;rows:number}>("retention_page");
+  type Page={raw?:string;sha256?:string;table?:string;rows:number};
+  let page=await client.rpc<Page>("retention_page");
+  const details=!page.rows;
+  if(details)page=await client.rpc<Page>("details_page");
   if(!page.rows){pending=false;break;}
   if(!page.raw||!page.table||digest(Buffer.from(page.raw))!==page.sha256)throw new Error("ARCHIVE_RETENTION_INVALID");
   const packed=packObject("pending.gz",Buffer.from(page.raw));
-  const object:StoredArchiveObject={...packed.object,path:`retention/${page.table}/${page.sha256}.json.gz`,kind:"snapshot",metadata:{type:"rolling-retention",table:page.table,rows:page.rows}};
+  const object:StoredArchiveObject={...packed.object,path:`${details?"details":"retention"}/${page.table}/${page.sha256}.json.gz`,kind:"snapshot",metadata:{type:details?"result-details":"rolling-retention",table:page.table,rows:page.rows}};
   await client.put(object,packed.compressed);
-  const result=await client.rpc<{ok:boolean;rows?:number;stale?:boolean}>("retention_commit",{path:object.path,raw:page.raw});
+  const result=await client.rpc<{ok:boolean;rows?:number;stale?:boolean}>(details?"details_commit":"retention_commit",{path:object.path,raw:page.raw});
   if(result.stale)break;
   if(!result.ok)throw new Error("ARCHIVE_RETENTION_INVALID");
-  archived+=result.rows??0;pages++;
+  if(details)compacted+=result.rows??0;else archived+=result.rows??0;pages++;
  }
- await client.rpc("retention_done",{pending});return {pending,archived};
+ await client.rpc("retention_done",{pending});return {pending,archived,compacted};
 }

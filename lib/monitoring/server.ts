@@ -31,6 +31,10 @@ export async function monitoringQuery(action:string,data:unknown={},signal?:Abor
  const query=client.rpc("monitoring_query",{p_action:action,p_data:data as Json});
  const {data:result,error}=await (signal?query.abortSignal(signal):query);
  if(error) throw Object.assign(new Error("MONITORING_QUERY_FAILED"),{code:Object.keys(businessErrors).find(code=>error.message?.includes(code))??error.code});
+ if(action==="detail"){
+  const [{hydrateResultDetails},{serverArchiveStore}]=await Promise.all([import("./archive/result-details"),import("./archive/server")]);
+  return hydrateResultDetails(result,serverArchiveStore);
+ }
  return result;
 }
 export async function loadMonitoringPage(filters:MonitoringFilters,signal?:AbortSignal) { return snapshotSchema.parse(await monitoringQuery("summary",filters,signal)); }

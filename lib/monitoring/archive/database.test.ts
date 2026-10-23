@@ -35,6 +35,98 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("expires only automatic employee-day caches and refuses a page protected by a new manual decision",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'RETENTION-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query(`insert into private.daily_call_decisions(employee_id,operational_date,decision,manual_override) values($1,'2001-01-01','{}',true),($1,'2001-01-02','{}',false)`,[employee]);
+    await db.query(`insert into private.daily_call_audit(employee_id,operational_date,action,reason) values($1,'2001-01-01','DECISION','Sintético'),($1,'2001-01-02','DECISION','Sintético')`,[employee]);
+    await db.exec('update private.monitoring_archive_control set active=true');
+    const page=await call('retention_page');expect(page).toMatchObject({table:'private.daily_call_audit',rows:1});
+    expect(JSON.parse(String(page.raw)).rows[0].operational_date).toBe('2001-01-02');
+    await db.query(`insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind,metadata)
+      values('retention/private-audit.gz',repeat('a',64),20,$1,100,'snapshot',$2)`,[page.sha256,JSON.stringify({type:'rolling-retention',table:page.table})]);
+    await db.query("update private.daily_call_decisions set manual_override=true where employee_id=$1 and operational_date='2001-01-02'",[employee]);
+    expect(await call('retention_commit',{path:'retention/private-audit.gz',raw:page.raw})).toMatchObject({ok:false,stale:true});
+    expect((await db.query<{n:number}>('select count(*)::int n from private.daily_call_audit')).rows[0].n).toBe(2);
+    expect(await call('retention_page')).toMatchObject({rows:0});
+    await db.query("update private.daily_call_decisions set manual_override=false where employee_id=$1 and operational_date='2001-01-02'",[employee]);
+    expect(await call('retention_commit',{path:'retention/private-audit.gz',raw:page.raw})).toMatchObject({ok:true,rows:1});
+    expect(await call('retention_commit',{path:'retention/private-audit.gz',raw:page.raw})).toMatchObject({replayed:true});
+    const decision=await call('retention_page');expect(decision).toMatchObject({table:'private.daily_call_decisions',rows:1});
+    await db.query(`insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind,metadata)
+      values('retention/private-decision.gz',repeat('b',64),20,$1,100,'snapshot',$2)`,[decision.sha256,JSON.stringify({type:'rolling-retention',table:decision.table})]);
+    expect(await call('retention_commit',{path:'retention/private-decision.gz',raw:decision.raw})).toMatchObject({ok:true,rows:1});
+    expect((await db.query("select manual_override from private.daily_call_decisions")).rows).toEqual([{manual_override:true}]);
+  });
+  it("keeps financial summaries and all nonautomatic audits regardless of age",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'FINANCIAL-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
+      values($1,'2001-01-01',1,'test','{}','{"bankDay":{"state":"ready","deltaMinutes":-180}}','Sintético')`,[employee]);
+    await db.query(`insert into public.monitoring_audit(action,target,detail,created_at) values
+       ('reprocess',$1::text,'{"date":"2001-01-01"}',clock_timestamp()),
+       ('setting',$1::text,'{}','2001-01-01'),('reprocess',$1::text,'{"date":"invalid"}','2001-01-01')`,[employee]);
+    await db.exec('update private.monitoring_archive_control set active=true');
+    const page=await call('retention_page');expect(page).toMatchObject({table:'public.monitoring_audit',rows:1});
+    expect(JSON.parse(String(page.raw)).rows[0].detail.date).toBe('2001-01-01');
+    expect((await db.query<{rows:unknown[]}>("select private.monitoring_archive_candidates('public.monitoring_results') rows")).rows[0].rows).toEqual([]);
+    expect((await db.query<{delta:number}>("select private.attendance_bank_delta($1,'2001-01-01','2001-01-01') delta",[employee])).rows[0].delta).toBe(-180);
+  });
+  it("deduplicates Defense references only after every contributing file has materialized its group observations",async()=>{
+    await db.exec(`insert into public.monitoring_sources(id,kind,identity_namespace) values('defense-archive','defense-access','defense-archive');
+      insert into public.monitoring_files(id,source_id,sha256,byte_length,relative_path,parser_version,expected_batches,metadata)
+      values('aa110000-0000-4000-8000-000000000002','defense-archive',repeat('b',64),100,'defense.xlsx','test',1,'{}');
+      update public.monitoring_events set source_id='defense-archive',event_type='access' where event_key='key-1';
+      insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)
+      select f.id,'access',1,repeat('a',64),e.id,'{"event":{"original":{"groups":"A"}}}'::jsonb from public.monitoring_files f cross join public.monitoring_events e where e.event_key='key-1';
+      update private.monitoring_archive_control set active=true;`);
+    expect(await call('retention_page')).toMatchObject({rows:0});
+    await db.exec("insert into private.monitoring_group_files(file_id,captured_at,time_origin) select id,clock_timestamp(),'received' from public.monitoring_files");
+    const page=await call('retention_page');expect(page).toMatchObject({table:'public.monitoring_occurrences',rows:1});
+    expect(JSON.parse(String(page.raw)).rows[0].file_id).toBe('aa110000-0000-4000-8000-000000000002');
+    await db.exec("update public.monitoring_events set conflicted=true where event_key='key-1'");
+    expect(await call('retention_page')).toMatchObject({rows:0});
+  });
+  it("normalizes event JSON losslessly, including conflict changes and missing/null fields",async()=>{
+    const original={key:'key-1',type:'punch',device:null,classification:'authorized',eligible:true,nsr:'000000001',rawIdentifier:'12345678909',identity:{type:'cpf',value:'12345678909'},timestamp:'2026-10-08T12:00:00Z',original:{record:'unchanged raw evidence'},precisionSeconds:1};
+    await db.query("update public.monitoring_events set payload=$1 where event_key='key-1'",[JSON.stringify(original)]);
+    const read=async()=> (await db.query<{payload:unknown;full_payload:unknown;payload_hash:string}>("select payload,private.monitoring_event_payload(e) full_payload,payload_hash from public.monitoring_events e where event_key='key-1'")).rows[0];
+    expect((await read()).full_payload).toEqual(original);expect((await read()).payload).not.toHaveProperty('key');
+    await db.exec("update public.monitoring_events set eligible=false,conflicted=true where event_key='key-1'");
+    expect((await read()).full_payload).toEqual(original);expect((await read()).payload_hash).toBe('a'.repeat(64));
+    await db.query("update public.monitoring_events set payload=$1 where event_key='key-1'",[JSON.stringify({original:{record:'replacement'},device:null})]);
+    expect((await read()).full_payload).toEqual({original:{record:'replacement'},device:null});
+  });
+  it("archives superseded automatic revisions within the current window while keeping the latest and every manual action",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'REVISIONS-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query(`insert into private.daily_call_audit(employee_id,operational_date,action,reason) values
+      ($1,private.monitoring_archive_cutoff(),'DECISION','Primeira automática'),($1,private.monitoring_archive_cutoff(),'DECISION','Segunda automática')`,[employee]);
+    await db.query(`insert into public.monitoring_audit(action,target,detail) select 'reprocess',$1,jsonb_build_object('date',private.monitoring_archive_cutoff()) from generate_series(1,2)`,[employee]);
+    expect((await db.query<{rows:Array<{reason:string}>}>("select private.monitoring_archive_candidates('private.daily_call_audit') rows")).rows[0].rows.map(r=>r.reason)).toEqual(['Primeira automática']);
+    expect((await db.query<{rows:unknown[]}>("select private.monitoring_archive_candidates('public.monitoring_audit') rows")).rows[0].rows).toHaveLength(1);
+    await db.query("insert into private.daily_call_audit(employee_id,operational_date,action,reason) values($1,private.monitoring_archive_cutoff(),'MANUAL_CLEAR','Decisão humana preservada')",[employee]);
+    expect((await db.query<{rows:unknown[]}>("select private.monitoring_archive_candidates('private.daily_call_audit') rows")).rows[0].rows).toEqual([]);
+  });
+  it("archives exact result details without changing SQL quality or financial summaries and safely replays",async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'DETAILS-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    const full={workMs:3600000,journey:{status:'complete'},outsideOperation:{quality:'partial',milliseconds:null},cafeteria:{quality:'complete',milliseconds:0},lateness:{quality:'unavailable',totalMs:null},location:{intervals:[{state:'unknown'}]},issues:[{type:'synthetic'}]};
+    await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
+      values($1,'2026-10-08',1,'test',$2,'{"quality":"partial","bankDay":{"state":"ready","deltaMinutes":-180}}','Sintético')`,[employee,JSON.stringify(full)]);
+    await db.exec('update private.monitoring_archive_control set active=true');
+    const before=(await db.query("select summary,private.monitoring_operational_summary(summary,result) quality from public.monitoring_results")).rows[0];
+    const page=await call('details_page');expect(page).toMatchObject({rows:1,table:'public.monitoring_result_details'});
+    await expect(call('details_commit',{path:'missing.gz',raw:page.raw})).rejects.toThrow('ARCHIVE_OBJECT_NOT_STORED');
+    await db.query(`insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind,metadata)
+      values('details/synthetic.gz',repeat('a',64),20,$1,100,'snapshot','{"type":"result-details","table":"public.monitoring_result_details"}')`,[page.sha256]);
+    expect(await call('details_commit',{path:'details/synthetic.gz',raw:page.raw})).toMatchObject({ok:true,rows:1});
+    expect(await call('details_commit',{path:'details/synthetic.gz',raw:page.raw})).toMatchObject({ok:true,replayed:true});
+    expect((await db.query("select summary,private.monitoring_operational_summary(summary,result) quality from public.monitoring_results")).rows[0]).toEqual(before);
+    expect(await call('details_page')).toMatchObject({rows:0});
+    const result=(await db.query<{result:{archiveDetail:unknown}}>("select result from public.monitoring_results")).rows[0].result;expect(result.archiveDetail).toMatchObject({path:'details/synthetic.gz'});
+    await expect(call('details_page',{},'authenticated')).rejects.toThrow(/permission denied/);
+  });
   it("advances the payroll window only on the 21st, including year and leap boundaries",async()=>{
     for(const [day,cutoff] of [
       ['2026-10-20','2026-07-21'],['2026-10-21','2026-08-21'],

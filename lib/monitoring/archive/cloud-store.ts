@@ -24,7 +24,7 @@ export class ArchiveCloudStore {
     }
   }
   async rpc<T = Record<string, unknown>>(action: string, data: unknown = {}): Promise<T> {
-    const retryable=["state","policy","catalog","page","indices","file","objects","exported","export_status","register_file","register_index","begin","seal","restore","rebuild_status","retention_page","retention_commit","retention_done"].includes(action);
+    const retryable=["state","policy","catalog","page","indices","file","objects","exported","export_status","register_file","register_index","begin","seal","restore","rebuild_status","retention_page","retention_commit","retention_done","details_page","details_commit","details_objects"].includes(action);
     for(let attempt=0;;attempt++){try{
     const response = await this.request(this.url("/rest/v1/rpc/monitoring_archive_worker"), {
       method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" },
