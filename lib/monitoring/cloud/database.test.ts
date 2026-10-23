@@ -74,6 +74,69 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  async function readinessFixture() {
+    const employee='cb140000-0000-4000-8000-000000000001';
+    await db.query(`insert into public.colaboradores(id,matricula,nome,unidade_id,admissao)
+      values($1,'IMPORT-BOUNDS','Pessoa sintética',(select id from public.unidades limit 1),current_date-90)`,[employee]);
+    await db.query(`insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by)
+      values('cloud-test','cpf','12345678909',$1,current_date-90,'Vínculo sintético',$2)`,[employee,admin]);
+    await db.exec(`insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload)
+      select 'cloud-test','readiness-'||n,repeat('a',64),'punch','cpf','12345678909',
+       ((now() at time zone 'America/Sao_Paulo')::date-n)::timestamp at time zone 'America/Sao_Paulo','authorized',true,lpad(n::text,9,'0'),'{}'
+      from unnest(array[0,1,30]) n;
+      update public.monitoring_sources set last_success_at=now()-interval '2 hours',worker_state='running' where id='cloud-test';`);
+    await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
+      select $1,((now() at time zone 'America/Sao_Paulo')::date-n),1,'synthetic','{}','{}','synthetic' from unnest(array[0,1,30]) n`,[employee]);
+    await db.exec('delete from public.monitoring_jobs');
+    return employee;
+  }
+  it("bounds ordinary source successes while retaining overnight dates and clean historical results",async()=>{
+    await readinessFixture();
+    await db.exec("update public.monitoring_sources set last_success_at=now() where id='cloud-test'");
+    const results=(await db.query<{age:number;dirty:boolean}>(`select (now() at time zone 'America/Sao_Paulo')::date-operational_date age,dirty from public.monitoring_results order by age`)).rows;
+    expect(results).toEqual([{age:0,dirty:true},{age:1,dirty:true},{age:30,dirty:false}]);
+    expect((await db.query<{n:number}>(`select count(*)::int n from public.monitoring_jobs where operational_date<(now() at time zone 'America/Sao_Paulo')::date-2`)).rows[0].n).toBe(0);
+    expect((await db.query<{n:number}>(`select count(*)::int n from public.monitoring_jobs where operational_date=(now() at time zone 'America/Sao_Paulo')::date-1`)).rows[0].n).toBe(1);
+  });
+  it.each(['initial','configuration','error','recovery','regression'])("preserves broad source invalidation on %s",async(change)=>{
+    await readinessFixture();
+    if(change==='initial')await db.exec("update public.monitoring_sources set last_success_at=null where id='cloud-test'");
+    if(change==='recovery')await db.exec("update public.monitoring_sources set worker_state='error' where id='cloud-test'");
+    await db.exec('update public.monitoring_results set dirty=false;delete from public.monitoring_jobs');
+    const changes={initial:"last_success_at=now()",configuration:"configuration=configuration||'{\"sourceIdentityConfirmed\":true}'",error:"worker_state='error'",recovery:"worker_state='running'",regression:"last_success_at=now()-interval '1 day'"};
+    await db.exec(`update public.monitoring_sources set ${changes[change as keyof typeof changes]} where id='cloud-test'`);
+    expect((await db.query<{dirty:boolean}>(`select dirty from public.monitoring_results where operational_date=(now() at time zone 'America/Sao_Paulo')::date-30`)).rows[0].dirty).toBe(true);
+    expect((await db.query<{n:number}>(`select count(*)::int n from public.monitoring_jobs where operational_date=(now() at time zone 'America/Sao_Paulo')::date-30`)).rows[0].n).toBe(1);
+  });
+  it("avoids redundant job writes but revokes a leased calculation on every invalidation",async()=>{
+    const employee=await readinessFixture();
+    await db.exec("select private.monitoring_enqueue_before_attendance(null,null,null,'cloud-test')");
+    await db.exec(`create temporary table import_job_writes(n integer);insert into import_job_writes values(0);
+      create function pg_temp.count_import_job_write() returns trigger language plpgsql as $$begin update import_job_writes set n=n+1;return new;end$$;
+      create trigger count_import_job_write after update on public.monitoring_jobs for each row execute function pg_temp.count_import_job_write();`);
+    await db.exec("select private.monitoring_enqueue_before_attendance(null,null,null,'cloud-test')");
+    expect((await db.query<{n:number}>('select n from import_job_writes')).rows[0].n).toBe(0);
+    await db.query(`update public.monitoring_jobs set lease_token=gen_random_uuid(),leased_until=now()+interval '5 minutes'
+      where employee_id=$1 and operational_date=(now() at time zone 'America/Sao_Paulo')::date`,[employee]);
+    await db.exec("update import_job_writes set n=0;select private.monitoring_enqueue_before_attendance(null,null,null,'cloud-test')");
+    expect((await db.query<{n:number}>('select n from import_job_writes')).rows[0].n).toBe(1);
+    expect((await db.query<{lease_token:string|null;leased_until:string|null}>(`select lease_token,leased_until from public.monitoring_jobs where employee_id=$1 and operational_date=(now() at time zone 'America/Sao_Paulo')::date`,[employee])).rows[0]).toEqual({lease_token:null,leased_until:null});
+  });
+  it("keeps duplicate punch probes on the unique NSR index as clock history grows",async()=>{
+    await db.exec(`insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload)
+      select 'cloud-test','index-'||n,repeat('a',64),'punch','cpf','12345678909',now(),'authorized',true,lpad(n::text,9,'0'),'{}'
+      from generate_series(1,1500) n;analyze public.monitoring_events`);
+    const definition=(await db.query<{definition:string}>("select pg_get_functiondef('private.monitoring_archive_skip_cold(jsonb,jsonb)'::regprocedure) definition")).rows[0].definition;
+    const predicate=definition.match(/duplicate:=not cold and exists\(([\s\S]*?)\n \);/)?.[1];
+    expect(predicate).toBeDefined();
+    // Explain the helper's actual query, not a separately maintained lookalike.
+    const query=predicate!.replaceAll("p_batch#>>'{source,id}'","'cloud-test'").replaceAll("p_row#>>'{event,nsr}'","'999999999'")
+      .replaceAll("p_row->>'payloadHash'","repeat('a',64)").replaceAll("p_row->'event'","'{}'::jsonb")
+      .replaceAll("p_row#>>'{event,precisionSeconds}'","'1'");
+    const result=await db.query<{"QUERY PLAN":unknown}>(`explain(format json) ${query}`);
+    expect(JSON.stringify(result.rows)).toContain('monitoring_afd_nsr');
+    expect(JSON.stringify(result.rows)).not.toContain('Seq Scan');
+  });
   it("keeps separate import and record timestamps for both clocks and facial readers, including after archival",async()=>{
     await db.exec(`insert into public.monitoring_sources(id,kind,identity_namespace,label) values
       ('clock-two','afd','clock-two','Segundo relógio'),('facial','defense-access','facial','Faciais'),('people','defense-person','facial','Cadastros');
