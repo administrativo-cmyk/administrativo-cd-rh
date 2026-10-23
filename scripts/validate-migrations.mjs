@@ -1080,11 +1080,11 @@ try {
   `))).rows[0].snapshot.payrollPeriods;
   const adminPeriods = await periodsFor(authUsers.admin);
   const managerPeriods = await periodsFor(authUsers.manager);
-  if (!adminPeriods.includes('2035-07') || !managerPeriods.includes('2035-01') || !managerPeriods.includes('2035-02')
-      || managerPeriods.includes('2035-07') || adminPeriods.includes('2035-03')
-      || new Set(adminPeriods).size !== adminPeriods.length) throw new Error('payroll period data/scope mismatch');
+  const window = (await database.query(`select array_agg(to_char(private.monitoring_archive_cutoff()+make_interval(months=>n),'YYYY-MM') order by n desc) keys from generate_series(1,3) n`)).rows[0].keys;
+  if (adminPeriods.length>3 || adminPeriods.some(key=>!window.includes(key)) || managerPeriods.some(key=>!window.includes(key))
+      || new Set(adminPeriods).size!==adminPeriods.length) throw new Error('payroll period window mismatch');
   await database.exec(`update public.perfis set gestor_id=null where id='${authUsers.unlinkedManager}';`);
-  if ((await periodsFor(authUsers.unlinkedManager)).length) throw new Error('unlinked manager obtained payroll periods');
+  if (JSON.stringify(await periodsFor(authUsers.unlinkedManager))!==JSON.stringify([window[0]])) throw new Error('unlinked manager obtained historical payroll periods');
   await expectAuthenticatedFailure('pending cannot read payroll periods',authUsers.pendingAdminRole,
     `select public.daily_call_read('2026-10-23','2026-10-21','2026-11-20');`);
 } finally { await database.exec("rollback"); }

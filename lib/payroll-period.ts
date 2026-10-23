@@ -1,4 +1,4 @@
-import { validDate } from "./data/daily-call-dates";
+import { todayInSaoPaulo, validDate } from "./data/daily-call-dates";
 
 const monthLabels = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
 const monthKey = (date: Date) => date.toISOString().slice(0, 7);
@@ -19,7 +19,11 @@ export function payrollPeriodForDate(date: string) {
   return payrollPeriodForMonth(monthKey(new Date(Date.UTC(year, month - 1 + Number(day >= 21), 20))));
 }
 
-/** Only cycles with persisted attendance, without filling gaps in the history. */
-export function payrollPeriodOptions(closingMonths: readonly string[]) {
-  return [...new Set(closingMonths)].sort((a, b) => b.localeCompare(a)).map(payrollPeriodForMonth);
+/** The open cycle and its two predecessors; never let a historical selection move the window. */
+export function payrollPeriodOptions(closingMonths: readonly string[], today = todayInSaoPaulo()) {
+  const current = payrollPeriodForDate(today);
+  const [year, month] = current.key.split("-").map(Number);
+  const available = new Set(closingMonths);
+  return Array.from({ length: 3 }, (_, offset) => payrollPeriodForMonth(monthKey(new Date(Date.UTC(year, month - 1 - offset, 20)))))
+    .filter(period => period.key === current.key || available.has(period.key));
 }

@@ -35,6 +35,23 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.exec("rollback;reset role"); });
 describe("server-only frozen archive export", () => {
+  it("archives only old automatic presences after exact-row cloud proof, preserving manual, G and current days", async()=>{
+    const employee='aa130000-0000-4000-8000-000000000001';
+    await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'CALL-ARCHIVE','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
+    await db.query(`insert into public.chamada_diaria(colaborador_id,data,status,origin) values
+      ($1,'2001-01-01','P','punch'),($1,'2001-01-02','P','manual'),($1,'2001-01-03','G','manual'),
+      ($1,private.monitoring_archive_cutoff(),'P','punch')`,[employee]);
+    await db.exec('update private.monitoring_archive_control set active=true');
+    const page=(await db.query<{raw:string;sha:string}>(`select raw,encode(sha256(convert_to(raw,'UTF8')),'hex') sha from (select jsonb_build_object('table','public.chamada_diaria','rows',private.monitoring_archive_candidates('public.chamada_diaria'))::text raw) q`)).rows[0];
+    expect(JSON.parse(page.raw).rows).toHaveLength(1);
+    expect(JSON.parse(page.raw).rows[0].data).toBe('2001-01-01');
+    await expect(call('retention_commit',{path:'not-stored.gz',raw:page.raw})).rejects.toThrow('ARCHIVE_OBJECT_NOT_STORED');
+    await db.query(`insert into private.monitoring_archive_objects(path,sha256,bytes,expanded_sha256,expanded_bytes,kind,metadata)
+      values('retention/calls.gz',repeat('a',64),20,$1,100,'snapshot','{"type":"rolling-retention","table":"public.chamada_diaria"}')`,[page.sha]);
+    expect(await call('retention_commit',{path:'retention/calls.gz',raw:page.raw})).toMatchObject({ok:true,rows:1});
+    expect((await db.query<{n:number}>("select count(*)::int n from public.chamada_diaria")).rows[0].n).toBe(3);
+    expect(await call('retention_commit',{path:'retention/calls.gz',raw:page.raw})).toMatchObject({replayed:true});
+  });
   it("expires only automatic employee-day caches and refuses a page protected by a new manual decision",async()=>{
     const employee='aa130000-0000-4000-8000-000000000001';
     await db.query("insert into public.colaboradores(id,matricula,nome,unidade_id) values($1,'RETENTION-1','Pessoa sintética',(select id from public.unidades where codigo='CD I'))",[employee]);
