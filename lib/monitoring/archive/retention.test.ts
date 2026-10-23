@@ -2,6 +2,7 @@ import {describe,it,expect,vi} from "vitest";
 import type {ArchiveCloudStore} from "./cloud-store";
 import {retainRecentMonths} from "./retention";
 import {digest} from "./format";
+import * as archiveFormat from "./format";
 describe("cloud rolling retention",()=>{
  it("never commits removal when upload verification fails",async()=>{
   const raw=JSON.stringify({table:"public.monitoring_results",rows:[{id:"synthetic"}]});
@@ -21,7 +22,28 @@ describe("cloud rolling retention",()=>{
   const put=vi.fn().mockResolvedValue(undefined);const client={rpc,put} as unknown as ArchiveCloudStore;
   expect(await retainRecentMonths(client,Date.now()+30000)).toEqual({archived:0,compacted:1,pending:false});
   expect(put.mock.calls[0][0]).toMatchObject({metadata:{type:"result-details"}});
-  expect(put.mock.calls[0][0].path).toBe(`details/public.monitoring_result_details/${put.mock.calls[0][0].sha256}.json.gz`);
   expect(rpc.mock.calls.map(call=>call[0])).toContain("details_commit");expect(rpc.mock.calls.map(call=>call[0])).not.toContain("retention_commit");
+ });
+ it("keeps immutable cloud copies compatible when two platforms encode the same raw page with different gzip headers",async()=>{
+  const raw=JSON.stringify({table:"public.monitoring_result_details",rows:[{id:"synthetic",raw:"{}"}]});
+  const realPack=archiveFormat.packObject;let platform=0,served=false;
+  const encode=vi.spyOn(archiveFormat,"packObject").mockImplementation((path,bytes)=>{
+   const packed=realPack(path,bytes);const compressed=Buffer.from(packed.compressed);compressed[9]=platform;
+   return {compressed,object:{...packed.object,sha256:digest(compressed)}};
+  });
+  const copies=new Map<string,Buffer>();
+  const client={rpc:vi.fn(async(action:string)=>{
+   if(action==="policy")return {active:true,maintenance:false};if(action==="retention_page")return {rows:0};
+   if(action==="details_page"){if(served)return {rows:0};served=true;return {raw,sha256:digest(raw),table:"public.monitoring_result_details",rows:1};}
+   if(action==="details_commit")return {ok:true,rows:1};return {ok:true};
+  }),put:vi.fn(async(object:archiveFormat.ArchiveObject,bytes:Buffer)=>{
+   if(copies.has(object.path)&&!copies.get(object.path)!.equals(bytes))throw new Error("ARCHIVE_REMOTE_HASH_MISMATCH");
+   expect(archiveFormat.unpackObject(object,bytes).toString()).toBe(raw);copies.set(object.path,bytes);
+  })} as unknown as ArchiveCloudStore;
+  try{
+   expect(await retainRecentMonths(client,Date.now()+30000)).toMatchObject({compacted:1,pending:false});
+   platform=3;served=false;expect(await retainRecentMonths(client,Date.now()+30000)).toMatchObject({compacted:1,pending:false});
+   expect(copies.size).toBe(2);
+  }finally{encode.mockRestore();}
  });
 });
