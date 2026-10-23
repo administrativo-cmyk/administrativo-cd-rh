@@ -7,7 +7,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth: { g
 vi.mock("@/lib/data/supabase-workforce-repository", () => ({ SupabaseWorkforceRepository: class { load = mocks.workforce; } }));
 vi.mock("@/lib/data/supabase-daily-call-repository", () => ({ SupabaseDailyCallRepository: class { load = mocks.daily; } }));
 vi.mock("@/lib/data/supabase-time-bank-repository", () => ({ SupabaseTimeBankRepository: class { load = mocks.bank; } }));
-vi.mock("@/lib/monitoring/server", () => ({ loadMonitoringPage: mocks.monitoring, loadMonitoring: mocks.monitoringView }));
+vi.mock("@/lib/monitoring/server", () => ({ loadMonitoringSnapshot: mocks.monitoring, loadMonitoring: mocks.monitoringView }));
 import { dashboardSession, loadDashboard } from "./server";
 
 const day = "2026-10-17";
@@ -67,21 +67,21 @@ describe("carregamento completo e consistente das fontes", () => {
     expect(mocks.monitoring).toHaveBeenCalledOnce();
     expect(mocks.monitoringView).not.toHaveBeenCalled();
   });
-  it("agrega600resultados de duas páginas, nunca sóosprimeiros500", async () => {
-    mocks.monitoring.mockImplementation(async ({ offset }: { offset: number }) => monitoringPage(offset, 600));
+  it("agrega600resultados de um snapshot, nunca só os primeiros500", async () => {
+    const source=monitoringPage(0,600);source.rows.push(...monitoringPage(500,600).rows);mocks.monitoring.mockResolvedValue(source);
     const result = await loadDashboard("monitoramento", { start: day, end: day });
-    expect(mocks.monitoring).toHaveBeenCalledTimes(2);
+    expect(mocks.monitoring).toHaveBeenCalledOnce();
     expect(result.metrics.find((row) => row.id === "workedMinutes")?.value).toBe(600);
     expect(result.metrics.find((row) => row.id === "lateRate")).toMatchObject({ numerator: 0, denominator: 600, value: 0 });
   });
-  it("recusa mudança de versão entre páginas", async () => {
-    mocks.monitoring.mockImplementation(async ({ offset }: { offset: number }) => monitoringPage(offset, 600, offset ? "2:2" : "1:1"));
+  it("recusa snapshot sem identificação de versão", async () => {
+    mocks.monitoring.mockResolvedValue({...monitoringPage(0,1),datasetVersion:undefined});
     await expect(loadDashboard("monitoramento", { start: day, end: day })).rejects.toMatchObject({ code: "DASHBOARD_SOURCE_CHANGED", status: 409 });
   });
   it("recusa página faltante ou duplicada", async () => {
     mocks.monitoring.mockImplementation(async ({ offset }: { offset: number }) => ({ ...monitoringPage(offset, 600), ...(offset ? { rows: [] } : {}) }));
     await expect(loadDashboard("monitoramento", { start: day, end: day })).rejects.toMatchObject({ code: "DASHBOARD_SOURCE_CHANGED" });
-    mocks.monitoring.mockImplementation(async ({ offset }: { offset: number }) => ({ ...monitoringPage(offset, 600), ...(offset ? { rows: monitoringPage(0, 600).rows.slice(0, 100) } : {}) }));
+    mocks.monitoring.mockResolvedValue({...monitoringPage(0,2),rows:[monitoringPage(0,2).rows[0],monitoringPage(0,2).rows[0]]});
     await expect(loadDashboard("monitoramento", { start: day, end: day })).rejects.toMatchObject({ code: "DASHBOARD_SOURCE_CHANGED" });
   });
   it("limita20milresultados antes de ler páginas adicionais", async () => {

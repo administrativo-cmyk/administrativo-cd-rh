@@ -66,25 +66,16 @@ export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: Monit
     rows:snapshot.rows.filter(row=>ids.has(row.employeeId)).sort((a,b)=>(a.date??"").localeCompare(b.date??"")||a.employeeId.localeCompare(b.employeeId))};
 }
 
-type ReadPage = (filters: MonitoringFilters,signal?:AbortSignal)=>Promise<MonitoringSnapshot>;
-/** Read the authenticated RPC in bounded parallel pages; never combine different revisions. */
-export async function readCompleteMonitoring(filters: MonitoringFilters, readPage: ReadPage, signal?: AbortSignal): Promise<MonitoringSnapshot> {
-  for (let attempt=0;attempt<2;attempt++) {
-    const first=await readPage({...filters,offset:0,limit:500},signal);
-    if (first.total>200_000) throw Object.assign(new Error("MONITORING_PERIOD_TOO_LARGE"),{code:"MONITORING_PERIOD_TOO_LARGE"});
-    if (first.total>500 && !first.datasetVersion) throw Object.assign(new Error("MONITORING_SNAPSHOT_CHANGED"),{code:"MONITORING_SNAPSHOT_CHANGED"});
-    const pages=[first];let changed=false;
-    for (let offset=500;offset<first.total;offset+=2000) {
-      signal?.throwIfAborted();
-      const offsets=Array.from({length:4},(_,i)=>offset+i*500).filter(value=>value<first.total);
-      const batch=await Promise.all(offsets.map(value=>readPage({...filters,offset:value,limit:500},signal)));
-      if (batch.some(page=>page.datasetVersion!==first.datasetVersion || page.total!==first.total)) {changed=true;break;}
-      pages.push(...batch);
-    }
-    if (changed) continue;
-    const rows=pages.flatMap(page=>page.rows);
-    if (rows.length !== first.total || new Set(rows.map(row=>`${row.employeeId}|${row.date}`)).size !== rows.length) throw Object.assign(new Error("MONITORING_INCOMPLETE_PAGE"),{code:"MONITORING_INCOMPLETE_PAGE"});
-    return {...first,rows};
+type ReadSnapshot = (filters: MonitoringFilters,signal?:AbortSignal)=>Promise<MonitoringSnapshot>;
+/** Rows, totals and version must come from one authorized SQL snapshot. */
+export async function readCompleteMonitoring(filters: MonitoringFilters, readSnapshot: ReadSnapshot, signal?: AbortSignal): Promise<MonitoringSnapshot> {
+  signal?.throwIfAborted();
+  const snapshot=await readSnapshot({...filters,offset:0,limit:500},signal);
+  signal?.throwIfAborted();
+  if (snapshot.total>200_000) throw Object.assign(new Error("MONITORING_PERIOD_TOO_LARGE"),{code:"MONITORING_PERIOD_TOO_LARGE"});
+  if (!snapshot.datasetVersion || snapshot.rows.length!==snapshot.total
+    || new Set(snapshot.rows.map(row=>`${row.employeeId}|${row.date}`)).size!==snapshot.rows.length) {
+    throw Object.assign(new Error("MONITORING_INCOMPLETE_PAGE"),{code:"MONITORING_INCOMPLETE_PAGE"});
   }
-  throw Object.assign(new Error("MONITORING_SNAPSHOT_CHANGED"),{code:"MONITORING_SNAPSHOT_CHANGED"});
+  return snapshot;
 }

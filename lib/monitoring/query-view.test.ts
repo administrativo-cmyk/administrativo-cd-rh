@@ -51,24 +51,28 @@ describe("agrupamento e ordenação de todo o período",()=>{
 });
 describe("leitura integral consistente da RPC autorizada",()=>{
  const rows=Array.from({length:1001},(_,n)=>row(n+1));
- it("busca páginas com os mesmos filtros e conserva todos os registros",async()=>{
-  const read=vi.fn(async(f:typeof filters)=>snapshot(rows.slice(f.offset,f.offset+500),rows.length));
-  const result=await readCompleteMonitoring({...filters,employeeId:id(7),query:"teste"},read);
-  expect(result.rows).toHaveLength(1001);expect(read).toHaveBeenCalledTimes(3);expect(read.mock.calls.every(([f])=>f.employeeId===id(7)&&f.query==="teste")).toBe(true);
+ it("lê todos os registros de uma só vez e conserva filtros e sinal",async()=>{
+  const read=vi.fn(async()=>snapshot(rows,rows.length));
+  const controller=new AbortController();
+  const result=await readCompleteMonitoring({...filters,employeeId:id(7),query:"teste",offset:500},read,controller.signal);
+  expect(result.rows).toHaveLength(1001);expect(read).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledWith(expect.objectContaining({employeeId:id(7),query:"teste",offset:0}),controller.signal);
  });
- it("reinicia a leitura inteira quando a revisão muda",async()=>{
-  let heads=0;const read=vi.fn(async(f:typeof filters)=>{if(f.offset===0)heads++;return snapshot(rows.slice(f.offset,f.offset+500),rows.length,heads===1&&f.offset===0?"v1":"v2");});
-  expect((await readCompleteMonitoring(filters,read)).datasetVersion).toBe("v2");expect(heads).toBe(2);
+ it("publicações contínuas do worker não exigem uma versão estável entre chamadas",async()=>{
+  let version=0;const read=vi.fn(async()=>snapshot(rows,rows.length,String(++version)));
+  expect((await readCompleteMonitoring(filters,read)).datasetVersion).toBe("1");
+  expect((await readCompleteMonitoring(filters,read)).datasetVersion).toBe("2");expect(read).toHaveBeenCalledTimes(2);
  });
  it("recusa dados duplicados ou incompletos",async()=>{
   await expect(readCompleteMonitoring(filters,async f=>snapshot(f.offset===0?rows.slice(0,500):[rows[0]],501))).rejects.toThrow("MONITORING_INCOMPLETE_PAGE");
   await expect(readCompleteMonitoring(filters,async()=>snapshot(rows.slice(0,100),501))).rejects.toThrow("MONITORING_INCOMPLETE_PAGE");
  });
- it("não produz totais se as duas tentativas mudam",async()=>{
-  await expect(readCompleteMonitoring(filters,async f=>snapshot(rows.slice(f.offset,f.offset+500),1001,String(f.offset)))).rejects.toThrow("MONITORING_SNAPSHOT_CHANGED");
+ it("interrompe uma consulta cancelada sem disparar outra leitura",async()=>{
+  const controller=new AbortController();controller.abort();const read=vi.fn(async()=>snapshot(rows));
+  await expect(readCompleteMonitoring(filters,read,controller.signal)).rejects.toThrow();expect(read).not.toHaveBeenCalled();
  });
  it("recusa paginação sem revisão e limita consultas excessivas",async()=>{
-  await expect(readCompleteMonitoring(filters,async()=>({...snapshot(rows.slice(0,500),1001),datasetVersion:undefined}))).rejects.toThrow("MONITORING_SNAPSHOT_CHANGED");
+  await expect(readCompleteMonitoring(filters,async()=>({...snapshot(rows,1001),datasetVersion:undefined}))).rejects.toThrow("MONITORING_INCOMPLETE_PAGE");
   await expect(readCompleteMonitoring(filters,async()=>snapshot([],200001))).rejects.toThrow("MONITORING_PERIOD_TOO_LARGE");
  });
 });

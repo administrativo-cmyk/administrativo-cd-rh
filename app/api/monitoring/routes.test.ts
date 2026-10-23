@@ -12,10 +12,19 @@ import { POST as ingest } from './ingest/route';
 import { POST as confirmDefense } from './defense-confirmation/route';
 import { GET as groupChanges } from './group-changes/route';
 import { GET as groups } from './groups/route';
+import { GET as exportCsv } from './export/route';
 const uuid='80000000-0000-0000-0000-000000000001';
 const read=()=>new Request('http://localhost:3000/api/monitoring?start=2026-10-01&end=2026-10-31');
 describe('monitoring HTTP authorization',()=>{
  beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('NODE_ENV','development');mocks.getClaims.mockResolvedValue({data:{claims:{sub:uuid}}});mocks.single.mockResolvedValue({data:{id:uuid,status_usuario:'APROVADO',papel_usuario:'ADMIN'}});mocks.rpc.mockResolvedValue({data:null,error:null});});
+ it('consulta e CSV usam uma leitura completa autenticada, mesmo com mais de 500 jornadas',async()=>{
+  const rows=Array.from({length:600},(_,i)=>({employeeId:`80000000-0000-4000-8000-${String(i).padStart(12,'0')}`,name:`Pessoa ${i}`,employeeNumber:String(i),unit:'CD I',manager:null,managerId:null,date:'2026-10-01',quality:'partial',dirty:false,computedAt:null,ruleVersion:null,summary:{workedSeconds:60}}));
+  let revision=0;mocks.rpc.mockImplementation(async()=>({data:{rows,total:600,people:600,pending:0,excluded:0,totals:{workedSeconds:36000},datasetVersion:`1:${++revision}`,timezone:'America/Sao_Paulo',queriedAt:'2026-10-23T20:00:00Z',start:'2026-10-01',end:'2026-10-31'},error:null}));
+  const result=await summary(read());expect(result.status).toBe(200);expect((await result.json()).total).toBe(600);expect(mocks.rpc).toHaveBeenCalledOnce();
+  expect(mocks.rpc).toHaveBeenLastCalledWith('monitoring_query',{p_action:'summary',p_data:expect.objectContaining({completeSnapshot:true,offset:0})});
+  const csv=await exportCsv(new Request('http://localhost:3000/api/monitoring/export?start=2026-10-01&end=2026-10-31'));
+  expect(csv.status).toBe(200);expect(await csv.text()).toContain('Pessoa 599');expect(mocks.rpc).toHaveBeenCalledTimes(2);
+ });
  it('rejects anonymous API and protected photos before reading database records',async()=>{
   mocks.getClaims.mockResolvedValue({data:null});expect((await summary(read())).status).toBe(401);expect((await photo(new Request(`http://localhost:3000/api/monitoring/photo?employeeId=${uuid}`))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();
   expect((await groupChanges(new Request('http://localhost:3000/api/monitoring/group-changes'))).status).toBe(401);expect(mocks.rpc).not.toHaveBeenCalled();

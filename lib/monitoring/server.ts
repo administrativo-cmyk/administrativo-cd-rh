@@ -38,7 +38,10 @@ export async function monitoringQuery(action:string,data:unknown={},signal?:Abor
  return result;
 }
 export async function loadMonitoringPage(filters:MonitoringFilters,signal?:AbortSignal) { return snapshotSchema.parse(await monitoringQuery("summary",filters,signal)); }
-export async function loadMonitoring(filters:MonitoringFilters,signal?:AbortSignal) { return monitoringQueryView(await readCompleteMonitoring(filters,loadMonitoringPage,signal),filters); }
+export async function loadMonitoringSnapshot(filters:MonitoringFilters,signal?:AbortSignal) {
+ return readCompleteMonitoring(filters,async(data,requestSignal)=>snapshotSchema.parse(await monitoringQuery("summary",{...data,completeSnapshot:true},requestSignal)),signal);
+}
+export async function loadMonitoring(filters:MonitoringFilters,signal?:AbortSignal) { return monitoringQueryView(await loadMonitoringSnapshot(filters,signal),filters); }
 export async function changeMonitoringSetting(action:string,data:unknown) {
  const client=await createClient<MonitoringDatabase>();
  const {data:result,error}=await client.rpc('monitoring_setting_change',{p_action:action,p_data:data as Json});
