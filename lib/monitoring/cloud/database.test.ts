@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { IngestBatch } from "../ingestion/types";
+import { processingProgressSchema } from "../processing-progress";
 
 const admin = "ca100000-0000-4000-8000-000000000001";
 const rh = "ca100000-0000-4000-8000-000000000002";
@@ -74,6 +75,23 @@ beforeEach(async () => {
 afterEach(async () => { await db.exec("rollback;reset role"); });
 
 describe("durable cloud import SQL", () => {
+  it("reports exact queue progress without confusing missing evidence, future days and finished imports",async()=>{
+    const employee='cb150000-0000-4000-8000-000000000001';
+    await db.query(`insert into public.colaboradores(id,matricula,nome,unidade_id,admissao) values($1,'PROGRESS','Pessoa sintética',(select id from public.unidades limit 1),current_date-90)`,[employee]);
+    await db.query(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,dirty,reason)
+      select $1,current_date-n,1,'synthetic','{}','{"quality":"partial"}',n=1,'Synthetic progress' from generate_series(0,2)n`,[employee]);
+    await db.query(`insert into public.monitoring_jobs(employee_id,operational_date,reason) values($1,current_date-1,'Fila sintética'),($1,current_date+1,'Dia futuro')`,[employee]);
+    await create("progress-file");
+    const input={start:"2020-01-01",end:"2030-01-01",employeeId:employee};
+    const day=(await db.query<{date:string}>("select current_date::text date")).rows[0].date;
+    input.start=day.slice(0,4)+"-01-01";input.end=day.slice(0,4)+"-12-31";
+    const value=processingProgressSchema.parse(await rpc("authenticated",admin,"monitoring_query","progress",input));
+    expect(value).toMatchObject({total:3,completed:2,pending:1,deferred:1,limited:2,activeImports:1});
+    expect(value.imports).toHaveLength(1);
+    const privateView=processingProgressSchema.parse(await rpc("authenticated",reader,"monitoring_query","progress",input));
+    expect(privateView.imports).toEqual([]);expect(privateView.activeImports).toBeNull();
+    await expect(rpc("authenticated","","monitoring_query","progress",input)).rejects.toThrow("MONITORING_FORBIDDEN");
+  });
   async function readinessFixture() {
     const employee='cb140000-0000-4000-8000-000000000001';
     await db.query(`insert into public.colaboradores(id,matricula,nome,unidade_id,admissao)

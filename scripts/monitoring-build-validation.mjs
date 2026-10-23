@@ -4,8 +4,9 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 const root = await realpath(process.cwd());
-// Keep the copy on the same volume: Next/Webpack cannot relativize C:/ to D:/.
-const temporaryBase = await realpath(path.dirname(root));
+// Resolve shared worktree dependencies too: Next/Webpack cannot relativize
+// a C:/ source copy to a node_modules junction whose actual target is on D:/.
+const temporaryBase = await realpath(path.dirname(path.dirname(await realpath(path.join(root,"node_modules")))));
 const temporary = await realpath(await mkdtemp(path.join(temporaryBase, "monitoring-build-")));
 const dependencies = path.join(temporary, "node_modules");
 const output = path.join(root, "artifacts", "isolated-build");

@@ -13,10 +13,22 @@ import { POST as confirmDefense } from './defense-confirmation/route';
 import { GET as groupChanges } from './group-changes/route';
 import { GET as groups } from './groups/route';
 import { GET as exportCsv } from './export/route';
+import { GET as progress } from './progress/route';
 const uuid='80000000-0000-0000-0000-000000000001';
 const read=()=>new Request('http://localhost:3000/api/monitoring?start=2026-10-01&end=2026-10-31');
 describe('monitoring HTTP authorization',()=>{
  beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('NODE_ENV','development');mocks.getClaims.mockResolvedValue({data:{claims:{sub:uuid}}});mocks.single.mockResolvedValue({data:{id:uuid,status_usuario:'APROVADO',papel_usuario:'ADMIN'}});mocks.rpc.mockResolvedValue({data:null,error:null});});
+ it('valida sessão e período antes de consultar o progresso e conserva a resposta privada',async()=>{
+  mocks.getClaims.mockResolvedValueOnce({data:null});
+  expect((await progress(new Request('http://localhost:3000/api/monitoring/progress?start=2026-10-01&end=2026-10-23'))).status).toBe(401);
+  expect((await progress(new Request('http://localhost:3000/api/monitoring/progress?start=invalid&end=2026-10-23'))).status).toBe(400);
+  expect(mocks.rpc).not.toHaveBeenCalled();
+  const data={checkedAt:'2026-10-23T20:00:00Z',datasetVersion:'1:2',start:'2026-10-01',end:'2026-10-23',total:10,completed:4,pending:6,running:1,deferred:0,failed:0,limited:2,withoutData:0,lastCalculationAt:null,activeImports:0,imports:[]};
+  mocks.rpc.mockReturnValue({abortSignal:()=>Promise.resolve({data,error:null})});
+  const response=await progress(new Request('http://localhost:3000/api/monitoring/progress?start=2026-10-01&end=2026-10-23'));
+  expect(response.status).toBe(200);expect(await response.json()).toEqual(data);expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(mocks.rpc).toHaveBeenCalledWith('monitoring_query',{p_action:'progress',p_data:expect.objectContaining({start:'2026-10-01',end:'2026-10-23'})});
+ });
  it('consulta e CSV usam uma leitura completa autenticada, mesmo com mais de 500 jornadas',async()=>{
   const rows=Array.from({length:600},(_,i)=>({employeeId:`80000000-0000-4000-8000-${String(i).padStart(12,'0')}`,name:`Pessoa ${i}`,employeeNumber:String(i),unit:'CD I',manager:null,managerId:null,date:'2026-10-01',quality:'partial',dirty:false,computedAt:null,ruleVersion:null,summary:{workedSeconds:60}}));
   let revision=0;mocks.rpc.mockImplementation(async()=>({data:{rows,total:600,people:600,pending:0,excluded:0,totals:{workedSeconds:36000},datasetVersion:`1:${++revision}`,timezone:'America/Sao_Paulo',queriedAt:'2026-10-23T20:00:00Z',start:'2026-10-01',end:'2026-10-31'},error:null}));

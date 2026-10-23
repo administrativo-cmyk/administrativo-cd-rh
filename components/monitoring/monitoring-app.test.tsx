@@ -10,6 +10,7 @@ import type { AuthenticatedProfile } from "@/lib/auth/types";
 import type { AdminSnapshot } from "./admin-types";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
+vi.mock("./processing-progress",()=>({MonitoringProcessingProgress:()=>null}));
 vi.mock("./use-group-catalog", () => ({ useGroupCatalog: () => ({ catalog: { groups: ["COZINHA JK", "ENT-14H JK VESP"], queriedAt: "2026-10-20T13:00:00Z" }, error: "", retry: () => {} }) }));
 const employeeId = "30000000-0000-4000-8000-000000000001";
 const profile: AuthenticatedProfile = { id: "10000000-0000-4000-8000-000000000001", nome_completo: "Usuário Sintético", status_usuario: "APROVADO", papel_usuario: "RH", gestor_id: null, ultimo_acesso_em: null, created_at: "2026-10-17", updated_at: "2026-10-17" };

@@ -11,6 +11,7 @@ import { filtersSchema, snapshotSchema, type MonitoringFilters, type MonitoringS
 import { cn } from "@/lib/utils";
 import { MonitoringDetail } from "./monitoring-detail";
 import { MonitoringAdmin } from "./monitoring-admin";
+import { MonitoringProcessingProgress } from "./processing-progress";
 import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 import { SearchFilter } from "./search-filter";
 import { GroupFilter } from "./group-filter";
@@ -85,6 +86,7 @@ export function MonitoringApp({ profile, initialFilters, initialSnapshot, initia
       <div className="mx-auto max-w-[1720px] space-y-4 p-3 sm:p-5">
         <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-blue-700">Operação de pessoas</p><h1 className="mt-1 text-2xl font-bold">Monitoramento do CD</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">Ponto, acessos e tempo na operação. Descanso oficial fora dos indicadores de trabalho.</p></div><button className={buttonClass} disabled={loading} onClick={() => void load(applied)}><RefreshCw size={16} />Atualizar consulta</button></header>
         <nav aria-label="Seções do Monitoramento" className="flex gap-2 overflow-x-auto border-b border-slate-200 pb-2">{([["query", "Consulta"], ...(canAdmin ? [["import", "Importação"], ["reconcile", "Conciliação"], ["settings", "Configuração"]] : [])] as [Tab, string][]).map(([value, label]) => <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => setTab(value)} className={cn(buttonClass, "shrink-0", tab === value && "border-blue-300 bg-blue-50 text-blue-800")}>{label}</button>)}</nav>
+        <MonitoringProcessingProgress filters={applied} snapshotVersion={snapshot?.datasetVersion} onRefresh={()=>{if(!loading)void load(applied);}} />
         {tab !== "query" && canAdmin ? <MonitoringAdmin section={tab} today={initialFilters.end} /> : <>
           <form onSubmit={(event) => { event.preventDefault(); void load({ ...filters, offset: 0 }); }} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Filtros do Monitoramento">
             <div className="sm:col-span-2 xl:col-span-4"><Field label="Preencher período por mês"><input type="month" value={filters.start.slice(0, 7) === filters.end.slice(0, 7) ? filters.start.slice(0, 7) : ""} className={`${inputClass} sm:max-w-64`} onChange={(event) => selectMonth(event.target.value)} /></Field></div>
