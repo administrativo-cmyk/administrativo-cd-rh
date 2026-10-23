@@ -25,5 +25,5 @@ export const importOptionsSchema = z.object({
   defaults: z.object({ reason, sourceId: id.optional(), validFrom: z.string().optional(), validTo: z.string().nullable().optional() }).strict(),
 }).strict();
 export type ImportOptions = z.infer<typeof importOptionsSchema>;
-export type ImportPreview = { id: string; kind: ImportKind; updatedAt: string; expiresAt: string; metadata: { fileName: string; sha256: string }; rows: Array<{ line: number; input: Record<string, string | number>; employeeId: string | null; employeeName: string | null; employeeNumber: string | null; errors: string[]; state: "ready" | "blocked" | "applied" | "failed"; result: unknown }> };
+export type ImportPreview = { id: string; kind: ImportKind; updatedAt: string; expiresAt: string; metadata: { fileName: string; sha256: string }; rows: Array<{ line: number; input: Record<string, string | number>; employeeId: string | null; employeeName: string | null; employeeNumber: string | null; nameCandidates?: Array<{ id: string; name: string; employeeNumber: string; additionalEmployeeNumbers: string[] }>; errors: string[]; state: "ready" | "blocked" | "applied" | "failed"; result: unknown }> };
 export type ImportInspection = { sheets: string[]; selectedSheet: string; headers: string[]; sample: Array<{ line: number; cells: string[] }>; rowCount: number };

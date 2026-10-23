@@ -14,6 +14,7 @@ const recordSchema = z.object({
 const employeeSchema = z.object({
   id: z.string().uuid(),
   employeeNumber: z.string(),
+  additionalEmployeeNumbers: z.array(z.string()).optional(),
   name: z.string(),
   unit: z.string().trim().min(1),
   department: z.string().nullable(),
@@ -76,6 +77,7 @@ export function mapDailyCallSnapshot(raw: unknown): DailyCallSnapshot {
       )) throw new Error("Medição incompleta na resposta da Chamada Diária");
       return {
         id: row.employeeNumber,
+        additionalEmployeeNumbers: row.additionalEmployeeNumbers,
         databaseId: row.id,
         name: row.name,
         unit: row.unit as UnitCode,

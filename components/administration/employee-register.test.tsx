@@ -13,6 +13,23 @@ function setup() { const fetcher = vi.fn().mockImplementation(() => Promise.reso
 afterEach(() => vi.unstubAllGlobals());
 
 describe("cadastro de colaborador", () => {
+  it("carrega matrículas adicionais, preserva zeros e mantém rascunho se o servidor recusar", async () => {
+    const data = { ...snapshot, rows: [{ ...snapshot.rows[0], employeeNumber: "52797", additionalEmployeeNumbers: ["46293", "000123"] }] };
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(data))).mockResolvedValue(new Response(JSON.stringify({ error: "Matrícula já pertence a outro colaborador." }), { status: 409 }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<AdministrationApp entity="employee" profile={profile} />);
+    expect(await screen.findByText("Outras matrículas: 46293, 000123")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Editar Pessoa sintética" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByLabelText("Matrícula principal *")).toHaveValue("52797");
+    expect(dialog.getByLabelText("Outras matrículas (uma por linha)")).toHaveValue("46293\n000123");
+    fireEvent.change(dialog.getByLabelText("Outras matrículas (uma por linha)"), { target: { value: "46293\n000123; 00999" } });
+    fireEvent.change(dialog.getByLabelText("Motivo da alteração *"), { target: { value: "Conferência de matrículas anteriores" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Salvar cadastro" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Matrícula já pertence");
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).data).toMatchObject({ employeeNumber: "52797", additionalEmployeeNumbers: ["46293", "000123", "00999"], expectedUpdatedAt: version });
+    expect(dialog.getByLabelText("Outras matrículas (uma por linha)")).toHaveValue("46293\n000123; 00999");
+  });
   it("mostra foto, documentos, gestor, horário e situação com cores", async () => {
     setup();expect(await screen.findByRole("img", { name: "Foto de Pessoa sintética" })).toHaveAttribute("src", expect.stringContaining("/api/monitoring/photo?employeeId="));
     expect(screen.getByText("CPF 12345678909")).toBeVisible();expect(screen.getByText("PIS não informado")).toBeVisible();expect(screen.getByText("08:00 às 18:00")).toBeVisible();

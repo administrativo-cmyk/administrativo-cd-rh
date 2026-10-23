@@ -34,6 +34,7 @@ export type RealBankSnapshot = {
 
 export type Employee = {
   id: string;
+  additionalEmployeeNumbers?: string[];
   databaseId?: string;
   name: string;
   unit: UnitCode;

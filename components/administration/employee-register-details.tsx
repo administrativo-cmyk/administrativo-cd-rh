@@ -8,7 +8,7 @@ const date = (value: string) => value.split("-").reverse().join("/");
 export function EmployeeRegisterDetails({ row, snapshot, review }: { row: AdministrationEmployee; snapshot: AdministrationSnapshot; review: () => void }) {
   const signal = row.statusSignal;
   return <>
-    <td className="p-3"><p className="whitespace-nowrap text-xs">{row.cpf ? `CPF ${row.cpf}` : "CPF não informado"}</p><p className="mt-1 whitespace-nowrap text-xs">{row.pis ? `PIS ${row.pis}` : "PIS não informado"}</p></td>
+    <td className="p-3">{row.additionalEmployeeNumbers?.length ? <p className="mb-2 text-xs font-medium text-slate-700">Outras matrículas: {row.additionalEmployeeNumbers.join(", ")}</p> : null}<p className="whitespace-nowrap text-xs">{row.cpf ? `CPF ${row.cpf}` : "CPF não informado"}</p><p className="mt-1 whitespace-nowrap text-xs">{row.pis ? `PIS ${row.pis}` : "PIS não informado"}</p></td>
     <td className="p-3 text-slate-700">{snapshot.options.managers.find(manager => manager.id === row.managerId)?.name ?? "Sem gestor"}<p className="mt-1 text-xs text-slate-500">{row.department || "Setor não informado"}</p></td>
     <td className="p-3 text-slate-700">{row.defaultSchedule ? <><p className="font-medium">{row.defaultSchedule.start} às {row.defaultSchedule.end}</p><p className="mt-1 text-xs">{row.defaultSchedule.name}</p></> : "Horário não definido"}</td>
     <td className="min-w-56 p-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${situationColors[row.situation]}`}>{situationLabels[row.situation]}</span>
