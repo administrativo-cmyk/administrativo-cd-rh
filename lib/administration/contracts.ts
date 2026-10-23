@@ -47,6 +47,6 @@ export type AdministrationRows = { unit: AdministrationUnit; manager: Administra
 export type AdministrationSnapshot<E extends AdministrationEntity = AdministrationEntity> = {
   datasetVersion: string;
   entity: E; rows: AdministrationRows[E][]; total: number;
-  options: { units: Array<{ id: string; code: string; name: string; active: boolean }>; managers: Array<{ id: string; name: string; active: boolean }>; employees: Array<{ id: string; name: string; employeeNumber: string; managerId: string | null; unitId: string; activeInSystem: boolean }>; catalogs?: Array<AdministrationCatalog & { kind: "department" | "job" | "category" }> };
+  options: { units: Array<{ id: string; code: string; name: string; active: boolean }>; managers: Array<{ id: string; name: string; active: boolean }>; employees: Array<{ id: string; name: string; employeeNumber: string; managerId: string | null; unitId: string; activeInSystem: boolean; canPropose?: boolean }>; catalogs?: Array<AdministrationCatalog & { kind: "department" | "job" | "category" }> };
   permissions: { canManageRegisters: boolean; canApproveVacation: boolean; canProposeVacation: boolean };
 };

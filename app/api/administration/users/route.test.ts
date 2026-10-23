@@ -19,11 +19,16 @@ it("rejects foreign origin before session and RPC", async () => {
   expect(mocks.getClaims).not.toHaveBeenCalled(); expect(mocks.rpc).not.toHaveBeenCalled();
 });
 it.each(["GESTOR", "LEITURA"])("rejects %s before user edit RPC", async role => {
-  mocks.single.mockResolvedValue({ data: { status_usuario: "APROVADO", papel_usuario: role } });
+  mocks.single.mockResolvedValue({ data: { status_usuario: "APROVADO", papel_usuario: role, visualizar_todos_gestores: role === "GESTOR" } });
   expect((await POST(request({ action: "save", data: edit }))).status).toBe(403); expect(mocks.rpc).not.toHaveBeenCalled();
 });
-it.each([{ expectedUpdatedAt: undefined }, { role: "GESTOR", managerId: null }, { status_usuario: "APROVADO" }])("rejects incomplete or unauthorized fields %j", async extra => {
+it.each([{ expectedUpdatedAt: undefined }, { role: "GESTOR", managerId: null }, { status_usuario: "APROVADO" }, { viewAllManagers: true }, { viewAllManagers: "true" }])("rejects incomplete or unauthorized fields %j", async extra => {
   expect((await POST(request({ action: "save", data: { ...edit, ...extra } }))).status).toBe(400); expect(mocks.rpc).not.toHaveBeenCalled();
+});
+it("saves explicit manager visibility without changing role or team", async () => {
+  const data = { ...edit, role: "GESTOR", managerId: id, viewAllManagers: true };
+  expect((await POST(request({ action: "save", data }))).status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledWith("administration_users", { p_action: "save", p_data: data });
 });
 it("uses session-only wrapper and private response caching", async () => {
   const response = await POST(request({ action: "save", data: edit }));

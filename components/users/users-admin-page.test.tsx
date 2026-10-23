@@ -61,4 +61,32 @@ describe("vínculo de gestor em /usuarios", () => {
     await user.click(screen.getByRole("button", { name: "Salvar edição" }));
     expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ id: target.id, managerId: managerB, expectedUpdatedAt: "2026-10-17T12:00:00Z", role: "GESTOR" }));
   });
+
+  it("habilita visualização global mantendo papel GESTOR e vínculo", async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ ...target, status_usuario: "APROVADO", papel_usuario: "GESTOR", gestor_id: managerA, updated_at: "2026-10-17T12:00:00Z", visualizar_todos_gestores: false }]);
+    render(<UsersAdminPage profile={actor} />);
+    await user.click(await screen.findByRole("button", { name: "Editar usuário" }));
+    const checkbox = screen.getByRole("checkbox", { name: "Visualizar todos os gestores" });
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toHaveAccessibleDescription(/Alterações operacionais continuam restritas à equipe vinculada/);
+    await user.click(checkbox);
+    await user.type(screen.getByRole("textbox", { name: "Justificativa da edição" }), "Gerente responsável por todas as equipes");
+    await user.click(screen.getByRole("button", { name: "Salvar edição" }));
+    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ role: "GESTOR", managerId: managerA, viewAllManagers: true }));
+  });
+
+  it("restaura opção salva e limpa ao trocar papel", async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([{ ...target, status_usuario: "APROVADO", papel_usuario: "GESTOR", gestor_id: managerA, updated_at: "2026-10-17T12:00:00Z", visualizar_todos_gestores: true }]);
+    render(<UsersAdminPage profile={actor} />);
+    expect(await screen.findByText("Visualiza todos os gestores")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Editar usuário" }));
+    expect(screen.getByRole("checkbox", { name: "Visualizar todos os gestores" })).toBeChecked();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Papel do usuário" }), "LEITURA");
+    expect(screen.queryByRole("checkbox", { name: "Visualizar todos os gestores" })).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Justificativa da edição" }), "Novo papel conferido");
+    await user.click(screen.getByRole("button", { name: "Salvar edição" }));
+    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ role: "LEITURA", managerId: null, viewAllManagers: false }));
+  });
 });

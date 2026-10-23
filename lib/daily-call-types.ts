@@ -46,6 +46,7 @@ export type Employee = {
   expectedReturnDate?: string | null;
   pendingTerminationDates?: string[];
   activeInSystem?: boolean;
+  canWrite?: boolean;
   plannedVacation: string;
   bankDays: number | null;
   bankHours: string | null;

@@ -58,7 +58,7 @@ function useQueue(start: string, end: string, refresh: number, offset = 0, manag
   return { snapshot: snapshot?.start === start && snapshot.end === end ? snapshot : null, loading, error };
 }
 
-export function DailyCallPending({ start, end, canWrite, onChanged, refreshToken = 0 }: { start: string; end: string; canWrite: boolean; onChanged: () => void; refreshToken?: number }) {
+export function DailyCallPending({ start, end, canWrite, writableManagerId, onChanged, refreshToken = 0 }: { start: string; end: string; canWrite: boolean; writableManagerId?: string | null; onChanged: () => void; refreshToken?: number }) {
   const [refresh, setRefresh] = useState(0);
   const [selection, setSelection] = useState<DailyCallWorkflowDay | null>(null);
   const today = todayInSaoPaulo();
@@ -77,7 +77,7 @@ export function DailyCallPending({ start, end, canWrite, onChanged, refreshToken
     {error ? <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p> : null}
     {counts ? <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs"><span><b>{counts.present}</b> presença(s) pelo ponto</span><span><b>{counts.automaticAbsence}</b> falta(s) automáticas</span><span><b>{counts.manual}</b> lançamento(s) manuais</span><span className="text-amber-900"><b>{counts.pending}</b> aguardando gestor</span><span className="text-rose-800"><b>{counts.blocked}</b> com conferência pendente</span></div> : null}
     {snapshot ? <DailyCallDayList key={`${start}|${effectiveEnd}`} days={snapshot.days} loading={loading} onSelect={setSelection} /> : null}
-    {selected ? <DailyCallDayReview key={`${selected.date}|${selected.managerId}`} day={selected} canWrite={canWrite} onClose={() => setSelection(null)} onChanged={changed} /> : null}
+    {selected ? <DailyCallDayReview key={`${selected.date}|${selected.managerId}`} day={selected} canWrite={canWrite && (writableManagerId === undefined || (writableManagerId !== null && selected.managerId === writableManagerId))} onClose={() => setSelection(null)} onChanged={changed} /> : null}
   </section>;
 }
 

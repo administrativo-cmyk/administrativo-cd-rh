@@ -8,6 +8,7 @@ export type AuthenticatedProfile = {
   status_usuario: AccessRequestStatus;
   papel_usuario: UserRole | null;
   gestor_id: string | null;
+  visualizar_todos_gestores?: boolean;
   ultimo_acesso_em: string | null;
   created_at: string;
   updated_at: string;
@@ -20,6 +21,7 @@ export type AdministrativeUser = {
   status_usuario: AccessRequestStatus;
   papel_usuario: UserRole | null;
   gestor_id: string | null;
+  visualizar_todos_gestores?: boolean;
   created_at: string;
   aprovado_em: string | null;
   bloqueado_em: string | null;

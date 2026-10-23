@@ -71,6 +71,21 @@ describe("controles da Chamada por papel", () => {
     expect(units).not.toHaveTextContent("CD FLV");
   });
 
+  it("gerente vê filtro de gestores e consulta outra equipe sem editar status", async () => {
+    const own = { ...snapshot.employees[0], canWrite: true };
+    const other = { ...own, id: "FICT-B", databaseId: "00000000-0000-4000-8000-000000000002", name: "Pessoa de outra equipe", manager: "Outro gestor", canWrite: false };
+    render(<DailyCallApp profile={{ ...profile("GESTOR", "20000000-0000-4000-8000-000000000001"), visualizar_todos_gestores: true }} initialDate={date} initialSnapshot={{ ...snapshot, employees: [own, other] }} />);
+    expect(await screen.findByRole("combobox", { name: "Gestor" })).toHaveTextContent("Outro gestor");
+    expect((await screen.findAllByRole("button", { name: "Status de Colaborador Fictício" })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Status de Pessoa de outra equipe" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Usuários" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Importações" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Período" }));
+    await screen.findByTestId("period-grid");
+    expect(screen.getAllByRole("button", { name: /^Colaborador Fictício, dia/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Pessoa de outra equipe, dia/ })).not.toBeInTheDocument();
+  });
+
   it("GESTOR aprovado sem vínculo recebe mensagem, sem tabela operacional", async () => {
     render(<DailyCallApp profile={profile("GESTOR")} initialDate={date} initialSnapshot={{ ...snapshot, employees: [] }} />);
     expect(await screen.findByText("Seu usuário ainda não está vinculado a um gestor do quadro.")).toBeInTheDocument();

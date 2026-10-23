@@ -129,7 +129,7 @@ export function UsersAdminPage({ profile }: { profile: AuthenticatedProfile }) {
                         <td className="px-4 py-3 font-semibold text-slate-800">{user.nome_completo}</td>
                         <td className="px-4 py-3 font-mono text-xs text-slate-600">{user.cpf_mascarado}</td>
                         <td className="px-4 py-3"><StatusBadge status={user.status_usuario} /></td>
-                        <td className="px-4 py-3 text-slate-600">{user.papel_usuario ? roleLabels[user.papel_usuario] : "Não definido"}</td>
+                        <td className="px-4 py-3 text-slate-600">{user.papel_usuario ? roleLabels[user.papel_usuario] : "Não definido"}{user.papel_usuario === "GESTOR" && user.visualizar_todos_gestores ? <span className="mt-1 block text-xs font-semibold text-blue-700">Visualiza todos os gestores</span> : null}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">{dateLabel(user.created_at)}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">{dateLabel(user.aprovado_em)}</td>
                         <td className="px-4 py-3">

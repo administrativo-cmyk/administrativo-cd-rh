@@ -116,7 +116,7 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
     if (["department", "job", "category"].includes(field.type ?? "")) return (snapshot.options.catalogs ?? []).filter(item => item.kind === field.type && (item.active || draft[field.key] === item.name)).map(item => ({ value: item.name, label: `${item.name}${item.active ? "" : " (arquivado)"}` }));
     if (field.type === "unit") return snapshot.options.units.map(item => ({ value: item.id, label: `${item.code} · ${item.name}${item.active ? "" : " (arquivada)"}` }));
     if (field.type === "manager") return snapshot.options.managers.map(item => ({ value: item.id, label: `${item.name}${item.active ? "" : " (arquivado)"}` }));
-    if (field.type === "employee") return snapshot.options.employees.map(item => ({ value: item.id, label: `${item.employeeNumber} · ${item.name}${item.activeInSystem ? "" : " (arquivado)"}` }));
+    if (field.type === "employee") return snapshot.options.employees.filter(item => item.canPropose !== false).map(item => ({ value: item.id, label: `${item.employeeNumber} · ${item.name}${item.activeInSystem ? "" : " (arquivado)"}` }));
     if (field.type === "situation") return workforceSituations.map(value => ({ value, label: situationLabels[value] }));
     if (field.type === "vacationStatus") return Object.entries(vacationLabels).filter(([value]) => snapshot.permissions.canApproveVacation || value === "draft" || value === "requested" || (value === "cancelled" && editor?.row && "status" in editor.row && ["draft", "requested"].includes(editor.row.status))).map(([value, label]) => ({ value, label }));
     return [];

@@ -13,7 +13,7 @@ export async function requireApprovedProfile(allowedRoles?: UserRole[]): Promise
 
   const { data: rawProfile } = await supabase
     .from("perfis")
-    .select("id,nome_completo,status_usuario,papel_usuario,gestor_id,ultimo_acesso_em,created_at,updated_at")
+    .select("id,nome_completo,status_usuario,papel_usuario,gestor_id,visualizar_todos_gestores,ultimo_acesso_em,created_at,updated_at")
     .eq("id", userId)
     .single();
   const profile = rawProfile as AuthenticatedProfile | null;
