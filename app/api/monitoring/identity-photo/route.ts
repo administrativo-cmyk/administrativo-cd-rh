@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   if (!input.success) return new Response(null, { status: 400, headers });
   try {
     const client = await createClient<MonitoringDatabase>();
-    const { data, error } = await client.rpc("monitoring_identity_photo", { p_source_id: input.data.sourceId, p_identity_value: input.data.identityValue });
+    const full = new URL(request.url).searchParams.get("size") !== "avatar";
+    const { data, error } = await client.rpc("monitoring_identity_photo", { p_source_id: input.data.sourceId, p_identity_value: input.data.identityValue, ...(full ? { p_variant: "full" } : {}) });
     if (error) throw Object.assign(new Error("MONITORING_PHOTO_FAILED"), { code: error.code });
     const image = photo.parse(data);
     if (!image) return new Response(null, { status: 404, headers });

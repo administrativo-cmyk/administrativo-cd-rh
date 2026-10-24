@@ -87,7 +87,7 @@ export async function buildPhotoIndex(root: string): Promise<Map<string, string[
   await visit(actualRoot, 0); return index;
 }
 
-type SharpInstance = { metadata(): Promise<{ width?: number; height?: number; format?: string }>; rotate(): SharpInstance; resize(width: number, height: number, options: { fit: string; withoutEnlargement: boolean }): SharpInstance; jpeg(options: { quality: number }): SharpInstance; toBuffer(): Promise<Buffer> };
+type SharpInstance = { metadata(): Promise<{ width?: number; height?: number; format?: string }>; rotate(): SharpInstance; resize(width: number, height: number, options: { fit: string; withoutEnlargement: boolean }): SharpInstance; jpeg(options: { quality: number; chromaSubsampling?: string }): SharpInstance; toBuffer(): Promise<Buffer> };
 type SharpFactory = (bytes: Buffer, options: { limitInputPixels: number; failOn: string }) => SharpInstance;
 let sharp: SharpFactory | undefined;
 function imageDecoder(): SharpFactory {
@@ -115,8 +115,8 @@ export async function loadPhoto(root: string, reference: string, index?: Map<str
     const metadata = await decoder.metadata();
     if (!metadata.width || !metadata.height || !["jpeg", "png", "webp"].includes(metadata.format ?? "")) throw new ImportError("PHOTO_IMAGE_INVALID");
     // rotate() applies EXIF orientation; output JPEG discards source metadata.
-    const thumbnail = await decoder.rotate().resize(320, 320, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
-    if (thumbnail.length > 2 * 1024 * 1024) throw new ImportError("PHOTO_OUTPUT_SIZE_LIMIT");
-    return { bytes: thumbnail, sha256: sha256(thumbnail), mimeType: "image/jpeg" };
+    const preview = await decoder.rotate().resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
+    if (preview.length > 2 * 1024 * 1024) throw new ImportError("PHOTO_OUTPUT_SIZE_LIMIT");
+    return { bytes: preview, sha256: sha256(preview), mimeType: "image/jpeg" };
   } catch (error) { if (error instanceof ImportError) throw error; throw new ImportError("PHOTO_IMAGE_INVALID"); }
 }

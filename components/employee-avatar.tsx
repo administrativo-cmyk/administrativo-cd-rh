@@ -16,9 +16,10 @@ export function EmployeeAvatar({ name, employeeId, ownProfile = false, identity,
   const src = base ? `${base}${base.includes("?") ? "&" : "?"}revision=${revision}-${retry}` : null;
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [photoAspectRatio, setPhotoAspectRatio] = useState(1);
+  const [photoDimensions, setPhotoDimensions] = useState<{ src: string; width: number; height: number } | null>(null);
+  const dimensions = photoDimensions?.src === src ? photoDimensions : null;
   const measurePhoto = (image: HTMLImageElement) => {
-    if (image.naturalWidth && image.naturalHeight) setPhotoAspectRatio(image.naturalWidth / image.naturalHeight);
+    if (src && image.naturalWidth && image.naturalHeight) setPhotoDimensions({ src, width: image.naturalWidth, height: image.naturalHeight });
   };
   useEffect(() => {
     if (!previewOpen) return;
@@ -47,14 +48,14 @@ export function EmployeeAvatar({ name, employeeId, ownProfile = false, identity,
   return <DialogPrimitive.Root open={previewOpen} onOpenChange={setPreviewOpen}>
     <DialogPrimitive.Trigger asChild>
       <button type="button" aria-label={`Ampliar foto de ${name}`} title="Ampliar foto" onClick={event => event.stopPropagation()} className={cn(avatarClassName, "cursor-zoom-in focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600")} style={{ width: size, height: size }}>
-        <Image key={src} src={src} alt={`Foto de ${name}`} width={size} height={size} unoptimized className="h-full w-full object-cover" onLoad={event => measurePhoto(event.currentTarget)} onError={() => { setFailedSource(src); setPreviewOpen(false); }} />
+        <Image key={src} src={`${src}&size=avatar`} alt={`Foto de ${name}`} width={size} height={size} unoptimized className="h-full w-full object-cover" onError={() => { setFailedSource(src); setPreviewOpen(false); }} />
       </button>
     </DialogPrimitive.Trigger>
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay onClick={event => { event.stopPropagation(); setPreviewOpen(false); }} className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md" />
       <DialogPrimitive.Content aria-describedby={undefined} onClick={event => event.stopPropagation()} className="fixed left-1/2 top-1/2 z-[101] w-fit max-w-[70vw] -translate-x-1/2 -translate-y-1/2 rounded-lg shadow-2xl outline-none">
         <DialogPrimitive.Title className="sr-only">Foto de {name}</DialogPrimitive.Title>
-        <Image src={src} alt={`Foto ampliada de ${name}`} width={1200} height={1200} unoptimized className="block h-auto max-h-[70dvh] max-w-[70vw] rounded-lg object-contain" style={{ width: `min(70vw, ${70 * photoAspectRatio}dvh)` }} onLoad={event => measurePhoto(event.currentTarget)} onError={() => { setFailedSource(src); setPreviewOpen(false); }} />
+        <Image src={src} alt={`Foto ampliada de ${name}`} width={dimensions?.width ?? 1024} height={dimensions?.height ?? 1024} unoptimized className="block h-auto max-h-[70dvh] max-w-[70vw] rounded-lg object-contain" style={{ width: dimensions ? `min(70vw, ${70 * dimensions.width / dimensions.height}dvh, ${dimensions.width}px)` : "auto" }} onLoad={event => measurePhoto(event.currentTarget)} onError={() => { setFailedSource(src); setPreviewOpen(false); }} />
         <DialogPrimitive.Close aria-label="Fechar foto ampliada" className="absolute right-2 top-2 grid size-8 cursor-pointer place-items-center rounded-full bg-slate-950/80 text-white hover:bg-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white after:absolute after:-inset-1.5">
           <X size={16} aria-hidden="true" />
         </DialogPrimitive.Close>

@@ -5,13 +5,20 @@ export class InvalidPhotoError extends Error {
   constructor() { super("PHOTO_IMAGE_INVALID"); this.name = "InvalidPhotoError"; }
 }
 
-export async function createPhotoThumbnail(bytes: Buffer): Promise<Buffer> {
+async function normalizePhoto(bytes: Buffer, preview: boolean): Promise<Buffer> {
   if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new InvalidPhotoError();
   try {
     const image = sharp(bytes, { limitInputPixels: 20_000_000, failOn: "warning" });
     const metadata = await image.metadata();
     if (!metadata.width || !metadata.height || !["jpeg", "png", "webp"].includes(metadata.format ?? "")) throw new InvalidPhotoError();
     // EXIF orientation is applied; the JPEG output discards source metadata.
-    return await image.rotate().resize(128, 128, { fit: "cover", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+    const output = await image.rotate()
+      .resize(preview ? 1024 : 128, preview ? 1024 : 128, { fit: preview ? "inside" : "cover", withoutEnlargement: true })
+      .jpeg(preview ? { quality: 92, chromaSubsampling: "4:4:4" } : { quality: 80 }).toBuffer();
+    if (output.length > 2 * 1024 * 1024) throw new InvalidPhotoError();
+    return output;
   } catch { throw new InvalidPhotoError(); }
 }
+
+export const createPhotoThumbnail = (bytes: Buffer) => normalizePhoto(bytes, false);
+export const createPhotoPreview = (bytes: Buffer) => normalizePhoto(bytes, true);

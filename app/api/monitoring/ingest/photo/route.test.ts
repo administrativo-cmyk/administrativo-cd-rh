@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), thumbnail: vi.fn() }));
 vi.mock("@/lib/monitoring/server", async (original) => ({ ...await original<typeof import("@/lib/monitoring/server")>(), workerClient: () => ({ rpc: mocks.rpc }) }));
-vi.mock("@/lib/monitoring/photo-thumbnail", async (original) => ({ ...await original<typeof import("@/lib/monitoring/photo-thumbnail")>(), createPhotoThumbnail: mocks.thumbnail }));
+vi.mock("@/lib/monitoring/photo-thumbnail", async (original) => ({ ...await original<typeof import("@/lib/monitoring/photo-thumbnail")>(), createPhotoThumbnail: mocks.thumbnail, createPhotoPreview: mocks.thumbnail }));
 import { InvalidPhotoError } from "@/lib/monitoring/photo-thumbnail";
 import { GET, POST } from "./route";
 const token = "synthetic-worker-token-for-unit-test-only";
@@ -14,7 +14,7 @@ const request = (body: unknown = input, authorization: string | null = `Bearer $
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("MONITORING_INGEST_TOKEN", token); vi.stubEnv("MONITORING_INGEST_SOURCE_IDS", input.sourceId);
-  mocks.thumbnail.mockResolvedValue(thumbnail); mocks.rpc.mockResolvedValue({ data: { accepted: true }, error: null });
+  mocks.thumbnail.mockResolvedValue(thumbnail); mocks.rpc.mockResolvedValue({ data: { accepted: true, previewStored: true }, error: null });
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("ingestão protegida de fotos", () => {
@@ -22,7 +22,7 @@ describe("ingestão protegida de fotos", () => {
     expect((await GET(request(input, null))).status).toBe(401);
     const response = await GET(request());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ insertOnly: true, protocolVersion: 1 });
+    expect(await response.json()).toEqual({ insertOnly: true, photoPreview: true, protocolVersion: 1 });
     expect(mocks.rpc).not.toHaveBeenCalled(); expect(mocks.thumbnail).not.toHaveBeenCalled();
   });
   it("recusa credencial, fonte ou hash inválidos antes de decodificar/gravar", async () => {
@@ -31,11 +31,11 @@ describe("ingestão protegida de fotos", () => {
     expect((await POST(request({ ...input, sha256: "0".repeat(64) }))).status).toBe(400);
     expect(mocks.thumbnail).not.toHaveBeenCalled(); expect(mocks.rpc).not.toHaveBeenCalled();
   });
-  it("persiste somente miniatura normalizada com hash próprio e identidade intacta", async () => {
+  it("persiste foto normalizada para ampliação com hash próprio e identidade intacta", async () => {
     const result = await POST(request());
     expect(result.status).toBe(200); expect(await result.json()).toEqual({ accepted: true });
     expect(mocks.thumbnail).toHaveBeenCalledWith(source);
-    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_ingest", { p_data: { photo: { ...input, sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") } } });
+    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_ingest", { p_data: { photoWithPreview: { thumbnail: { ...input, sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") }, preview: { sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") }, insertOnly: false } } });
   });
   it("foto inválida retorna400 sem RPC; falha operacional mantém503 com correlação sanitizada", async () => {
     mocks.thumbnail.mockRejectedValue(new InvalidPhotoError());
@@ -46,11 +46,11 @@ describe("ingestão protegida de fotos", () => {
     expect(JSON.stringify(body)).not.toContain("private details");
   });
   it.each(["inserted", "replayed"])("confirma %s apenas com envelope exclusivo e hash retornado pelo banco", async status => {
-    mocks.rpc.mockResolvedValue({ data: { ok: true, insertOnly: true, status, sha256: hash(thumbnail) }, error: null });
+    mocks.rpc.mockResolvedValue({ data: { ok: true, insertOnly: true, status, sha256: hash(thumbnail), previewStored: true }, error: null });
     const response = await POST(request({ ...input, insertOnly: true }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: true, insertOnly: true, status, sha256: hash(thumbnail) });
-    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_ingest", { p_data: { photoInsertOnly: { ...input, insertOnly: true, sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") } } });
+    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_ingest", { p_data: { photoWithPreview: { thumbnail: { ...input, insertOnly: true, sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") }, preview: { sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") }, insertOnly: true } } });
   });
   it("retorna409 em conflito sem anunciar sucesso ou vazar dados da imagem existente", async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "23505", message: "PHOTO_ALREADY_EXISTS", details: "private-existing-image" } });
@@ -73,6 +73,6 @@ describe("ingestão protegida de fotos", () => {
     expect((await POST(request({ ...input, insertOnly: "true" }))).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
     expect((await POST(request({ ...input, insertOnly: false }))).status).toBe(200);
-    expect(mocks.rpc.mock.calls[0][1].p_data.photo.insertOnly).toBe(false);
+    expect(mocks.rpc.mock.calls[0][1].p_data.photoWithPreview.insertOnly).toBe(false);
   });
 });

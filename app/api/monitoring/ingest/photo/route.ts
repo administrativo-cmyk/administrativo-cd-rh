@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import { allowedIngestSource,validWorkerToken,hashBytes } from '@/lib/monitoring/ingest-security';
 import { boundedJson,monitoringFailure,workerClient } from '@/lib/monitoring/server';
-import { createPhotoThumbnail,InvalidPhotoError } from '@/lib/monitoring/photo-thumbnail';
+import { createPhotoPreview,createPhotoThumbnail,InvalidPhotoError } from '@/lib/monitoring/photo-thumbnail';
 export const runtime='nodejs';
 const schema=z.object({sourceId:z.string().min(1).max(100),identityValue:z.string().min(1).max(100),sha256:z.string().regex(/^[0-9a-f]{64}$/),mimeType:z.enum(['image/jpeg','image/png','image/webp']),base64:z.string().max(2800000).regex(/^[A-Za-z0-9+/]*={0,2}$/),insertOnly:z.boolean().optional()});
 const insertOnlyResult=z.object({ok:z.literal(true),insertOnly:z.literal(true),status:z.enum(['inserted','replayed']),sha256:z.string().regex(/^[0-9a-f]{64}$/)});
 export async function GET(request:Request){
  if(!validWorkerToken(request.headers.get('authorization'),process.env.MONITORING_INGEST_TOKEN))return Response.json({error:'Credencial inválida.'},{status:401});
- return Response.json({insertOnly:true,protocolVersion:1},{headers:{'Cache-Control':'no-store'}});
+ return Response.json({insertOnly:true,photoPreview:true,protocolVersion:1},{headers:{'Cache-Control':'no-store'}});
 }
 export async function POST(request:Request){
  if(!validWorkerToken(request.headers.get('authorization'),process.env.MONITORING_INGEST_TOKEN))return Response.json({error:'Credencial inválida.'},{status:401});
@@ -16,11 +16,12 @@ export async function POST(request:Request){
  if(!allowedIngestSource(parsed.data.sourceId))return Response.json({error:'Fonte não autorizada.'},{status:403});
  const bytes=Buffer.from(parsed.data.base64,'base64');if(hashBytes(bytes)!==parsed.data.sha256)return Response.json({error:'Hash divergente.'},{status:400});
  try{
-  const thumbnail=await createPhotoThumbnail(bytes);
+  const [thumbnail,preview]=await Promise.all([createPhotoThumbnail(bytes),createPhotoPreview(bytes)]);
   const storedHash=hashBytes(thumbnail);
   const photo={...parsed.data,sha256:storedHash,mimeType:'image/jpeg',base64:thumbnail.toString('base64')};
-  const {data,error}=await workerClient().rpc('monitoring_ingest',{p_data:parsed.data.insertOnly?{photoInsertOnly:photo}:{photo}});
+  const {data,error}=await workerClient().rpc('monitoring_ingest',{p_data:{photoWithPreview:{thumbnail:photo,preview:{sha256:hashBytes(preview),mimeType:'image/jpeg',base64:preview.toString('base64')},insertOnly:parsed.data.insertOnly===true}}});
   if(error)throw error;
+  if(!data||typeof data!=='object'||Array.isArray(data)||data.previewStored!==true)throw new Error('PHOTO_PREVIEW_UNCONFIRMED');
   if(parsed.data.insertOnly){
    const confirmed=insertOnlyResult.safeParse(data);
    if(!confirmed.success||confirmed.data.sha256!==storedHash)throw new Error('PHOTO_INSERT_ONLY_UNCONFIRMED');

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 const mocks = vi.hoisted(() => ({ getClaims: vi.fn(), single: vi.fn(), rpc: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth: { getClaims: mocks.getClaims }, from: () => ({ select: () => ({ eq: () => ({ single: mocks.single }) }) }), rpc: mocks.rpc }) }));
@@ -34,13 +35,24 @@ describe("prévia restrita de foto Defense", () => {
     expect(result.headers.get("content-type")).toBe("image/jpeg");
     expect(result.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await result.text()).toBe("abc");
-    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_identity_photo", { p_source_id: "defense-test", p_identity_value: "000123" });
+    expect(mocks.rpc).toHaveBeenCalledWith("monitoring_identity_photo", { p_source_id: "defense-test", p_identity_value: "000123", p_variant: "full" });
   });
   it("foto inexistente retorna 404 privado", async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: null });
     const result = await GET(request());
     expect(result.status).toBe(404);
     expect(result.headers.get("cache-control")).toBe("private, no-store");
+  });
+  it("solicita miniatura na lista e resolução completa no zoom", async () => {
+    const bytes = await sharp({ create: { width: 600, height: 400, channels: 3, background: "#00aabb" } }).png().toBuffer();
+    mocks.rpc.mockResolvedValue({ data: { mimeType: "image/png", base64: bytes.toString("base64"), sha256: "a".repeat(64) }, error: null });
+    const thumbnail = await GET(new Request(`${request().url}&size=avatar`));
+    expect(thumbnail.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("monitoring_identity_photo", { p_source_id: "defense-test", p_identity_value: "000123" });
+    const full = await GET(request());
+    expect(Buffer.from(await full.arrayBuffer())).toEqual(bytes);
+    expect(full.headers.get("content-type")).toBe("image/png");
+    expect(mocks.rpc).toHaveBeenLastCalledWith("monitoring_identity_photo", { p_source_id: "defense-test", p_identity_value: "000123", p_variant: "full" });
   });
   it("recusa parâmetros vazios sem RPC", async () => {
     expect((await GET(new Request("http://localhost:3000/api/monitoring/identity-photo?sourceId=defense-test"))).status).toBe(400);
