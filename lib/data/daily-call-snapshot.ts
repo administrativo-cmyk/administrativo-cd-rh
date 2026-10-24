@@ -8,7 +8,7 @@ const recordSchema = z.object({
   status: z.enum(["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF"]),
   observation: z.string().nullable(),
   updatedAt: z.string().optional(),
-  origin: z.enum(["punch", "automatic_absence", "manual"]).optional(),
+  origin: z.enum(["punch", "automatic_absence", "manual", "schedule"]).optional(),
 });
 
 const employeeSchema = z.object({

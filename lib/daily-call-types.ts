@@ -2,7 +2,7 @@ export const attendanceCodes = ["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF
 
 export type AttendanceStatusCode = (typeof attendanceCodes)[number];
 export type AttendanceCode = AttendanceStatusCode;
-export type AttendanceOrigin = "punch" | "automatic_absence" | "manual";
+export type AttendanceOrigin = "punch" | "automatic_absence" | "manual" | "schedule";
 /** Unit codes come from the authorized organization register. */
 export type UnitCode = string;
 export type EmployeeSituation = "Ativo" | "Férias" | "Novo admitido" | "Afastado" | "Desligado" | "Aviso prévio" | "Licença-maternidade" | "Acidente de trabalho" | "Outro afastamento";

@@ -65,6 +65,65 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { if (db) await db.close(); });
 
+async function readPerson(employeeId: string, date: string, start = date, end = date) {
+  const snapshot = await session("authenticated", admin, () => value<{ employees: Array<{ id: string; balanceMinutes: number | null; attendance: Array<{ date: string; status: string; origin: string; updatedAt?: string }> }> }>(
+    "select public.daily_call_read($1::date,$2::date,$3::date) value", [date, start, end]));
+  return snapshot.employees.find(employee => employee.id === employeeId)!;
+}
+
+describe("folgas fixas preenchidas na leitura autorizada", () => {
+  it("preenche domingos futuros no período sem gravar chamada ou alterar saldo", async () => {
+    const f = await fixture(480, "2026-10-25");
+    const person = await readPerson(f.employeeId, f.date, "2026-10-21", "2026-11-20");
+    expect(person.attendance.map(row => row.date)).toEqual(["2026-10-25", "2026-11-01", "2026-11-08", "2026-11-15"]);
+    expect(person.attendance.every(row => row.status === "F" && row.origin === "schedule" && !row.updatedAt)).toBe(true);
+    expect(person.balanceMinutes).toBe(480);
+    expect(await value<number>("select count(*)::int value from public.chamada_diaria where colaborador_id=$1", [f.employeeId])).toBe(0);
+    await db.query("update public.monitoring_settings set valid_to='2026-10-31' where target=$1", [f.employeeId]);
+    expect((await readPerson(f.employeeId, f.date, "2026-10-21", "2026-11-20")).attendance).toHaveLength(1);
+  });
+  it("preenche sábado noturno com domingo ainda pendente", async () => {
+    const f = await fixture(null, "2026-10-24");
+    await db.query("update public.monitoring_settings set payload=payload||'{\"start\":\"22:00\",\"end\":\"06:20\",\"weeklyRosterConfirmed\":true}' where target=$1", [f.employeeId]);
+    expect((await readPerson(f.employeeId, f.date, f.date, "2026-10-25")).attendance).toMatchObject([{ date: "2026-10-24", status: "F", origin: "schedule" }]);
+  });
+  it("respeita domingos alternados confirmados e o ciclo 12x36", async () => {
+    const woman = await fixture(null, "2026-10-25");
+    await db.query("update public.colaboradores set genero='feminino' where id=$1", [woman.employeeId]);
+    await db.query("update public.monitoring_settings set payload=payload||'{\"start\":\"22:00\",\"end\":\"06:20\"}' where target=$1", [woman.employeeId]);
+    await db.query("insert into private.employee_sunday_off_references(employee_id,anchor_date,setting_id,evidence) select $1::uuid,'2026-10-25',id,'{}'::jsonb from public.monitoring_settings where target=$1::text", [woman.employeeId]);
+    const records = (await readPerson(woman.employeeId, woman.date, woman.date, "2026-11-08")).attendance;
+    expect(records.filter(row => ["2026-10-25", "2026-11-01", "2026-11-08"].includes(row.date)).map(row => row.date)).toEqual(["2026-10-25", "2026-11-08"]);
+    const cycle = await fixture(null, "2026-10-24");
+    await db.query("update public.monitoring_settings set payload=payload||'{\"start\":\"19:00\",\"end\":\"07:00\",\"cycle\":{\"kind\":\"12x36\",\"anchorDate\":\"2026-10-23\"}}' where target=$1", [cycle.employeeId]);
+    expect((await readPerson(cycle.employeeId, cycle.date, "2026-10-23", "2026-10-26")).attendance.map(row => row.date)).toEqual(["2026-10-24", "2026-10-26"]);
+  });
+  it("batida real impede F antes de gravar presença", async () => {
+    const f = await fixture(null, "2026-10-18"); await f.punch();
+    expect((await readPerson(f.employeeId, f.date)).attendance).toEqual([]);
+    await f.apply();
+    expect((await readPerson(f.employeeId, f.date)).attendance).toMatchObject([{ status: "P", origin: "punch" }]);
+  });
+  it("preserva marcação e limpeza manuais", async () => {
+    const f = await fixture(null, "2026-10-18"); await f.resolve("I");
+    expect((await readPerson(f.employeeId, f.date)).attendance).toMatchObject([{ status: "I", origin: "manual" }]);
+    await f.resolve(null);
+    expect((await readPerson(f.employeeId, f.date)).attendance).toEqual([]);
+  });
+  it("não expõe a projeção privada diretamente", async () => {
+    const rights = await value<boolean>("select has_function_privilege('authenticated','private.daily_call_fixed_rest_records(uuid,date,date,date)','execute') or has_function_privilege('anon','private.daily_call_fixed_rest_records(uuid,date,date,date)','execute') value");
+    expect(rights).toBe(false);
+  });
+  it.each(["estimated", "unknown", "admission", "vacation"])("não presume F com %s", async kind => {
+    const f = await fixture(null, "2026-10-25");
+    if (kind === "estimated") await db.query("update public.monitoring_settings set payload=payload||'{\"estimated\":true,\"weeklyRosterConfirmed\":false}' where target=$1", [f.employeeId]);
+    if (kind === "unknown") await db.query("delete from public.monitoring_settings where target=$1", [f.employeeId]);
+    if (kind === "admission") await db.query("update public.colaboradores set admissao='2026-10-26' where id=$1", [f.employeeId]);
+    if (kind === "vacation") await db.query("update public.colaboradores set situacao='FERIAS' where id=$1", [f.employeeId]);
+    expect((await readPerson(f.employeeId, f.date)).attendance).toEqual([]);
+  });
+});
+
 describe("Chamada importada: migration completa em PostgreSQL local", () => {
   it.each([-60, 480, 481])("horário estimado não presume falta ou folga com saldo %i", async balance => {
     const f = await fixture(balance);

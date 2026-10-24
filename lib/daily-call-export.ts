@@ -3,7 +3,7 @@ import { attendanceMeta } from "@/lib/daily-call-rules";
 import type { AttendanceOrigin, Employee } from "@/lib/daily-call-types";
 import { toCsv } from "@/lib/csv";
 
-const originLabels: Record<AttendanceOrigin, string> = { punch: "Importação de ponto", automatic_absence: "Falta automática", manual: "Gestor / RH" };
+const originLabels: Record<AttendanceOrigin, string> = { punch: "Importação de ponto", automatic_absence: "Falta automática", manual: "Gestor / RH", schedule: "Folga da escala" };
 
 export function exportDailyCall(employees: Employee[], start: string, end: string): string {
   if (!validPeriod(start, end)) throw new Error("Período inválido para exportação.");

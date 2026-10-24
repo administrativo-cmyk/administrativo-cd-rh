@@ -30,6 +30,13 @@ function snapshot(rows: unknown[], date = "2026-10-05") {
 }
 
 describe("Chamada Diária real, somente leitura", () => {
+  it("preserva origem da folga automática, contadores e versão vazia para edição", () => {
+    const result = snapshot([{ ...row(1), attendance: [{ date: "2026-10-05", status: "F", origin: "schedule", observation: "Folga fixa da escala" }] }]);
+    expect(result.employees[0].attendance["2026-10-05"]).toBe("F");
+    expect(result.employees[0].attendanceSources?.["2026-10-05"]).toBe("schedule");
+    expect(result.employees[0].attendanceVersions?.["2026-10-05"]).toBeUndefined();
+    expect(calculateDailyCallMetrics(result.employees, result.date).daysOff).toBe(1);
+  });
   it("aceita novas unidades cadastradas sem perder os registros existentes", () => {
     const result = snapshot([row(1), { ...row(2), unit: "CD IV" }]);
     expect(result.employees.map(employee => employee.unit)).toEqual(["CD II", "CD IV"]);

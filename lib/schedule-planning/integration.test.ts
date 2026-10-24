@@ -27,6 +27,15 @@ beforeEach(async () => { await db.exec("begin"); await actor(); });
 afterEach(async () => { await db.exec("rollback"); });
 afterAll(async () => { await db.close(); });
 describe("catálogos e planejamento reais em banco isolado", () => {
+  it("exceção de trabalho substitui F derivado da escala sem alterar chamada", async () => {
+    await db.exec("reset role");
+    await db.query("insert into public.monitoring_settings(kind,target,valid_from,payload,reason) values('schedule',$1,'2026-10-01',$2::jsonb,'Folga sintética confirmada')", [person, JSON.stringify({ ...schedule, days: [] })]);
+    await actor();
+    const read = async () => (await db.query<{ value: { employees: Array<{ id: string; attendance: Array<{ status: string; origin: string }> }> } }>("select public.daily_call_read('2026-10-01','2026-10-01','2026-10-01') value")).rows[0].value.employees.find(row => row.id === person)!.attendance;
+    expect(await read()).toMatchObject([{ status: "F", origin: "schedule" }]);
+    await calendar(true, await template());
+    expect(await read()).toEqual([]);
+  });
   it("migra grafias equivalentes uma vez e preserva os valores originais", async () => {
     await db.exec("reset role");
     const result = (await db.query<{ catalogs: number; aliases: number; original: string; ids: number }>(`select (select count(*)::int from private.canonical_catalog where kind='department') catalogs,(select count(*)::int from private.canonical_catalog_alias where kind='department') aliases,(select department from private.employee_catalog_legacy where employee_id='${person2}') original,(select count(distinct department_catalog_id)::int from public.colaboradores where id in ('${person}','${person2}')) ids`)).rows[0];

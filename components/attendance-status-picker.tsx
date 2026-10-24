@@ -13,7 +13,7 @@ type Props = { value?: AttendanceCode; origin?: AttendanceOrigin; onChange?: (co
 export function AttendanceStatusPicker({ value, origin, onChange, onClear, compact = false, fitCell = false, label, readOnly = false, saving = false }: Props) {
   const [open, setOpen] = useState(false);
   const meta = value ? attendanceMeta[value] : null;
-  const sourceLabel = value && origin ? ({ punch: "Pelo ponto", automatic_absence: "Falta automática", manual: "Revisão manual" } as const)[origin] : null;
+  const sourceLabel = value && origin ? ({ punch: "Pelo ponto", automatic_absence: "Falta automática", manual: "Revisão manual", schedule: "Folga da escala" } as const)[origin] : null;
   if (readOnly) {
     return <span className={cn("inline-flex flex-col items-center gap-1", fitCell && "w-full min-w-0")}><Tooltip><TooltipTrigger asChild><span aria-label={label} className={cn("inline-flex items-center justify-center rounded-lg text-xs font-semibold ring-1 ring-inset", fitCell ? "h-8 w-full min-w-0 px-0 text-[10px]" : "px-2.5 py-1.5", meta ? meta.className : "bg-slate-50 text-slate-500 ring-slate-200")}>{meta ? (compact ? value : meta.label) : (compact ? "—" : "Não lançado")}</span></TooltipTrigger><TooltipContent>{sourceLabel ?? "Consulta somente leitura"}</TooltipContent></Tooltip>{sourceLabel && !compact ? <small className="text-[10px] font-medium text-slate-500">{sourceLabel}</small> : null}</span>;
   }

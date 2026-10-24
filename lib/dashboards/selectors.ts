@@ -132,11 +132,13 @@ export function buildDailyCallDashboard(source: DailyCallSnapshot, workforce: Wo
     rows: dates(filters.start, filters.end).map((date) => {
       const daily = dayRows(date); const filled = daily.filter((row) => row.attendance[date] !== undefined);
       return { date, registered: filled.length, present: daily.filter((row) => row.attendance[date] === "P").length, unjustified: daily.filter((row) => row.attendance[date] === "I").length, unmarked: daily.length - filled.length,
-        punch: filled.filter((row) => row.attendanceSources?.[date] === "punch").length, automaticAbsence: filled.filter((row) => row.attendanceSources?.[date] === "automatic_absence").length, manual: filled.filter((row) => (row.attendanceSources?.[date] ?? "manual") === "manual").length };
+        punch: filled.filter((row) => row.attendanceSources?.[date] === "punch").length, automaticAbsence: filled.filter((row) => row.attendanceSources?.[date] === "automatic_absence").length, manual: filled.filter((row) => (row.attendanceSources?.[date] ?? "manual") === "manual").length, schedule: filled.filter((row) => row.attendanceSources?.[date] === "schedule").length };
     }),
   };
   result.notes.push(`Os cartões usam a data final (${filters.end}); gráfico e tabela mostram o período informado.`, "Fonte: lançamentos persistidos da Chamada. Não se preenche falta a partir de campo vazio, relógio sem cobertura ou escala desconhecida.", "O recorte usa o quadro operacional e a lotação atuais. Dias anteriores à admissão conhecida são excluídos; não é uma reconstrução histórica do quadro.");
   const unknownAdmission = rows.filter((row) => !row.admissionDate).length;
+  result.table.columns.push({ key: "schedule", label: "Folga da escala", format: "count" });
+  result.notes.push("Folgas fixas confirmadas são preenchidas pela escala e identificadas separadamente dos lançamentos manuais.");
   if (unknownAdmission) result.notes.push(`${unknownAdmission} cadastro(s) sem admissão informada permanecem identificados no total; a elegibilidade histórica não está comprovada.`);
   return result;
 }
