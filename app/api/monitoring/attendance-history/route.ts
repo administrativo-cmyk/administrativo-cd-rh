@@ -6,10 +6,14 @@ import { reprocessMonitoringSnapshot } from "@/lib/monitoring/reprocess";
 import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
 import type { Json } from "@/lib/monitoring/database";
 import { augmentArchivedInput } from "@/lib/monitoring/archive/server";
+import { needsPeriodPunchReference, projectPeriodPunchDisplay } from "@/lib/monitoring/period-punch-display";
+import { defaultScheduleSnapshotSchema } from "@/lib/monitoring/standard-schedules";
+import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
 type HistoryDatabase = { public: { Tables: Record<never, never>; Views: Record<never, never>; Enums: Record<never, never>; CompositeTypes: Record<never, never>; Functions: {
   attendance_history: { Args: { p_action: string; p_data: Json }; Returns: Json };
+  employee_schedule: { Args: { p_action: string; p_data: Json }; Returns: Json };
 } } };
 async function rpc(action: string, data: unknown) {
   const client = await createClient<HistoryDatabase>();
@@ -41,7 +45,15 @@ export async function GET(request: Request) {
         days.push({ date, bankDay: null, correctionVersion: null });
       }
     }
-    return Response.json({ days, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory,...(historical.archive?{archive:historical.archive}:{}) }, { headers });
+    let reference = null;
+    if (needsPeriodPunchReference(historical.input, period.employeeId)) {
+      const client = await createClient<HistoryDatabase>();
+      const result = await client.rpc("employee_schedule", { p_action: "get", p_data: { employeeId: period.employeeId, date: todayInSaoPaulo(new Date(now)) } });
+      if (result.error) throw Object.assign(new Error("HISTORY_FAILED"), { code: result.error.code });
+      reference = defaultScheduleSnapshotSchema.parse(result.data).setting;
+    }
+    const displayDays = projectPeriodPunchDisplay(historical.input, days, period.employeeId, now, reference);
+    return Response.json({ days: displayDays, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory,...(historical.archive?{archive:historical.archive}:{}) }, { headers });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

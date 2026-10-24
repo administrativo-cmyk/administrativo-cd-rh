@@ -63,6 +63,7 @@ export type DailyCallFilters = {
   unit: "Todas" | UnitCode;
   manager: "Todos" | Manager["name"];
   query: string;
+  employeeId?: string;
   bank: "Todos" | BankSituation;
   status: DailyCallStatusFilter;
   situation?: string;

@@ -13,6 +13,18 @@ function setup() { const fetcher = vi.fn().mockImplementation(() => Promise.reso
 afterEach(() => vi.unstubAllGlobals());
 
 describe("cadastro de colaborador", () => {
+  it("mantém gênero em branco e permite preencher o campo editável", async () => {
+    const fetcher = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar Pessoa sintética" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByLabelText("Gênero")).toHaveValue("");
+    fireEvent.change(dialog.getByLabelText("Gênero"), { target: { value: "feminino" } });
+    fireEvent.change(dialog.getByLabelText("Motivo da alteração *"), { target: { value: "Informação confirmada na planilha do RH" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Salvar cadastro" }));
+    await waitFor(() => expect(fetcher.mock.calls.some(call => JSON.parse(call[1].body).action === "save")).toBe(true));
+    const request = fetcher.mock.calls.find(call => JSON.parse(call[1].body).action === "save")!;
+    expect(JSON.parse(request[1].body).data.gender).toBe("feminino");
+  });
   it("carrega matrículas adicionais, preserva zeros e mantém rascunho se o servidor recusar", async () => {
     const data = { ...snapshot, rows: [{ ...snapshot.rows[0], employeeNumber: "52797", additionalEmployeeNumbers: ["46293", "000123"] }] };
     const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(data))).mockResolvedValue(new Response(JSON.stringify({ error: "Matrícula já pertence a outro colaborador." }), { status: 409 }));

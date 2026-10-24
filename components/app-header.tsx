@@ -58,12 +58,13 @@ export function AppHeader({
       <button aria-label="Pesquisar páginas" onClick={() => setSearchOpen(true)} className="mx-auto flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600 hover:bg-white lg:w-full lg:max-w-72"><Search size={17}/><span className="hidden flex-1 text-left text-sm lg:block">Pesquisar páginas</span><kbd className="hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] lg:block">Ctrl K</kbd></button>
       <Link href="/notificacoes" aria-label={showCount && unread !== null ? `Notificações: ${unread} não lidas` : "Notificações"} className="relative grid h-11 w-11 place-items-center rounded-lg text-slate-600 transition hover:bg-slate-100"><Bell size={18}/>{showCount && unread !== null && unread > 0 ? <span className="absolute right-0 top-0 rounded-full bg-blue-700 px-1 text-[10px] font-semibold text-white">{unread > 99 ? "99+" : unread}</span> : null}</Link>
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}><DialogContent><DialogHeader><DialogTitle>Pesquisar páginas</DialogTitle><DialogDescription>Encontre uma área do sistema. Use Tab para navegar pelos resultados.</DialogDescription></DialogHeader><input aria-label="Nome ou assunto da página" value={query} onChange={event => setQuery(event.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Ex.: férias, saldos, colaboradores"/><nav aria-label="Resultados da pesquisa" className="max-h-[55dvh] overflow-y-auto"><ul className="space-y-1">{pages.map(page => <li key={page.href}><Link href={page.href} onClick={() => setSearchOpen(false)} className="block rounded-lg p-3 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600"><span className="block text-sm font-semibold">{page.label}</span><span className="block text-xs text-slate-600">{page.description}</span></Link></li>)}</ul>{pages.length === 0 ? <p className="p-4 text-sm text-slate-600">Nenhuma página encontrada.</p> : null}</nav></DialogContent></Dialog>
+      <div className="flex shrink-0 items-center gap-1">
+      <EmployeeAvatar name={profile.nome_completo} ownProfile />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button aria-label="Abrir menu do usuário" className="flex items-center gap-2 rounded-lg p-1 transition hover:bg-slate-50">
-            <EmployeeAvatar name={profile.nome_completo} ownProfile />
+          <button aria-label="Abrir menu do usuário" className="flex min-h-9 min-w-9 items-center justify-center gap-2 rounded-lg p-1 transition hover:bg-slate-50">
             <span className="hidden text-left xl:block"><b className="block max-w-40 truncate text-sm">{profile.nome_completo}</b><small className="text-slate-500">{profile.papel_usuario ? roleLabels[profile.papel_usuario] : "Sem papel"}</small></span>
-            <ChevronDown size={15} className="hidden text-slate-400 sm:block" />
+            <ChevronDown size={15} className="text-slate-400" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
@@ -75,6 +76,7 @@ export function AppHeader({
           <DropdownMenuItem asChild><LogoutButton className="flex w-full items-center gap-2 text-rose-700" /></DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
     </header>
   );
 }

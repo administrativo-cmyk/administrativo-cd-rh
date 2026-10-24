@@ -48,3 +48,18 @@ it("recebe preferência controlada e comunica a alteração para persistência p
   view.rerender(<TooltipProvider><PeriodGrid {...props} columnsCollapsed={false} onColumnsCollapsedChange={change} /></TooltipProvider>);
   expect(screen.getAllByRole("columnheader")).toHaveLength(37);
 });
+
+it("agrupa o período numa única grade, preservando ordem, edição e todas as colunas", async () => {
+  const user = userEvent.setup(), save = vi.fn().mockResolvedValue(true);
+  const manager = { ...employee, id: "manager", name: "Gestor Teste" };
+  render(<TooltipProvider><PeriodGrid {...props} employees={[employee, manager]} managerGroups={[["Gestor Teste", [manager, employee]]]} readOnly={false} onSave={save} fillHeight /></TooltipProvider>);
+  expect(screen.getAllByRole("table")).toHaveLength(1);
+  const group = screen.getByRole("rowgroup", { name: "Equipe de Gestor Teste" });
+  expect(within(group).getAllByRole("button", { name: /^Abrir detalhes/ }).map(button => button.getAttribute("aria-label"))).toEqual(["Abrir detalhes de Gestor Teste", `Abrir detalhes de ${employee.name}`]);
+  expect(within(group).getByRole("rowheader")).toHaveAttribute("colspan", "37");
+  await user.click(screen.getByRole("button", { name: "Recolher colunas de dados" }));
+  expect(within(group).getByRole("rowheader")).toHaveAttribute("colspan", "31");
+  await user.click(within(group).getByRole("button", { name: `${employee.name}, dia 20` }));
+  await user.click(screen.getByRole("button", { name: /FFolga/ }));
+  expect(save).toHaveBeenCalledWith(employee, "2026-10-20", "F", null);
+});

@@ -26,6 +26,18 @@ const reply = (status: string | null, version = "2026-10-06T12:00:00Z", response
 describe("sincronização local da Chamada Diária", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", vi.fn()); });
 
+  it("troca data pelo atalho sem perder os demais filtros", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => snapshot } as Response);
+    const { result } = renderHook(() => useDailyCall(date, snapshot));
+    act(() => { result.current.updateFilter("query", "Pessoa"); result.current.updateFilter("manager", "Gestor"); result.current.updateFilter("employeeId", employee.id); });
+    act(() => result.current.changeDate("2026-11-01"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.filters).toMatchObject({ query: "Pessoa", manager: "Gestor", employeeId: employee.id, startDate: "2026-10-21", endDate: "2026-11-20" });
+    expect(result.current.selectedDate).toBe("2026-11-01");
+    act(() => result.current.changeDate(""));
+    expect(result.current.selectedDate).toBe("2026-11-01");
+  });
+
   it("troca a folha atomicamente, preserva filtro e consulta os dias 21 a 20", async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => snapshot } as Response);
     const { result } = renderHook(() => useDailyCall(date, snapshot));

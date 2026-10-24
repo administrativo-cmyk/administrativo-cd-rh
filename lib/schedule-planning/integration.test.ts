@@ -182,6 +182,19 @@ describe("catálogos e planejamento reais em banco isolado", () => {
     const current=await employeeSchedule("get",{employeeId:who,date:from});
     return employeeSchedule("save",{employeeId:who,date:from,validFrom:from,expectedVersion:current.version,payload,reason:"Alteração sintética do horário"});
   }
+  async function completeNightClock() {
+    await db.exec("reset role");
+    await db.query("insert into public.monitoring_sources(id,kind,identity_namespace,configuration,last_success_at) select id,'afd','night-fixture',jsonb_build_object('sourceIdentityConfirmed',true,'declaredCoverage',jsonb_build_object('from','2026-10-01T00:00:00-03:00','to','2026-10-23T00:00:00-03:00','continuous',true)),'2026-10-22T12:00:00Z' from (values('night-a'),('night-b')) x(id)");
+    await db.exec("insert into public.monitoring_files(source_id,sha256,byte_length,relative_path,parser_version,status,expected_rows,expected_batches,metadata,completed_at) select id,repeat('a',64),1,'clock.txt','fixture','complete',0,1,'{}','2026-10-22T12:00:00Z' from public.monitoring_sources where id in ('night-a','night-b')");
+    await db.query("insert into public.monitoring_bindings(source_id,identity_type,identity_value,employee_id,valid_from,evidence,created_by) values('night-a','cpf','12345678909',$1::uuid,'2026-10-01','Vínculo sintético confirmado',$2::uuid)",[person,admin]);
+  }
+  async function clockMark(at:string) {
+    const payload={key:at,type:"punch",timestamp:at,device:"rep",classification:"authorized",eligible:true,precisionSeconds:1,identity:{type:"cpf",value:"12345678909"},original:{}};
+    await db.query("insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload) values('night-a',$1,repeat('b',64),'punch','cpf','12345678909',($1::text)::timestamptz,'authorized',true,lpad(((select count(*) from public.monitoring_events)+1)::text,9,'0'),$2::jsonb)",[at,JSON.stringify(payload)]);
+  }
+  async function sundayAnchor(reference="2026-10-23T12:00:00-03:00",until="2026-10-23") {
+    return (await db.query<{value:string|null}>("select private.night_sunday_absence_anchor($1::uuid,'22:00','06:20','2026-10-01',$2::date,$3::timestamptz)::text value",[person,until,reference])).rows[0].value;
+  }
   it("encarregado altera própria equipe e notifica exclusivamente ADMIN/RH, com auditoria",async()=>{
     await actor(manager);const result=await saveDefault();expect(result.canEdit).toBe(true);
     await db.exec("reset role");
@@ -220,18 +233,81 @@ describe("catálogos e planejamento reais em banco isolado", () => {
     await actor();await saveDefault();await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from private.workspace_notices")).rows[0].n).toBe(0);
   });
 
-  it("folga noturna mensal fica pendente até escolher o domingo; sábado permanece folga",async()=>{
-    const payload={...defaultPayload,start:"22:00",end:"06:20",days:[0,1,2,3,4,5],monthlySundayOff:true,monthlySundayOffDates:[]};
+  it("noturno exige perfil confirmado e alterna domingos femininos a cada 14 dias",async()=>{
+    const payload={...defaultPayload,start:"22:00",end:"06:20",days:[0,1,2,3,4,5]};
     await saveDefault(person,"2026-10-01",payload);
     await db.exec("reset role");
     const check=async(d:string)=>(await db.query<{value:Record<string,unknown>}>("select private.daily_call_evidence($1::uuid,$2::date) value",[person,d])).rows[0].value;
     expect(await check("2026-10-03")).toMatchObject({expected:false,state:"not_expected"});
     expect((await check("2026-10-04")).blockers).toContain("WEEKLY_ROSTER_UNCONFIRMED");
     const raw=(await db.query<{value:unknown}>("select private.monitoring_input($1::uuid,'2026-10-03','2026-10-04') value",[person])).rows[0].value;
-    expect(()=>reprocessMonitoringSnapshot(raw,{employeeId:person,start:"2026-10-03",end:"2026-10-04",reason:"Folga mensal pendente"},Date.parse("2026-10-19T00:00:00Z"))).not.toThrow();
-    await actor();await saveDefault(person,"2026-10-01",{...payload,monthlySundayOffDates:["2026-10-04"]});await db.exec("reset role");
-    expect(await check("2026-10-04")).toMatchObject({expected:false,state:"not_expected"});
-    expect((await check("2026-10-11")).blockers).not.toContain("WEEKLY_ROSTER_UNCONFIRMED");
+    expect(()=>reprocessMonitoringSnapshot(raw,{employeeId:person,start:"2026-10-03",end:"2026-10-04",reason:"Domingo pendente de perfil"},Date.parse("2026-10-19T00:00:00Z"))).not.toThrow();
+    await completeNightClock();await db.query("update public.colaboradores set genero='feminino' where id=$1::uuid",[person]);
+    await actor();await saveDefault(person,"2026-10-01",{...payload,weeklyRest:{kind:"night-women"}});await db.exec("reset role");
+    for(const date of ["2026-10-04","2026-10-18"]) expect(await check(date)).toMatchObject({expected:false,state:"not_expected"});
+    expect((await db.query<{p:{days:number[]}}>("select payload p from private.schedule_window_rows($1::uuid,'2026-11-01','2026-11-01')",[person])).rows[0].p.days).toEqual([]);
+    for(const date of ["2026-10-11","2026-10-25"]) expect((await check(date)).blockers).not.toContain("WEEKLY_ROSTER_UNCONFIRMED");
+    await db.query("update public.colaboradores set genero='masculino' where id=$1::uuid",[person]);
+    await actor();await saveDefault(person,"2026-10-01",{...payload,weeklyRest:{kind:"night"}});await db.exec("reset role");
+    expect((await check("2026-10-04")).blockers).not.toContain("WEEKLY_ROSTER_UNCONFIRMED");
   });
 
+  it("referência automática usa data da jornada e não uma saída da madrugada de domingo",async()=>{
+    await completeNightClock();
+    await clockMark("2026-10-03T22:00:00-03:00");await clockMark("2026-10-04T06:20:00-03:00");
+    expect(await sundayAnchor()).toBe("2026-10-04");
+    expect(await sundayAnchor("2026-10-04T23:00:00-03:00","2026-10-04")).toBeNull();
+    await clockMark("2026-10-04T22:03:00-03:00");
+    expect(await sundayAnchor()).toBe("2026-10-11");
+  });
+  it.each(["partial","source-error","conflict","leave"])("não presume folga com evidência %s",async variant=>{
+    await completeNightClock();
+    if(variant==="partial") await db.exec("update public.monitoring_sources set configuration=jsonb_set(configuration,'{declaredCoverage,continuous}','false') where id='night-b'");
+    if(variant==="source-error") await db.exec("update public.monitoring_files set rejected_rows=1 where source_id='night-b'");
+    if(variant==="conflict") {await clockMark("2026-10-04T22:03:00-03:00");await db.exec("update public.monitoring_events set conflicted=true");}
+    if(variant==="leave") await db.query("insert into private.employee_absence_periods(employee_id,situation,start_date,actual_return) values($1::uuid,'AFASTADO','2026-10-04','2026-10-05')",[person]);
+    expect(await sundayAnchor("2026-10-23T12:00:00-03:00","2026-10-04")).toBeNull();
+  });
+  it("captura referência após completar coleta e preserva fase em importações seguintes",async()=>{
+    await completeNightClock();
+    await db.exec("update public.monitoring_sources set configuration=jsonb_set(configuration,'{declaredCoverage,continuous}','false') where id='night-b'");
+    await db.query("update public.colaboradores set genero='feminino' where id=$1::uuid",[person]);
+    await actor();await saveDefault(person,"2026-10-01",{...defaultPayload,start:"22:00",end:"06:20",days:[0,1,2,3,4,5]});await db.exec("reset role");
+    const references=async()=>(await db.query<{n:number}>("select count(*)::int n from private.employee_sunday_off_references where employee_id=$1::uuid",[person])).rows[0].n;
+    expect(await references()).toBe(0);
+    await db.exec("update public.monitoring_sources set configuration=jsonb_set(configuration,'{declaredCoverage,continuous}','true') where id='night-b'");
+    await db.query("select private.monitoring_enqueue($1::uuid)",[person]);expect(await references()).toBe(1);
+    await clockMark("2026-10-04T22:03:00-03:00");
+    await db.query("select private.monitoring_enqueue($1::uuid)",[person]);expect(await references()).toBe(1);
+    await actor();
+    const current=await employeeSchedule("get",{employeeId:person,date:"2026-10-23"});
+    expect((current.setting as {payload:unknown}).payload).toMatchObject({weeklyRest:{kind:"night-women",sundayOffAnchor:"2026-10-04"}});
+    await db.exec("reset role");await db.query("update public.colaboradores set genero=null where id=$1::uuid",[person]);await actor();
+    expect(((await employeeSchedule("get",{employeeId:person,date:"2026-10-23"})).setting as {payload:unknown}).payload).toMatchObject({weeklyRest:{kind:"night-pending"}});
+  });
+  it("gênero feminino não substitui 12x36 nem cria referência de domingo para esse ciclo",async()=>{
+    await completeNightClock();await db.query("update public.colaboradores set genero='feminino' where id=$1::uuid",[person]);
+    await actor();await saveDefault(person,"2026-10-01",{...defaultPayload,start:"19:00",end:"07:00",days:[0,1,2,3,4,5,6],cycle:{kind:"12x36",anchorDate:"2026-10-01"}});
+    const current=await employeeSchedule("get",{employeeId:person,date:"2026-10-23"});
+    expect((current.setting as {payload:unknown}).payload).toMatchObject({cycle:{kind:"12x36",anchorDate:"2026-10-01"}});
+    expect((current.setting as {payload:Record<string,unknown>}).payload).not.toHaveProperty("weeklyRest");
+    await db.exec("reset role");expect((await db.query<{n:number}>("select count(*)::int n from private.employee_sunday_off_references where employee_id=$1::uuid",[person])).rows[0].n).toBe(0);
+  });
+  it("calendário de trabalho explícito prevalece sobre folga dominical",async()=>{
+    await saveDefault(person,"2026-10-01",{...defaultPayload,days:[0,1,2,3,4,5,6]});
+    const model=await template();
+    await rpc("save",{kind:"calendar",name:"Domingo trabalhado",scope:"global",target:null,validFrom:"2026-10-04",validTo:"2026-10-04",payload:{working:true,templateId:model.id,expectedTemplateUpdatedAt:model.updatedAt},reason:"Exceção explícita confirmada"});
+    await db.exec("reset role");
+    const raw=(await db.query<{value:unknown}>("select private.monitoring_input($1::uuid,'2026-10-04','2026-10-04') value",[person])).rows[0].value;
+    const [day]=reprocessMonitoringSnapshot(raw,{employeeId:person,start:"2026-10-04",end:"2026-10-04",reason:"Domingo de trabalho explícito"},Date.parse("2026-10-19T00:00:00Z"));
+    expect(day.summary.scheduleName).toBe("Diurno teste");
+  });
+
+  it("aplica folga dominical a horários existentes e rejeita referência inválida",async()=>{
+    await saveDefault(person,"2026-10-01",{...defaultPayload,days:[0,1,2,3,4,5,6]});
+    await db.exec("reset role");
+    expect((await db.query<{p:{days:number[];weeklyRest:{kind:string}}}>("select payload p from private.schedule_window_rows($1::uuid,'2026-10-04','2026-10-04')",[person])).rows[0].p).toMatchObject({days:[1,2,3,4,5,6],weeklyRest:{kind:"day"}});
+    expect((await db.query<{value:{expected:boolean}}>("select private.daily_call_evidence($1::uuid,'2026-10-04') value",[person])).rows[0].value.expected).toBe(false);
+    await actor();await expect(saveDefault(person,"2026-10-01",{...defaultPayload,start:"22:00",end:"06:20",weeklyRest:{kind:"night-women",sundayOffAnchor:"2026-10-05"}})).rejects.toThrow("INVALID");
+  });
 });

@@ -10,9 +10,9 @@ describe("Padrões e folgas informados pela operação",()=>{
   it("todos os onze padrões têm uma hora de almoço",()=>{expect(STANDARD_SCHEDULES).toHaveLength(11);for(const s of STANDARD_SCHEDULES) expect(defaultSchedulePayloadSchema.parse(standardPayload(s.id)).lunchMinutes).toBe(60);});
   it.each(["administrative","young-08","young-11","minor"])("%s trabalha somente segunda a sexta",id=>{expect(standardPayload(id).days).toEqual([1,2,3,4,5]);});
   it("diurno folga domingo; manutenção trabalha sábado",()=>{expect(standardPayload("operational-06").days).toEqual([1,2,3,4,5,6]);expect(standardPayload("maintenance").days).toEqual([1,2,3,4,5,6]);});
-  it("noturno folga sábado e aguarda data do domingo mensal",()=>{
+  it("noturno folga sábado e aguarda perfil e referência da alternância",()=>{
     const p=standardPayload("operational-22");expect(rosterState(p,"2026-10-03")).toBe("off");expect(rosterState(p,"2026-10-04")).toBe("pending");
-    p.monthlySundayOffDates=["2026-10-04"];expect(rosterState(p,"2026-10-04")).toBe("off");expect(rosterState(p,"2026-10-11")).toBe("work");expect(rosterState(p,"2026-11-01")).toBe("pending");
+    p.weeklyRest={kind:"night-women",sundayOffAnchor:"2026-10-04"};expect(rosterState(p,"2026-10-04")).toBe("off");expect(rosterState(p,"2026-10-11")).toBe("work");expect(rosterState(p,"2026-11-01")).toBe("off");
   });
   it("APP mantém 12x36 sem impor domingo de folga",()=>{const p={...standardPayload("app-night"),weeklyRosterConfirmed:true,cycle:{kind:"12x36" as const,anchorDate:"2026-10-01"}};expect(rosterState(p,"2026-10-01")).toBe("work");expect(rosterState(p,"2026-10-02")).toBe("off");expect(rosterState(p,"2026-10-03")).toBe("work");});
   it("seleciona o padrão mais repetido e mantém diferenças fora do padrão em revisão",()=>{

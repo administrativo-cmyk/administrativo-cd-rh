@@ -4,12 +4,14 @@ import { afterEach, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initialEmployees } from "@/lib/mock-daily-call";
 import type { BankDay } from "@/lib/monitoring/bank-day";
+import type { z } from "zod";
+import type { attendanceHistorySnapshotSchema } from "@/lib/monitoring/attendance-history-contracts";
 import { PeriodGrid } from "./period-grid";
 
-vi.mock("@/lib/data/daily-call-dates", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/data/daily-call-dates")>(),
-  todayInSaoPaulo: () => "2026-10-20",
-}));
+vi.mock("@/lib/data/daily-call-dates", async importOriginal => {
+  const original = await importOriginal<typeof import("@/lib/data/daily-call-dates")>();
+  return { ...original, todayInSaoPaulo: (now?: Date) => now ? original.todayInSaoPaulo(now) : "2026-10-20" };
+});
 const first = { ...initialEmployees[0], databaseId: "30000000-0000-4000-8000-000000000001", name: "Pessoa da noite" };
 const second = { ...initialEmployees[1], databaseId: "30000000-0000-4000-8000-000000000002", name: "Outra pessoa" };
 const props = { employees: [first, second], startDate: "2026-10-08", endDate: "2026-10-09", onSelect: vi.fn(), columnsCollapsed: true };
@@ -19,7 +21,7 @@ const day = (date: string, times: string[], extra: Partial<BankDay> = {}) => ({
     punches: times.map((time, index) => ({ id: `punch-${index}`, at: Date.parse(`${time}-03:00`), sourceId: index % 2 ? "clock-pis" : "clock-cpf" })),
     slots: [], missingRole: null, suggestions: [], suppressedIds: [], ...extra } satisfies BankDay,
 });
-const snapshot = (days: ReturnType<typeof day>[]) => ({ days, bank: null, canEdit: false, correctionHistory: [] });
+const snapshot = (days: z.infer<typeof attendanceHistorySnapshotSchema>["days"]) => ({ days, bank: null, canEdit: false, correctionHistory: [] });
 const ok = (data: ReturnType<typeof snapshot>) => ({ ok: true, json: async () => data });
 afterEach(() => vi.unstubAllGlobals());
 const renderGrid = (overrides = {}) => render(<TooltipProvider><PeriodGrid {...props} {...overrides} /></TooltipProvider>);
@@ -33,10 +35,12 @@ it("carrega somente ao expandir e alinha batidas dos dois relógios à data oper
   vi.stubGlobal("fetch", fetcher);
   const view = renderGrid();
   expect(fetcher).not.toHaveBeenCalled();
+  expect(screen.getByRole("table").style.minWidth).toContain("28px");
   await user.click(screen.getByRole("button", { name: "Expandir batidas de Pessoa da noite" }));
   const row = await screen.findByRole("row", { name: "Batidas de Pessoa da noite" });
   const cell = await within(row).findByRole("cell", { name: "Pessoa da noite, batidas de 08/10/2026" });
-  expect([...cell.querySelectorAll("time")].map(mark => mark.textContent)).toEqual(["22:00", "01:00", "02:00", "06:20"]);
+  expect([...cell.querySelectorAll("time")].map(mark => mark.textContent)).toEqual(["22:00", "01:00 S", "02:00 S", "06:20 S"]);
+  expect(screen.getByRole("table").style.minWidth).toContain("40px");
   expect(within(cell).getByLabelText("09/10/2026, 06:20")).toHaveAttribute("datetime", "2026-10-09T09:20:00.000Z");
   expect(within(row).getByRole("cell", { name: "Pessoa da noite, batidas de 09/10/2026" })).toHaveTextContent("—");
   expect(within(row).getByRole("rowheader")).toHaveAttribute("colspan", "1");
@@ -50,6 +54,26 @@ it("carrega somente ao expandir e alinha batidas dos dois relógios à data oper
   expect(fetcher).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "Recolher batidas de Pessoa da noite" }));
   expect(screen.queryByRole("row", { name: "Batidas de Pessoa da noite" })).not.toBeInTheDocument();
+});
+
+it("mostra agrupamento histórico antes da vigência e não repete saída no dia seguinte", async () => {
+  const user = userEvent.setup();
+  const source = day("2026-10-08", ["2026-10-08T18:56:00", "2026-10-08T20:23:00", "2026-10-08T21:23:00"]);
+  const next = day("2026-10-09", ["2026-10-09T07:01:00"]);
+  const reason = "Batidas noturnas agrupadas na data da entrada";
+  const response = snapshot([
+    { ...source, displayMarks: [...source.bankDay.punches, ...next.bankDay.punches], displayReason: reason },
+    { ...next, displayMarks: [], displayReason: reason },
+  ]);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok(response)));
+  renderGrid();
+  await user.click(screen.getByRole("button", { name: "Expandir batidas de Pessoa da noite" }));
+  const row = await screen.findByRole("row", { name: "Batidas de Pessoa da noite" });
+  const entry = await within(row).findByRole("cell", { name: "Pessoa da noite, batidas de 08/10/2026" });
+  await waitFor(() => expect(entry.querySelectorAll("time")).toHaveLength(4));
+  expect([...entry.querySelectorAll("time")].map(mark => mark.textContent)).toEqual(["18:56", "20:23", "21:23", "07:01 S"]);
+  expect(within(row).getByRole("cell", { name: "Pessoa da noite, batidas de 09/10/2026" })).toHaveTextContent("—");
+  expect(within(entry).getByText("07:01 S")).toHaveAttribute("title", "09/10/2026, 07:01 · sexta-feira");
 });
 
 it("mostra batida faltante sem preencher sugestão do torniquete automaticamente", async () => {
@@ -119,4 +143,60 @@ it("não busca períodos totalmente futuros", async () => {
   await user.click(screen.getByRole("button", { name: "Expandir batidas de Pessoa da noite" }));
   expect(fetcher).not.toHaveBeenCalled();
   expect(within(screen.getByRole("row", { name: "Batidas de Pessoa da noite" })).getAllByLabelText("Data futura")).toHaveLength(31);
+});
+
+it("expande todos pelo cabeçalho, mantém controles individuais e recolhe todos", async () => {
+  const user = userEvent.setup(), fetcher = vi.fn().mockResolvedValue(ok(snapshot([])));
+  vi.stubGlobal("fetch", fetcher);
+  const unsynced = { ...initialEmployees[2], name: "Sem cadastro sincronizado", databaseId: undefined };
+  const view = renderGrid({ employees: [first, second, unsynced] });
+  const heading = screen.getByRole("columnheader", { name: /Colaborador/ });
+  const expandAll = within(heading).getByRole("button", { name: "Expandir batidas de todos os colaboradores" });
+  await user.click(expandAll);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(screen.getAllByRole("row", { name: /^Batidas de/ })).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Expandir batidas de Sem cadastro sincronizado" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Recolher batidas de todos os colaboradores" })).toHaveAttribute("aria-expanded", "true");
+  view.rerender(<TooltipProvider><PeriodGrid {...props} employees={[first, second, unsynced]} columnsCollapsed={false} fillHeight managerGroups={[["Equipe", [first, second, unsynced]]]} /></TooltipProvider>);
+  expect(screen.getAllByRole("row", { name: /^Batidas de/ })).toHaveLength(2);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+  await user.click(screen.getByRole("button", { name: "Recolher batidas de Pessoa da noite" }));
+  expect(screen.getAllByRole("row", { name: /^Batidas de/ })).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Expandir batidas de todos os colaboradores" }));
+  expect(screen.getAllByRole("row", { name: /^Batidas de/ })).toHaveLength(2);
+  await user.click(screen.getByRole("button", { name: "Recolher batidas de todos os colaboradores" }));
+  expect(screen.queryByRole("row", { name: /^Batidas de/ })).not.toBeInTheDocument();
+});
+
+it("expande somente a lista filtrada e desabilita ação quando não há cadastro sincronizado", async () => {
+  const user = userEvent.setup(), fetcher = vi.fn().mockResolvedValue(ok(snapshot([])));
+  vi.stubGlobal("fetch", fetcher);
+  const view = renderGrid({ employees: [second] });
+  await user.click(screen.getByRole("button", { name: "Expandir batidas de todos os colaboradores" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  expect(fetcher.mock.calls[0][0]).toContain(`employeeId=${second.databaseId}`);
+  expect(screen.queryByRole("row", { name: "Batidas de Pessoa da noite" })).not.toBeInTheDocument();
+  view.rerender(<TooltipProvider><PeriodGrid {...props} employees={[{ ...first, databaseId: undefined }]} /></TooltipProvider>);
+  expect(screen.getByRole("button", { name: "Expandir batidas de todos os colaboradores" })).toBeDisabled();
+});
+
+it("limita consultas simultâneas e cancela a fila ao recolher todos", async () => {
+  const user = userEvent.setup();
+  const people = Array.from({ length: 8 }, (_, index) => ({ ...first, id: `person-${index}`, databaseId: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: `Pessoa ${index}` }));
+  const pending: Array<{ resolve: (value: ReturnType<typeof ok>) => void; signal: AbortSignal }> = [];
+  const fetcher = vi.fn((_url: string, options: { signal: AbortSignal }) => new Promise((resolve, reject) => {
+    pending.push({ resolve, signal: options.signal });
+    options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  renderGrid({ employees: people });
+  await user.click(screen.getByRole("button", { name: "Expandir batidas de todos os colaboradores" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+  expect(screen.getAllByRole("row", { name: /^Batidas de/ })).toHaveLength(8);
+  await act(async () => pending[0].resolve(ok(snapshot([]))));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5));
+  await user.click(screen.getByRole("button", { name: "Recolher batidas de todos os colaboradores" }));
+  expect(screen.queryByRole("row", { name: /^Batidas de/ })).not.toBeInTheDocument();
+  expect(pending.every(request => request.signal.aborted)).toBe(true);
+  expect(fetcher).toHaveBeenCalledTimes(5);
 });

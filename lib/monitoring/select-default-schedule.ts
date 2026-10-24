@@ -1,4 +1,4 @@
-import { STANDARD_SCHEDULES, standardPayload, durationMinutes } from "./schedule-standards.ts";
+import { STANDARD_SCHEDULES, standardPayload, durationMinutes, applyWeeklyRest } from "./schedule-standards.ts";
 import type { ObservedSchedule } from "./schedule-inference.ts";
 const normalized = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toUpperCase();
 const minute = (s: string) => Number(s.slice(0,2))*60+Number(s.slice(3));
@@ -38,5 +38,5 @@ export function selectDefaultSchedule(employee: {role:string|null;department:str
  const selected=selectOfficialSchedule(employee,pattern);
  if(selected.state==="selected" || pattern?.status!=="recurring" || !pattern.start || !pattern.end) return selected;
  return {state:"estimated" as const,reason:`Horário fora dos padrões fornecidos; recorrente em ${pattern.matchingDays}/${pattern.daysObserved} jornadas. Conferir entrada/saída e folgas.`,matchedDates:pattern.matchingDates,
- payload:{name:`Horário observado ${pattern.start}–${pattern.end}`,start:pattern.start,end:pattern.end,days:[0,1,2,3,4,5,6],lunchMinutes:60 as const,weeklyRosterConfirmed:false,estimated:true,allowNoBreak:false as const,pairing:"alternating" as const,coffeeWindows:[] as never[],monthlySundayOff:false,monthlySundayOffDates:[] as string[]}};
+ payload:applyWeeklyRest({name:`Horário observado ${pattern.start}–${pattern.end}`,start:pattern.start,end:pattern.end,days:[0,1,2,3,4,5,6],lunchMinutes:60 as const,weeklyRosterConfirmed:false,estimated:true,allowNoBreak:false as const,pairing:"alternating" as const,coffeeWindows:[] as never[],monthlySundayOff:false,monthlySundayOffDates:[] as string[]})};
 }

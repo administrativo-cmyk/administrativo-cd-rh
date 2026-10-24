@@ -11,6 +11,7 @@ const errors: Record<string, string> = {
   ADMINISTRATION_VACATION_LOCKED: "Esta programação exige revisão de ADMIN ou RH.", ADMINISTRATION_DUPLICATE: "Já existe um cadastro equivalente com esse nome, código ou matrícula.",
   ADMINISTRATION_ARCHIVED: "Restaure o cadastro antes de editá-lo.",
   EMPLOYEE_LIFECYCLE_DATES: "Informe datas válidas: desligamento, início da situação e retorno previsto. Ao reativar, informe a data efetiva do retorno.",
+  EMPLOYEE_GENDER_INVALID: "Selecione Feminino, Masculino ou deixe em branco.",
   EMPLOYEE_NUMBER_CONFLICT: "Uma das matrículas já pertence a outro colaborador. Revise o cadastro.",
   EMPLOYEE_NUMBERS_INVALID: "Informe até 20 matrículas adicionais, com até 100 caracteres cada.",
   EMPLOYEE_IDENTIFIER_INVALID: "CPF ou PIS inválido. Informe os 11 dígitos.",

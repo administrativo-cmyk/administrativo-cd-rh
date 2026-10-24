@@ -36,7 +36,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
   const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId) ?? null, [employees, selectedEmployeeId]);
   const filteredEmployees = useMemo(() => filterEmployees(employees, filters, selectedDate), [employees, filters, selectedDate]);
   const metrics = useMemo(() => calculateDailyCallMetrics(filteredEmployees, selectedDate), [filteredEmployees, selectedDate]);
-  const managerGroups = useMemo(() => groupEmployeesByManager(filteredEmployees), [filteredEmployees]);
+  const managerGroups = useMemo(() => groupEmployeesByManager(filteredEmployees, filters.startDate, filters.endDate, employees), [filteredEmployees, filters.startDate, filters.endDate, employees]);
   const managerOptions = useMemo(() => [...new Set(employees.map((employee) => employee.manager))].sort((a, b) => a.localeCompare(b, "pt-BR")), [employees]);
   const defaults = useMemo(() => filtersForDate(selectedDate), [selectedDate]);
   const activeFilterCount = useMemo(() => countActiveFilters(filters, defaults), [filters, defaults]);
@@ -83,7 +83,7 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
 
   const updateFilter = useCallback(<K extends keyof DailyCallFilters>(key: K, value: DailyCallFilters[K]) => setFilters((current) => ({ ...current, [key]: value })), []);
   const clearFilters = useCallback(() => setFilters(filtersForDate(selectedDate)), [selectedDate]);
-  const changeDate = useCallback((date: string) => { if (!validDate(date)) return; setSelectedDate(date); setFilters(filtersForDate(date)); }, []);
+  const changeDate = useCallback((date: string) => { if (!validDate(date)) return; setSelectedDate(date); setFilters(current => ({ ...current, startDate: filtersForDate(date).startDate, endDate: filtersForDate(date).endDate })); }, []);
   const changePayrollPeriod = useCallback((month: string) => {
     const period = payrollPeriodForMonth(month);
     setFilters(current => ({ ...current, startDate: period.startDate, endDate: period.endDate }));

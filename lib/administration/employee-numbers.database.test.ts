@@ -57,6 +57,23 @@ afterEach(async () => { await db.exec("rollback"); });
 afterAll(async () => { await db?.close(); });
 
 describe("matrículas adicionais no PostgreSQL isolado", () => {
+  it("gênero permanece vazio sem fonte e aceita edição, omissão legada e limpeza explícita", async () => {
+    expect((await record()).gender).toBeNull();
+    expect((await save({ gender: "feminino" })).record.gender).toBe("feminino");
+    expect((await save({ gender: undefined })).record.gender).toBe("feminino");
+    expect((await save({ gender: "masculino" })).record.gender).toBe("masculino");
+    expect((await save({ gender: null })).record.gender).toBeNull();
+    await db.exec("reset role");
+    const audit = await value<number>("select count(*)::int value from private.employee_lifecycle_audit where employee_id=$1::uuid and after_record->'gender'='null'::jsonb", [employee]);
+    expect(audit).toBe(1);
+  });
+
+  it("rejeita gênero inválido no RPC e preserva a permissão administrativa", async () => {
+    await expect(save({ gender: "suposto pelo nome" })).rejects.toThrow("EMPLOYEE_GENDER_INVALID");
+    expect((await record()).gender).toBeNull();
+    await actor(reader);
+    await expect(save({ gender: "feminino" })).rejects.toThrow("FORBIDDEN");
+  });
   it("persiste, busca e audita a matrícula antiga; omissão preserva, lista vazia remove", async () => {
     const saved = await save({ additionalEmployeeNumbers: ["46293", "000123"] });
     expect(saved.record.additionalEmployeeNumbers).toEqual(["000123", "46293"]);

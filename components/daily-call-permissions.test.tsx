@@ -112,4 +112,31 @@ describe("controles da Chamada por papel", () => {
     expect(screen.getByRole("button", { name: "Mostrar colunas de dados" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Gestor" })).not.toBeInTheDocument();
   });
+
+  it("mantém atalhos e agrupamento no Período ao entrar e sair da tela cheia", async () => {
+    const user = userEvent.setup();
+    render(<DailyCallApp profile={profile("LEITURA")} initialDate={date} initialSnapshot={snapshot} />);
+    await screen.findByTestId("today-table");
+    await user.type(screen.getByRole("searchbox", { name: "Pesquisar colaborador por nome ou matrícula" }), "FICT-A");
+    expect(screen.getByLabelText("Buscar colaborador")).toHaveValue("FICT-A");
+    await user.click(screen.getByRole("button", { name: "Período" }));
+    const grouping = screen.getByRole("checkbox", { name: "Agrupar por gestor" });
+    expect(grouping).toBeEnabled();
+    await user.click(grouping);
+    expect(screen.getByRole("rowgroup", { name: "Equipe de Gestor Fictício" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Tela cheia" }));
+    const board = screen.getByRole("region", { name: "Lista da chamada" });
+    expect(board).toHaveAttribute("data-fullscreen", "true");
+    expect(screen.getByLabelText("Período rápido da chamada")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveValue("FICT-A");
+    await user.click(screen.getByRole("combobox", { name: "Colaborador rápido" }));
+    await user.type(screen.getByPlaceholderText("Pesquisar na lista por nome ou matrícula"), "FICT-A");
+    await user.click(screen.getByRole("option", { name: /Colaborador Fictício/ }));
+    expect(screen.getByRole("combobox", { name: "Colaborador rápido" })).toHaveTextContent("Colaborador Fictício");
+    await user.click(screen.getByRole("button", { name: "Sair da tela cheia" }));
+    expect(board).toHaveAttribute("data-fullscreen", "false");
+    expect(grouping).toBeChecked();
+    expect(screen.getByRole("searchbox")).toHaveValue("FICT-A");
+    expect(screen.getByRole("rowgroup", { name: "Equipe de Gestor Fictício" })).toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 import { assessBankDay, type BankDay } from "./bank-day";
 import { z } from "zod";
-import { scheduledOn, durationMinutes } from "./standard-schedules";
+import { rosterState, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
 import { parseLocalTimestamp } from "./ingestion/validation";
 import {
@@ -96,7 +96,8 @@ function scheduleFor(settings: Setting[], employeeId: string, date: string, cale
   if (calendar.some(day => day.date === date && day.state === "off")) return null;
   const setting = uniqueSetting(settings, "schedule", employeeId, date);
   if (!setting || setting.kind !== "schedule") return null;
-  return scheduledOn(setting.payload, date) ? setting : null;
+  const state = rosterState(setting.payload, date);
+  return state === "off" ? null : state === "pending" ? { ...setting, payload: { ...setting.payload, weeklyRosterConfirmed: false } } : setting;
 }
 function scheduleTimes(setting: ScheduleSetting, date: string): { start: number; end: number } {
   return { start: localInstant(date, setting.payload.start), end: localInstant(setting.payload.end <= setting.payload.start ? shiftDate(date, 1) : date, setting.payload.end) };
@@ -255,7 +256,7 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     };
     const result = calculateJourney(calculationInput);
     if (autoBoundaries) result.issues.push({code:"JOURNEY_FROM_DECLARED_COMPLETE_AFD",eventIds:punchEvents.map(p=>p.id),detail:"Sequência alternada em coleta integral declarada dos relógios vinculados."});
-    if (scheduled?.payload.estimated && result.lateness.quality !== "excluded") {
+    if ((scheduled?.payload.estimated || scheduled?.payload.weeklyRosterConfirmed === false) && result.lateness.quality !== "excluded") {
       result.lateness = { ...result.lateness, quality: "unavailable", totalMs: null, excessMs: null, over15Minutes: null,
         reason: "Horário estimado pelo ponto; atraso exige escala confirmada." };
     }
@@ -265,7 +266,7 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
     const bankSchedule = attributionFor(settings, request.employeeId, date, snapshot.calendar);
     const bankTimes = bankSchedule ? scheduleTimes(bankSchedule, date) : null;
     const bankDay = assessBankDay({ date, punches: punchEvents, accesses: accessEvents, mappings,
-      schedule: bankSchedule && bankTimes && bankSchedule.payload.lunchMinutes !== undefined ? { start: bankTimes.start, end: bankTimes.end, lunchMinutes: bankSchedule.payload.lunchMinutes, confirmed: !bankSchedule.payload.estimated && bankSchedule.payload.weeklyRosterConfirmed !== false, ...(!scheduled ? {expectedMinutes:0} : {}) } : null,
+      schedule: bankSchedule && bankTimes && bankSchedule.payload.lunchMinutes !== undefined ? { start: bankTimes.start, end: bankTimes.end, lunchMinutes: bankSchedule.payload.lunchMinutes, confirmed: !bankSchedule.payload.estimated && bankSchedule.payload.weeklyRosterConfirmed !== false && rosterState(bankSchedule.payload, date) !== "pending", ...(!scheduled ? {expectedMinutes:0} : {}) } : null,
       closed: window.end <= referenceAt, collectionComplete: fullCollection || Boolean(correction),
       protected: snapshot.protectedDates.includes(date), conflicted: conflictingPunches.length > 0 || unconfirmedSources.length > 0,
     });
