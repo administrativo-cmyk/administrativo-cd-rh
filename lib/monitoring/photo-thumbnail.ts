@@ -5,6 +5,18 @@ export class InvalidPhotoError extends Error {
   constructor() { super("PHOTO_IMAGE_INVALID"); this.name = "InvalidPhotoError"; }
 }
 
+/** Validate the complete image while retaining its original bytes and EXIF orientation. */
+export async function readOriginalPhoto(bytes: Buffer): Promise<{ bytes: Buffer; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
+  if (!bytes.length || bytes.length > 2_000_000) throw new InvalidPhotoError();
+  try {
+    const image = sharp(bytes, { limitInputPixels: 20_000_000, failOn: "warning" });
+    const metadata = await image.metadata();
+    if (!metadata.width || !metadata.height || !["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) > 1) throw new InvalidPhotoError();
+    await image.stats();
+    return { bytes, mimeType: `image/${metadata.format}` as "image/jpeg" | "image/png" | "image/webp" };
+  } catch { throw new InvalidPhotoError(); }
+}
+
 async function normalizePhoto(bytes: Buffer, preview: boolean): Promise<Buffer> {
   if (!bytes.length || bytes.length > 2 * 1024 * 1024) throw new InvalidPhotoError();
   try {

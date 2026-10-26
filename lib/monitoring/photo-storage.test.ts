@@ -29,6 +29,13 @@ describe("private immutable photo storage", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null)).mockResolvedValueOnce(new Response("other image")));
     await expect(store().put(bytes)).rejects.toThrow("PHOTO_STORAGE_HASH_MISMATCH");
   });
+  it.each([["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]] as const)("preserves the original %s with a verified immutable path", async (mimeType, extension) => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(null)).mockResolvedValueOnce(new Response(bytes));
+    vi.stubGlobal("fetch", fetch);
+    expect(await store().putOriginal(bytes, mimeType)).toEqual({ ...image, mimeType, storagePath: `originals/${sha256}.${extension}` });
+    expect(fetch.mock.calls[0][1]).toMatchObject({ headers: { "Content-Type": mimeType, "x-upsert": "false" }, body: new Uint8Array(bytes) });
+    await expect(store().download({ ...image, mimeType, storagePath: `originals/${sha256}.wrong` })).rejects.toThrow();
+  });
   it("rejects a path outside the digest namespace without issuing a request", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     await expect(store().download({ ...image, storagePath: "../another-person.jpg" })).rejects.toThrow();

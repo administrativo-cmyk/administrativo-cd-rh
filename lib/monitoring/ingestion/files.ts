@@ -87,7 +87,7 @@ export async function buildPhotoIndex(root: string): Promise<Map<string, string[
   await visit(actualRoot, 0); return index;
 }
 
-type SharpInstance = { metadata(): Promise<{ width?: number; height?: number; format?: string }>; rotate(): SharpInstance; resize(width: number, height: number, options: { fit: string; withoutEnlargement: boolean }): SharpInstance; jpeg(options: { quality: number; chromaSubsampling?: string }): SharpInstance; toBuffer(): Promise<Buffer> };
+type SharpInstance = { metadata(): Promise<{ width?: number; height?: number; format?: string; pages?: number }>; stats(): Promise<unknown> };
 type SharpFactory = (bytes: Buffer, options: { limitInputPixels: number; failOn: string }) => SharpInstance;
 let sharp: SharpFactory | undefined;
 function imageDecoder(): SharpFactory {
@@ -100,7 +100,7 @@ function imageDecoder(): SharpFactory {
   } catch { throw new ImportError("PHOTO_DECODER_UNAVAILABLE"); }
 }
 
-export async function loadPhoto(root: string, reference: string, index?: Map<string, string[]>): Promise<{ bytes: Buffer; sha256: string; mimeType: "image/jpeg" }> {
+export async function loadPhoto(root: string, reference: string, index?: Map<string, string[]>): Promise<{ bytes: Buffer; sha256: string; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
   const normalized = safePhotoReference(reference); const actualRoot = await realpath(root);
   let path: string;
   if (normalized.includes("/")) path = await safeFile(actualRoot, resolve(actualRoot, normalized));
@@ -113,10 +113,9 @@ export async function loadPhoto(root: string, reference: string, index?: Map<str
   try {
     const decoder = imageDecoder()(bytes, { limitInputPixels: 25_000_000, failOn: "warning" });
     const metadata = await decoder.metadata();
-    if (!metadata.width || !metadata.height || !["jpeg", "png", "webp"].includes(metadata.format ?? "")) throw new ImportError("PHOTO_IMAGE_INVALID");
-    // rotate() applies EXIF orientation; output JPEG discards source metadata.
-    const preview = await decoder.rotate().resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 92, chromaSubsampling: "4:4:4" }).toBuffer();
-    if (preview.length > 2 * 1024 * 1024) throw new ImportError("PHOTO_OUTPUT_SIZE_LIMIT");
-    return { bytes: preview, sha256: sha256(preview), mimeType: "image/jpeg" };
+    if (!metadata.width || !metadata.height || !["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) > 1) throw new ImportError("PHOTO_IMAGE_INVALID");
+    if (bytes.length > 2_000_000) throw new ImportError("PHOTO_OUTPUT_SIZE_LIMIT");
+    await decoder.stats();
+    return { bytes, sha256: sha256(bytes), mimeType: `image/${metadata.format}` as "image/jpeg" | "image/png" | "image/webp" };
   } catch (error) { if (error instanceof ImportError) throw error; throw new ImportError("PHOTO_IMAGE_INVALID"); }
 }

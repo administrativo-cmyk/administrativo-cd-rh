@@ -83,10 +83,26 @@ it("mantém miniaturas leves, amplia somente a identidade autorizada e grava as 
     await expect(db.query("select public.monitoring_identity_photo('preview-defense','000123','full')")).rejects.toThrow();
     await actor("anon");
     await expect(rpc("monitoring_query", "photo", { employeeId: employee, photoVariant: "full" })).rejects.toThrow();
+    await db.exec("reset role");
+    const png = image("original-png");
+    const original = { mimeType: "image/png", sha256: png.sha256, storagePath: `originals/${png.sha256}.png`, byteLength: Buffer.from(png.base64, "base64").length };
+    await db.query("insert into storage.objects(bucket_id,name,metadata) values('monitoramento-fotos',$1,$2::jsonb)", [original.storagePath, JSON.stringify({ size: original.byteLength })]);
+    await actor("service_role");
+    expect(await maintenance("capabilities")).toMatchObject({photoStorage:true,photoOriginal:true});
+    await expect(rpc("monitoring_ingest", {photoWithStoredPreview:{thumbnail,preview:{...original,storagePath:`originals/${png.sha256}.jpg`}}})).rejects.toThrow("PHOTO_STORAGE_INVALID");
+    expect(await rpc("monitoring_ingest", {photoWithStoredPreview:{thumbnail,preview:original}})).toMatchObject({previewStored:true,previewStorage:true});
+    await actor("authenticated");
+    expect(await rpc("monitoring_query", "photo", { employeeId: employee, photoVariant: "full" })).toEqual(original);
+    expect(await rpc("monitoring_query", "photo", { employeeId: employee })).toEqual(image("small"));
+    await actor("authenticated", manager);
+    await expect(rpc("monitoring_query", "photo", { employeeId: employee, photoVariant: "full" })).rejects.toThrow();
     await actor("service_role");
     // Legacy preview uploads remain compatible after a photo has moved to Storage.
-    expect(await rpc("monitoring_ingest", envelope(true))).toMatchObject({ status: "replayed", previewStored: true });
+    expect(await rpc("monitoring_ingest", envelope())).toMatchObject({ previewStored: true });
     expect(await maintenance("status")).toMatchObject({ pending: 1, stored: 0 });
+    await actor("authenticated");
+    expect(await rpc("monitoring_query", "photo", { employeeId: employee, photoVariant: "full" })).toEqual(preview);
+    await actor("service_role");
     await rpc("monitoring_ingest", { photo: { ...thumbnail, ...image("new-small-from-old-worker") } });
     await actor("authenticated");
     expect(await rpc("monitoring_query", "photo", { employeeId: employee, photoVariant: "full" })).toEqual(image("new-small-from-old-worker"));

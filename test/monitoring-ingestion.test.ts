@@ -171,9 +171,12 @@ describe("arquivos, fotos e fronteira de diretório", () => {
   it("preserva resolução de fotos para ampliação durante a importação", async () => {
     const sharp = (await import("sharp")).default;
     const root = await temporary();
-    await writeFile(join(root, "portrait.png"), await sharp({ create: { width: 800, height: 600, channels: 3, background: "#00aabb" } }).png().toBuffer());
+    const original = await sharp({ create: { width: 1800, height: 1200, channels: 3, background: "#00aabb" } }).png().toBuffer();
+    await writeFile(join(root, "portrait.png"), original);
     const photo = await loadPhoto(root, "portrait.png");
-    expect(await sharp(photo.bytes).metadata()).toMatchObject({ format: "jpeg", width: 800, height: 600 });
+    expect(photo.mimeType).toBe("image/png");
+    expect(photo.bytes.equals(original)).toBe(true);
+    expect(await sharp(photo.bytes).metadata()).toMatchObject({ format: "png", width: 1800, height: 1200 });
   });
   it("não aceita travessia, URLs ou caminhos absolutos em fotos", () => {
     for (const path of ["../x.jpg", "%2e%2e/x.jpg", "https://example.invalid/x.jpg", "C:\\x.jpg", "/x.jpg", "file:///x.jpg"]) expect(() => safePhotoReference(path)).toThrow();

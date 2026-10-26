@@ -4,12 +4,15 @@ import { isTrustedSupabaseStorageOrigin } from "../supabase/storage-origin.ts";
 
 export const photoBucket = "monitoramento-fotos";
 export const photoByteLimit = 2_000_000;
+export const photoExtensions = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as const;
+export type PhotoMimeType = keyof typeof photoExtensions;
 export const storedPhotoSchema = z.object({
-  mimeType: z.literal("image/jpeg"),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  storagePath: z.string().regex(/^previews\/[0-9a-f]{64}\.jpg$/),
+  storagePath: z.string().regex(/^(previews|originals)\/[0-9a-f]{64}\.(jpg|png|webp)$/),
   byteLength: z.number().int().positive().max(photoByteLimit),
-}).refine(value => value.storagePath === `previews/${value.sha256}.jpg`);
+}).refine(value => value.storagePath === `originals/${value.sha256}.${photoExtensions[value.mimeType]}`
+  || (value.mimeType === "image/jpeg" && value.storagePath === `previews/${value.sha256}.jpg`));
 export type StoredPhoto = z.infer<typeof storedPhotoSchema>;
 export function photoDigest(bytes: Uint8Array) { return createHash("sha256").update(bytes).digest("hex"); }
 
@@ -46,10 +49,16 @@ export class PhotoStorage {
     return bytes;
   }
   async put(bytes: Buffer): Promise<StoredPhoto> {
+    return this.upload(bytes, "image/jpeg", "previews");
+  }
+  async putOriginal(bytes: Buffer, mimeType: PhotoMimeType): Promise<StoredPhoto> {
+    return this.upload(bytes, mimeType, "originals");
+  }
+  private async upload(bytes: Buffer, mimeType: PhotoMimeType, directory: "previews" | "originals"): Promise<StoredPhoto> {
     const sha256 = photoDigest(bytes);
-    const photo = storedPhotoSchema.parse({ mimeType: "image/jpeg", sha256, storagePath: `previews/${sha256}.jpg`, byteLength: bytes.length });
+    const photo = storedPhotoSchema.parse({ mimeType, sha256, storagePath: `${directory}/${sha256}.${photoExtensions[mimeType]}`, byteLength: bytes.length });
     const response = await fetch(new URL(`/storage/v1/object/${photoBucket}/${photo.storagePath}`, this.origin), {
-      method: "POST", headers: { ...this.headers(), "Content-Type": "image/jpeg", "x-upsert": "false" },
+      method: "POST", headers: { ...this.headers(), "Content-Type": mimeType, "x-upsert": "false" },
       body: new Uint8Array(bytes), redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20_000),
     });
     await response.body?.cancel();

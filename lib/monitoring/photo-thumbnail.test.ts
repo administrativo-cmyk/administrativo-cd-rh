@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { createPhotoThumbnail, createPhotoPreview, InvalidPhotoError } from "./photo-thumbnail";
+import { createPhotoThumbnail, createPhotoPreview, readOriginalPhoto, InvalidPhotoError } from "./photo-thumbnail";
 
 describe("miniatura de foto no servidor", () => {
   it("usa dependência rastreável e produz JPEG limitado sem metadados", async () => {
@@ -15,8 +15,16 @@ describe("miniatura de foto no servidor", () => {
     for (const input of [Buffer.alloc(0), Buffer.alloc(2 * 1024 * 1024 + 1), Buffer.from("private-photo-invalid"), Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>')]) {
       await expect(createPhotoThumbnail(input)).rejects.toEqual(expect.objectContaining({ code: "PHOTO_IMAGE_INVALID" }));
       await expect(createPhotoPreview(input)).rejects.toEqual(expect.objectContaining({ code: "PHOTO_IMAGE_INVALID" }));
+      await expect(readOriginalPhoto(input)).rejects.toEqual(expect.objectContaining({ code: "PHOTO_IMAGE_INVALID" }));
     }
     expect(new InvalidPhotoError().message).toBe("PHOTO_IMAGE_INVALID");
+  });
+  it.each(["jpeg", "png", "webp"] as const)("conserva os bytes, resolução e orientação do original %s", async format => {
+    const source = await sharp({ create: { width: 1800, height: 1200, channels: 3, background: "#00aabb" } }).withMetadata({ orientation: 6 }).toFormat(format).toBuffer();
+    const original = await readOriginalPhoto(source);
+    expect(original.mimeType).toBe(`image/${format}`);
+    expect(original.bytes.equals(source)).toBe(true);
+    expect(await sharp(original.bytes).metadata()).toMatchObject({ width: 1800, height: 1200, orientation: 6 });
   });
   it("preserva resolução e proporção do original no zoom, com orientação corrigida e sem metadados", async () => {
     const source = await sharp({ create: { width: 900, height: 600, channels: 3, background: "#00aabb" } }).withMetadata({ orientation: 6 }).png().toBuffer();

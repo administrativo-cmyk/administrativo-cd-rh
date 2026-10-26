@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), capability: vi.fn(), thumbnail: vi.fn(), put: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), capability: vi.fn(), thumbnail: vi.fn(), original: vi.fn(), put: vi.fn(), putOriginal: vi.fn() }));
 vi.mock("@/lib/monitoring/server", async (original) => ({ ...await original<typeof import("@/lib/monitoring/server")>(), workerClient: () => ({ rpc: (name: string, args: unknown) => name === "monitoring_photo_storage" ? mocks.capability(name,args) : mocks.rpc(name,args) }) }));
-vi.mock("@/lib/monitoring/photo-thumbnail", async (original) => ({ ...await original<typeof import("@/lib/monitoring/photo-thumbnail")>(), createPhotoThumbnail: mocks.thumbnail, createPhotoPreview: mocks.thumbnail }));
-vi.mock("@/lib/monitoring/photo-storage-server", () => ({ serverPhotoStorage: () => ({ put: mocks.put }) }));
+vi.mock("@/lib/monitoring/photo-thumbnail", async (original) => ({ ...await original<typeof import("@/lib/monitoring/photo-thumbnail")>(), createPhotoThumbnail: mocks.thumbnail, createPhotoPreview: mocks.thumbnail, readOriginalPhoto: mocks.original }));
+vi.mock("@/lib/monitoring/photo-storage-server", () => ({ serverPhotoStorage: () => ({ put: mocks.put, putOriginal: mocks.putOriginal }) }));
 import { InvalidPhotoError } from "@/lib/monitoring/photo-thumbnail";
 import { GET, POST } from "./route";
 const token = "synthetic-worker-token-for-unit-test-only";
@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.stubEnv("MONITORING_INGEST_TOKEN", token); vi.stubEnv("MONITORING_INGEST_SOURCE_IDS", input.sourceId);
   mocks.capability.mockResolvedValue({data:{photoStorage:true},error:null});
   mocks.thumbnail.mockResolvedValue(thumbnail); mocks.put.mockResolvedValue(storedPreview); mocks.rpc.mockResolvedValue({ data: { accepted: true, previewStored: true, previewStorage: true }, error: null });
+  mocks.original.mockResolvedValue({bytes:source,mimeType:input.mimeType});
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("ingestão protegida de fotos", () => {
@@ -39,7 +40,7 @@ describe("ingestão protegida de fotos", () => {
     expect((await GET(request(input, null))).status).toBe(401);
     const response = await GET(request());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ insertOnly: true, photoPreview: true, photoStorage: true, protocolVersion: 1 });
+    expect(await response.json()).toEqual({ insertOnly: true, photoPreview: true, photoStorage: true, photoOriginal: true, protocolVersion: 1 });
     expect(mocks.rpc).not.toHaveBeenCalled(); expect(mocks.thumbnail).not.toHaveBeenCalled();
   });
   it("recusa credencial, fonte ou hash inválidos antes de decodificar/gravar", async () => {
@@ -53,6 +54,15 @@ describe("ingestão protegida de fotos", () => {
     expect(result.status).toBe(200); expect(await result.json()).toEqual({ accepted: true });
     expect(mocks.thumbnail).toHaveBeenCalledWith(source);
     expect(mocks.rpc).toHaveBeenCalledWith("monitoring_ingest", { p_data: { photoWithStoredPreview: { thumbnail: { ...input, sha256: hash(thumbnail), mimeType: "image/jpeg", base64: thumbnail.toString("base64") }, preview: storedPreview, insertOnly: false } } });
+  });
+  it("grava o original sem recompressão quando o banco suporta seu formato", async () => {
+    const original = { ...storedPreview, mimeType: input.mimeType, sha256: hash(source), storagePath: `originals/${hash(source)}.png`, byteLength: source.length };
+    mocks.capability.mockResolvedValue({data:{photoStorage:true,photoOriginal:true},error:null});
+    mocks.putOriginal.mockResolvedValue(original);
+    expect((await POST(request())).status).toBe(200);
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.putOriginal).toHaveBeenCalledWith(source,"image/png");
+    expect(mocks.rpc.mock.calls[0][1].p_data.photoWithStoredPreview).toMatchObject({preview:original,thumbnail:{sha256:hash(thumbnail)}});
   });
   it("foto inválida retorna400 sem RPC; falha operacional mantém503 com correlação sanitizada", async () => {
     mocks.thumbnail.mockRejectedValue(new InvalidPhotoError());
