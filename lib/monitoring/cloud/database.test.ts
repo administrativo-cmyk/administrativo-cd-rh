@@ -699,6 +699,15 @@ describe("durable cloud import SQL", () => {
     expect(await worker("claim", { tokenHash: hash(raw!) })).toEqual({ job: null, reprocess: true });
   });
 
+  it("defers lifecycle checks during a fenced import and resumes after its lease expires", async () => {
+    await upload(await create());
+    const job=await claim();
+    expect((await db.query<{result:unknown}>("select private.employee_lifecycle_tick() result")).rows[0].result).toMatchObject({busy:true,checked:0,returned:0});
+    expect((await administrative("get",{id:job.id})).job).toMatchObject({status:"processing",cursor:0,attempts:job.attempts});
+    await db.query("update private.monitoring_cloud_jobs set lease_expires_at=clock_timestamp()-interval '1 second' where id=$1",[job.id]);
+    expect((await db.query<{result:unknown}>("select private.employee_lifecycle_tick() result")).rows[0].result).toMatchObject({busy:false});
+  });
+
   it("installs one named schedule and sends a bounded one-use dispatch only when work exists", async () => {
     // Hosted extensions are replaced with deterministic SQL doubles; no external HTTP occurs.
     await db.exec(`create schema cron;create schema net;

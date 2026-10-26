@@ -6,9 +6,12 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net with schema extensions;
 
 create or replace function private.monitoring_cloud_dispatch_tick() returns bigint
-language plpgsql security definer set search_path='' as $$
+language plpgsql security definer set search_path='' set lock_timeout='25s' as $$
 declare token text; request_id bigint;
 begin
+ -- Lifecycle checks use this lock before cloud routing. Wait in the scheduler,
+ -- before issuing a short-lived token or consuming an import attempt.
+ perform pg_advisory_xact_lock(824202609,1);
  token:=private.monitoring_cloud_issue_dispatch();
  if token is null then return null; end if;
  select net.http_post(

@@ -105,6 +105,21 @@ describe("cloud private object boundary", () => {
     vi.stubGlobal("fetch", mocks.fetch); mocks.fetch.mockResolvedValue(new Response("abcd"));
     await expect(downloadCloudObject(job, new AbortController().signal)).rejects.toThrow("CLOUD_SIZE_MISMATCH");
   });
+  it.each(["gzip", "br"])("validates decoded bytes rather than the %s wire size", async encoding => {
+    vi.stubGlobal("fetch", mocks.fetch);
+    mocks.fetch.mockResolvedValue(new Response("abc", { headers: { "Content-Encoding": encoding, "Content-Length": "23" } }));
+    expect((await downloadCloudObject(job, new AbortController().signal)).toString()).toBe("abc");
+    expect(mocks.fetch.mock.calls[0][1].headers["Accept-Encoding"]).toBe("identity");
+    mocks.fetch.mockResolvedValue(new Response("abcd", { headers: { "Content-Encoding": encoding, "Content-Length": "23" } }));
+    await expect(downloadCloudObject(job, new AbortController().signal)).rejects.toThrow("CLOUD_SIZE_MISMATCH");
+    mocks.fetch.mockResolvedValue(new Response("ab", { headers: { "Content-Encoding": encoding, "Content-Length": "23" } }));
+    await expect(downloadCloudObject(job, new AbortController().signal)).rejects.toThrow("CLOUD_SIZE_MISMATCH");
+  });
+  it.each(["identity", ""])("rejects a mismatched Content-Length for %s responses", async encoding => {
+    vi.stubGlobal("fetch", mocks.fetch);
+    mocks.fetch.mockResolvedValue(new Response("abc", { headers: { "Content-Encoding": encoding, "Content-Length": "2" } }));
+    await expect(downloadCloudObject(job, new AbortController().signal)).rejects.toThrow("CLOUD_SIZE_MISMATCH");
+  });
   it("stops before downloading when the invocation deadline already expired", async () => {
     vi.stubGlobal("fetch", mocks.fetch); const controller = new AbortController(); controller.abort();
     await expect(downloadCloudObject(job, controller.signal)).rejects.toThrow(); expect(mocks.fetch).not.toHaveBeenCalled();
