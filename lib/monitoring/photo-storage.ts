@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { isTrustedSupabaseStorageOrigin } from "../supabase/storage-origin.ts";
 
 export const photoBucket = "monitoramento-fotos";
 export const photoByteLimit = 2_000_000;
@@ -19,8 +20,7 @@ export class PhotoStorage {
   constructor(url: string, key: string) {
     this.key = key;
     this.origin = new URL(url);
-    if (!key || this.origin.protocol !== "https:" || !/^[a-z]{20}\.supabase\.co$/.test(this.origin.hostname)
-      || this.origin.pathname !== "/" || this.origin.username || this.origin.password || this.origin.search || this.origin.hash) {
+    if (!key || !isTrustedSupabaseStorageOrigin(this.origin)) {
       throw new Error("PHOTO_STORAGE_CONFIGURATION");
     }
   }

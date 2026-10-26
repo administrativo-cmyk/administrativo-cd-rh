@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { PhotoStorage, photoDigest } from "../lib/monitoring/photo-storage.ts";
 import { archiveStorageBudget } from "../lib/monitoring/archive/format.ts";
+import { isTrustedSupabaseStorageOrigin } from "../lib/supabase/storage-origin.ts";
 
 const args = process.argv.slice(2);
 const argument = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -12,7 +13,7 @@ async function run() {
   const project = argument("--project");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.MONITORING_SUPABASE_SERVICE_ROLE_KEY ?? "";
-  if (!project || !/^[a-z]{20}$/.test(project) || new URL(url).hostname !== `${project}.supabase.co`) throw new Error("PHOTO_STORAGE_PROJECT_MISMATCH");
+  if (!project || !isTrustedSupabaseStorageOrigin(new URL(url), project)) throw new Error("PHOTO_STORAGE_PROJECT_MISMATCH");
   const store = new PhotoStorage(url, key);
   async function rpc<T>(action: string, data: unknown = {}): Promise<T> {
     const response = await fetch(new URL("/rest/v1/rpc/monitoring_photo_storage", url), {

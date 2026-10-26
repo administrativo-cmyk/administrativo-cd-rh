@@ -5,9 +5,17 @@ const bytes = Buffer.from("synthetic-full-resolution-image");
 const sha256 = photoDigest(bytes);
 const image = { mimeType: "image/jpeg" as const, sha256, storagePath: `previews/${sha256}.jpg`, byteLength: bytes.length };
 const store = () => new PhotoStorage("https://aaaaaaaaaaaaaaaaaaaa.supabase.co", "synthetic-secret");
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("private immutable photo storage", () => {
+  it("reads private photos only from the explicitly configured self-hosted origin", async () => {
+    vi.stubEnv("SUPABASE_SELF_HOSTED_ORIGIN", "https://supabase-rh.example.com");
+    const fetch = vi.fn().mockResolvedValue(new Response(bytes)); vi.stubGlobal("fetch", fetch);
+    const selfHosted = new PhotoStorage("https://supabase-rh.example.com", "synthetic-secret");
+    expect(await selfHosted.download(image)).toEqual(bytes);
+    expect(String(fetch.mock.calls[0][0])).toBe(`https://supabase-rh.example.com/storage/v1/object/authenticated/monitoramento-fotos/${image.storagePath}`);
+    expect(fetch.mock.calls[0][1]).toMatchObject({ redirect: "error", headers: { Authorization: "Bearer synthetic-secret" } });
+  });
   it.each([200, 409])("rereads and verifies every upload, including status %s", async status => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(null, { status })).mockResolvedValueOnce(new Response(bytes));
     vi.stubGlobal("fetch", fetch);

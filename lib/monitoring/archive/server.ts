@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 import { ArchiveCloudStore } from "./cloud-store";
+import { configuredSupabaseProjectRef } from "../../supabase/storage-origin";
 import { archiveObject,type CatalogObject } from "./prepare-cloud";
 import { unpackObject } from "./format";
 import { mergeIndexedPunch,parsePunchIndex,payrollWindow,type IndexedPunch } from "./punch-index";
@@ -9,7 +10,7 @@ import { mergeIndexedPunch,parsePunchIndex,payrollWindow,type IndexedPunch } fro
 export function serverArchiveStore() {
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.MONITORING_SUPABASE_SERVICE_ROLE_KEY;
  if(!url||!key)throw new Error("ARCHIVE_SERVER_UNAVAILABLE");
- return new ArchiveCloudStore(new URL(url).hostname.split(".")[0],key,url);
+ return new ArchiveCloudStore(configuredSupabaseProjectRef(url),key,url);
 }
 const scopeSchema=z.object({active:z.boolean(),maintenance:z.boolean(),cutoff:z.string(),bindings:z.array(z.object({
  sourceId:z.string(),identityType:z.enum(["cpf","pis"]),identityValue:z.string(),validFrom:z.string(),validTo:z.string().nullable(),

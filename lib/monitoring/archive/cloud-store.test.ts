@@ -3,8 +3,14 @@ import { ArchiveCloudStore } from "./cloud-store";
 import { archiveStorageBudget, packObject } from "./format";
 const project = "abcdefghijklmnopqrst";
 const store = () => new ArchiveCloudStore(project, "synthetic-server-key", `https://${project}.supabase.co`);
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("private archive object store", () => {
+  it("keeps the original archive project identity when its storage moves to a configured domain", () => {
+    vi.stubEnv("SUPABASE_SELF_HOSTED_ORIGIN", "https://supabase-rh.example.com");
+    vi.stubEnv("MONITORING_SUPABASE_PROJECT_REF", project);
+    expect(() => new ArchiveCloudStore(project, "synthetic-server-key", "https://supabase-rh.example.com")).not.toThrow();
+    expect(() => new ArchiveCloudStore("zyxwvutsrqponmlkjihg", "synthetic-server-key", "https://supabase-rh.example.com")).toThrow("ARCHIVE_PROJECT_MISMATCH");
+  });
   it("rejects another project and insecure origins before network access", () => {
     expect(() => new ArchiveCloudStore(project, "key", "https://other.supabase.co")).toThrow("ARCHIVE_PROJECT_MISMATCH");
     expect(() => new ArchiveCloudStore(project, "key", `http://${project}.supabase.co`)).toThrow("ARCHIVE_PROJECT_MISMATCH");

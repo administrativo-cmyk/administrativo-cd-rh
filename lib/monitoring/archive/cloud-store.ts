@@ -1,4 +1,5 @@
 import { archivePath, archiveObjectLimit, archiveStorageBudget, digest, unpackObject, type ArchiveObject } from "./format.ts";
+import { isTrustedSupabaseStorageOrigin } from "../../supabase/storage-origin.ts";
 export const historyBucket = "monitoramento-historico";
 export type StoredArchiveObject = ArchiveObject & { kind: "snapshot" | "manifest" | "original" | "archive_rows" | "nsr_index"; metadata: Record<string, unknown> };
 
@@ -12,8 +13,7 @@ export class ArchiveCloudStore {
   constructor(projectRef: string, key: string, url: string) {
     this.projectRef = projectRef; this.key = key;
     this.origin = new URL(url);
-    if (!/^[a-z]{20}$/.test(projectRef) || !key || this.origin.protocol !== "https:" || this.origin.hostname !== `${projectRef}.supabase.co`
-      || this.origin.pathname !== "/" || this.origin.username || this.origin.password || this.origin.search || this.origin.hash) throw new Error("ARCHIVE_PROJECT_MISMATCH");
+    if (!key || !isTrustedSupabaseStorageOrigin(this.origin, projectRef)) throw new Error("ARCHIVE_PROJECT_MISMATCH");
   }
   private headers() { return { apikey: this.key, Authorization: `Bearer ${this.key}` }; }
   private url(path: string) { return new URL(path, this.origin); }
