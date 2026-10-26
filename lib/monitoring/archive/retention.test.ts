@@ -4,6 +4,16 @@ import {retainRecentMonths} from "./retention";
 import {digest} from "./format";
 import * as archiveFormat from "./format";
 describe("cloud rolling retention",()=>{
+ it("compacts calculated details even while provenance retirement has a continuing backlog",async()=>{
+  const raw=JSON.stringify({rows:[{id:"synthetic"}]});
+  const rpc=vi.fn(async(action:string)=>{
+   if(action==="policy")return {active:true,maintenance:false};
+   if(action==="details_page"||action==="retention_page")return {rows:1,raw,sha256:digest(raw),table:action==="details_page"?"public.monitoring_result_details":"public.monitoring_occurrences"};
+   return {ok:true,rows:1};
+  });
+  const client={rpc,put:vi.fn()} as unknown as ArchiveCloudStore;
+  expect(await retainRecentMonths(client,Date.now()+30000,4)).toMatchObject({pending:true,archived:2,compacted:2});
+ });
  it("never commits removal when upload verification fails",async()=>{
   const raw=JSON.stringify({table:"public.monitoring_results",rows:[{id:"synthetic"}]});
   const rpc=vi.fn(async(action:string)=>action==="policy"?{active:true,maintenance:false}:{raw,sha256:digest(raw),table:"public.monitoring_results",rows:1});

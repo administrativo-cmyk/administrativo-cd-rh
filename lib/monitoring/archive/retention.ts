@@ -9,9 +9,10 @@ export async function retainRecentMonths(client:ArchiveCloudStore,deadline:numbe
  let archived=0,compacted=0,pages=0,pending=true;
  while(pages<maxPages&&Date.now()<deadline-12000){
   type Page={raw?:string;sha256?:string;table?:string;rows:number};
-  let page=await client.rpc<Page>("retention_page");
-  const details=!page.rows;
-  if(details)page=await client.rpc<Page>("details_page");
+  // Alternate work classes so a long provenance backlog cannot starve large calculated timelines.
+  let details=pages%2===0;
+  let page=await client.rpc<Page>(details?"details_page":"retention_page");
+  if(!page.rows){details=!details;page=await client.rpc<Page>(details?"details_page":"retention_page");}
   if(!page.rows){pending=false;break;}
   if(!page.raw||!page.table||digest(Buffer.from(page.raw))!==page.sha256)throw new Error("ARCHIVE_RETENTION_INVALID");
   const packed=packObject("pending.gz",Buffer.from(page.raw));

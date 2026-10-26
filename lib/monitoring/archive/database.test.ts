@@ -24,6 +24,22 @@ beforeAll(async () => {
   for (const file of (await readdir(directory)).filter(file => file.endsWith(".sql")).sort()) await db.exec(await readFile(path.join(directory, file), "utf8"));
 }, 30000);
 afterAll(async () => { await db?.close(); });
+it("schedules new calculated details promptly and leaves retirement candidates to one archive", async () => {
+  await db.exec(`update private.monitoring_archive_control set active=true,maintenance=false where id;
+    update private.monitoring_archive_retention set pending=false,checked_at=clock_timestamp()-interval '2 minutes' where id;
+    insert into public.colaboradores(id,matricula,nome,unidade_id) values('aaff0000-0000-4000-8000-000000000001','SYN-DETAIL','Pessoa sintética',(select id from public.unidades where codigo='CD I'));`);
+  const due=async()=> (await db.query<{due:boolean}>("select private.monitoring_archive_retention_due() due")).rows[0].due;
+  expect(await due()).toBe(false);
+  await db.exec(`insert into public.monitoring_results(employee_id,operational_date,input_version,rule_version,result,summary,reason)
+    values('aaff0000-0000-4000-8000-000000000001',private.monitoring_archive_cutoff(),1,'synthetic','{}','{}','synthetic');`);
+  expect(await due()).toBe(true);expect(await call("details_page")).toMatchObject({rows:1});
+  await db.exec("update public.monitoring_results set active=false,computed_at=clock_timestamp()-interval '2 hours'");
+  expect(await due()).toBe(false);expect(await call("details_page")).toMatchObject({rows:0});
+  await db.exec("update public.monitoring_results set active=true,operational_date=private.monitoring_archive_cutoff()-10");
+  expect(await due()).toBe(false);expect(await call("details_page")).toMatchObject({rows:0});
+  await db.exec(`update public.monitoring_results set summary='{"bankDay":{"state":"ready"}}'`);
+  expect(await due()).toBe(true);expect(await call("details_page")).toMatchObject({rows:1});
+});
 beforeEach(async () => {
   await db.exec("begin");
   await db.exec(`insert into public.monitoring_sources(id,kind,identity_namespace) values('archive-test','afd','archive-test');
