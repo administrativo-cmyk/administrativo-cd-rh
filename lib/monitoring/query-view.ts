@@ -56,6 +56,9 @@ export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], 
 }
 
 export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: MonitoringFilters): MonitoringSnapshot {
+  const observed = snapshot.rows.filter(row => !row.dirty && row.quality !== "stale" && !finite(row.summary?.workedSeconds) && workObservation(row.summary));
+  snapshot = { ...snapshot, totals: { ...snapshot.totals, observedJourneys: observed.length,
+    observedWorkSeconds: observed.length ? observed.reduce((sum, row) => sum + workObservation(row.summary)!.workedSeconds, 0) : null } };
   // Build filter lists from the complete authorized dataset before pagination.
   snapshot = { ...snapshot, options: {
     units: snapshot.options?.units ?? [...new Set(snapshot.rows.map(row => row.unit))],
