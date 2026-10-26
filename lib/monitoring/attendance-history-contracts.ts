@@ -9,9 +9,11 @@ export const punchCorrectionSchema = z.object({ employeeId: z.string().uuid(), s
 
 const role = z.enum(["start", "breakStart", "breakEnd", "end"]);
 const punch = z.object({ id: z.string(), at: z.number().finite(), sourceId: z.string(), role: role.optional() });
-const displayMark = z.object({ at: z.number().finite().nullable(), role: role.optional() });
+const displayMark = z.object({ at: z.number().finite().nullable(), role: role.optional(), origin: z.literal("turnstile").optional(), eventId: z.string().optional(), pointId: z.string().optional() });
+const workObservation = z.object({ workedSeconds: z.number().nonnegative(), restSeconds: z.number().nonnegative(), basis: z.enum(["clock-pair", "turnstile-suggestion"]), reason: z.string(),
+ exitSuggestion: z.object({ at: z.number(), eventId: z.string(), pointId: z.string(), sourceId: z.string() }).optional() });
 export const attendanceHistorySnapshotSchema = z.object({
- days: z.array(z.object({ date: dateSchema, correctionVersion: z.string().nullable(), displayMarks: z.array(displayMark).optional(), displayReason: z.string().optional(), bankDay: z.object({
+ days: z.array(z.object({ date: dateSchema, correctionVersion: z.string().nullable(), workObservation: workObservation.nullable().optional(), displayMarks: z.array(displayMark).optional(), displayReason: z.string().optional(), bankDay: z.object({
   state: z.enum(["ready", "pending"]), reason: z.string(), expectedMinutes: z.number().nullable(), workedMinutes: z.number().nullable(), deltaMinutes: z.number().nullable(),
   punches: z.array(punch), originalPunches: z.array(punch).optional(), suppressedIds: z.array(z.string()), missingRole: role.nullable(),
   slots: z.array(z.object({ role, at: z.number().nullable(), eventId: z.string().optional() })),

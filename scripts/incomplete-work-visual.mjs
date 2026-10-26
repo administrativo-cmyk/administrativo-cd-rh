@@ -1,0 +1,33 @@
+// Synthetic loopback-only check of the actual monitoring and attendance components.
+import { createRequire } from "node:module";
+import { mkdtemp, mkdir, realpath, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { chromium } from "playwright-core";
+import tailwind from "@tailwindcss/postcss";
+const requireVitest = createRequire(import.meta.resolve("vitest"));
+const { createServer } = await import(pathToFileURL(requireVitest.resolve("vite")).href);
+const root=process.cwd(),temporary=await realpath(await mkdtemp(path.join(tmpdir(),"incomplete-work-visual-"))),output=path.resolve("artifacts/incomplete-work-visual");
+await mkdir(output,{recursive:true});
+const at=(date,time)=>Date.parse(`${date}T${time}:00-03:00`);
+const observation={basis:"turnstile-suggestion",workedSeconds:8*3600+14*60,restSeconds:0,reason:"Saída sugerida pelo torniquete; sem descanso registrado.",exitSuggestion:{at:at("2026-10-13","18:24"),eventId:"access-end",pointId:"Saída Torniquete",sourceId:"defense"}};
+const history={days:["2026-10-12","2026-10-13"].map((date,i)=>({date,correctionVersion:null,workObservation:i?observation:{...observation,basis:"clock-pair",exitSuggestion:undefined},displayMarks:i?[{at:at(date,"10:10")},{at:at(date,"18:24"),role:"end",origin:"turnstile",eventId:"access-end",pointId:"Saída Torniquete"}]:[{at:at(date,"09:52")},{at:at(date,"18:00")}],bankDay:{state:"pending",reason:"Coleta ainda não confirmada como completa",expectedMinutes:440,workedMinutes:null,deltaMinutes:null,punches:[],slots:[],missingRole:null,suggestions:[],suppressedIds:[]}})),canEdit:false,bank:null,correctionHistory:[]};
+await writeFile(path.join(temporary,"index.html"),'<html lang="pt-BR"><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body><div id="root"></div><script type="module" src="/entry.tsx"></script></body></html>');
+await writeFile(path.join(temporary,"entry.tsx"),`import React from 'react';import {createRoot} from 'react-dom/client';import {MonitoringResults} from '@/components/monitoring/monitoring-results';import {PeriodGrid} from '@/components/period-grid';import {TooltipProvider} from '@/components/ui/tooltip';import {initialEmployees} from '@/lib/mock-daily-call';import {monitoringQueryView} from '@/lib/monitoring/query-view';import {filtersSchema} from '@/lib/monitoring/contracts';import '@/app/globals.css';const employee={...initialEmployees[0],databaseId:'30000000-0000-4000-8000-000000000001',name:'Pessoa sintética'};const filters=filtersSchema.parse({start:'2026-10-12',end:'2026-10-13'});const rows=['2026-10-12','2026-10-13'].map((date,i)=>({employeeId:employee.databaseId,name:employee.name,employeeNumber:'TESTE',unit:'CD I',manager:null,managerId:null,date,quality:'partial',dirty:false,computedAt:null,ruleVersion:'test',summary:{workedSeconds:null,workObservation:i?${JSON.stringify(observation)}:{...${JSON.stringify(observation)},basis:'clock-pair',exitSuggestion:undefined}}}));const snapshot=monitoringQueryView({rows,total:2,people:1,pending:2,excluded:0,totals:{},timezone:'America/Sao_Paulo',queriedAt:'2026-10-26',start:filters.start,end:filters.end},filters);createRoot(document.getElementById('root')!).render(<TooltipProvider><main className="space-y-6 p-4"><h1>Jornadas incompletas — dados sintéticos</h1><MonitoringResults snapshot={snapshot} applied={filters} loading={false} onSort={()=>{}} onPage={()=>{}} onDetails={()=>{}}/><div className="overflow-x-auto"><PeriodGrid employees={[employee]} startDate="2026-10-12" endDate="2026-10-13" onSelect={()=>{}} columnsCollapsed/></div></main></TooltipProvider>);`);
+const react=createRequire(import.meta.resolve("react"));
+const server=await createServer({root:temporary,configFile:false,logLevel:"error",resolve:{alias:{"@":root,react:path.dirname(react.resolve("react/package.json")),"react-dom":path.dirname(react.resolve("react-dom/package.json"))}},css:{postcss:{plugins:[tailwind({base:root})]}},server:{host:"127.0.0.1",port:0,fs:{allow:[root,temporary]}},plugins:[{name:"synthetic",enforce:"pre",resolveId(id){if(id==="next/image")return "\0image";},load(id){if(id==="\0image")return "import React from 'react';export default function Image({unoptimized,...props}){return React.createElement('img',props)}";},configureServer(instance){instance.middlewares.use((request,response,next)=>{if(!request.url.startsWith('/api/'))return next();response.setHeader('Content-Type','application/json');if(request.url.startsWith('/api/monitoring/attendance-history'))return response.end(JSON.stringify(history));response.statusCode=404;response.end('{}');});}}]});
+let browser;
+try{
+ await server.listen();browser=await chromium.launch({executablePath:process.env.CHROME_PATH??"C:/Program Files/Google/Chrome/Application/chrome.exe",headless:true});
+ const results=[];
+ for(const width of [1440,390]){
+  const page=await browser.newPage({viewport:{width,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/`,{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'Expandir dias de Pessoa sintética'}).click();await page.getByRole('button',{name:'Expandir batidas de Pessoa sintética'}).click();
+  const suggestion=page.getByLabel(/Saída sugerida pelo torniquete, não é batida do relógio/);await suggestion.waitFor();
+  const color=await suggestion.evaluate(e=>getComputedStyle(e).color);const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+  await page.screenshot({path:path.join(output,`${width}.png`),fullPage:true});results.push({width,errors,color,bodyOverflow:overflow});await page.close();
+ }
+ await writeFile(path.join(output,'results.json'),JSON.stringify(results,null,2));if(results.some(r=>r.errors.length||r.bodyOverflow))throw Error('Visual regression');console.log(JSON.stringify({syntheticOnly:true,output,results}));
+}finally{await browser?.close();await server.close();const allowed=(await realpath(tmpdir()))+path.sep;if(temporary.startsWith(allowed)&&path.basename(temporary).startsWith('incomplete-work-visual-'))await rm(temporary,{recursive:true,force:true});}

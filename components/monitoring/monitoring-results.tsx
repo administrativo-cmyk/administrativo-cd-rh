@@ -6,10 +6,13 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnapshot } from "@/lib/monitoring/contracts";
 import { sortMonitoringRows, type MonitoringSortKey } from "@/lib/monitoring/query-view";
 import { buttonClass, calendarDate, duration, Quality } from "./shared";
+import { displayedRest, displayedWork, workObservation } from "@/lib/monitoring/work-observation-view";
 
-const metrics = ["workedSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
+const metrics = ["workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
 function metricValue(summary: MonitoringRow["summary"], key: typeof metrics[number]) {
-  const quality = { workedSeconds: "", outsideSeconds: "outsideQuality", cafeteriaSeconds: "cafeteriaQuality", mealsWithoutRest: "mealQuality", lateSeconds: "" }[key];
+  if (key === "workedSeconds") return duration(displayedWork(summary));
+  if (key === "restSeconds") return duration(displayedRest(summary));
+  const quality = { outsideSeconds: "outsideQuality", cafeteriaSeconds: "cafeteriaQuality", mealsWithoutRest: "mealQuality", lateSeconds: "" }[key];
   if (quality && summary?.[quality] === "excluded") return "Excluído por regra";
   if (key === "mealsWithoutRest") return typeof summary?.[key] === "number" ? `${summary[key]} vez(es)` : "Não apurável";
   return duration(summary?.[key]);
@@ -27,11 +30,11 @@ export function MonitoringResults({snapshot,applied,loading,onSort,onPage,onDeta
   const byEmployee=new Map<string,MonitoringRow[]>();
   for(const row of snapshot.rows)byEmployee.set(row.employeeId,[...byEmployee.get(row.employeeId)??[],row]);
   const orderBy=applied.orderBy??"name",direction=applied.direction??"asc";
-  const headers:Array<[MonitoringSortKey,string]>=[["name","Colaborador / unidade"],["date",grouped?"Dias apurados":"Data operacional"],["quality","Qualidade"],["workedSeconds","Trabalho"],["outsideSeconds","Fora operação"],["cafeteriaSeconds","Refeitório"],["mealsWithoutRest","Refeições sem descanso"],["lateSeconds","Atraso"]];
+  const headers:Array<[MonitoringSortKey,string]>=[["name","Colaborador / unidade"],["date",grouped?"Dias apurados":"Data operacional"],["quality","Qualidade"],["workedSeconds","Trabalho"],["restSeconds","Descanso registrado"],["outsideSeconds","Fora operação"],["cafeteriaSeconds","Refeitório"],["mealsWithoutRest","Refeições sem descanso"],["lateSeconds","Atraso"]];
   const dayRow=(row:MonitoringRow,child=false)=><tr key={`${row.employeeId}|${row.date}`} className={child?"bg-slate-50/70 hover:bg-blue-50/40":"hover:bg-slate-50"}>
     <td className="px-4 py-3">{child?<span className="pl-12 text-xs font-medium text-slate-600">Jornada individual</span>:<Person row={row}/>}</td>
     <td className="whitespace-nowrap px-4 py-3">{calendarDate(row.date)}</td><td className="px-4 py-3"><Quality value={row.quality}/></td>
-    {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}>{row.dirty?"Recalcular":metricValue(row.summary,key)}</td>)}
+    {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}>{row.dirty?"Recalcular":<>{metricValue(row.summary,key)}{workObservation(row.summary) && (key === "workedSeconds" || key === "restSeconds") ? <span className={`mt-1 block max-w-48 whitespace-normal text-xs ${workObservation(row.summary)?.basis === "turnstile-suggestion" ? "text-red-700" : "text-slate-600"}`} title={workObservation(row.summary)?.reason}>{key === "restSeconds" ? "Sem descanso registrado" : workObservation(row.summary)?.basis === "turnstile-suggestion" ? "Sugerido · torniquete" : "Observado · entrada e saída"}</span> : null}</>}</td>)}
     <td className="px-4 py-3"><button className={buttonClass} onClick={()=>onDetails(row.employeeId,row.date)} aria-label={`Detalhes de ${row.name}${child?` em ${calendarDate(row.date)}`:""}`}>Ver detalhes</button></td>
   </tr>;
   const groupRow=(group:MonitoringGroup)=>{
@@ -40,7 +43,7 @@ export function MonitoringResults({snapshot,applied,loading,onSort,onPage,onDeta
     return <Fragment key={group.employeeId}><tbody className="divide-y divide-slate-100">
       <tr className="border-t border-slate-200 hover:bg-slate-50" data-testid="monitoring-employee-summary">
         <th scope="row" className="px-4 py-3 text-left font-normal"><div className="flex items-center gap-2"><button type="button" className={`${buttonClass} h-11 w-11 shrink-0 p-0`} aria-expanded={open} aria-controls={id} aria-label={`${open?"Recolher":"Expandir"} dias de ${group.name}`} onClick={()=>setExpanded(current=>{const next=new Set(current);if(next.has(group.employeeId))next.delete(group.employeeId);else next.add(group.employeeId);return next;})}>{open?<Minus size={16} aria-hidden/>:<Plus size={16} aria-hidden/>}</button><Person row={group}/></div></th>
-        <td className="px-4 py-3"><b>{group.assessedDays} de {group.totalDays}</b><span className="mt-1 block text-xs text-slate-500">dias com trabalho apurado</span></td>
+        <td className="px-4 py-3"><b>{group.assessedDays} de {group.totalDays}</b><span className="mt-1 block text-xs text-slate-500">dias com trabalho apurado</span>{Number(group.summary?.observedDays)>0?<span className="mt-1 block text-xs text-amber-900">{Number(group.summary?.observedDays)} com cálculo observado; {Number(group.summary?.turnstileDays)} sugerido(s) pelo torniquete</span>:null}</td>
         <td className="px-4 py-3"><Quality value={group.quality}/>{group.pendingDays?<span className="mt-1 block text-xs text-amber-900">{group.pendingDays} dia(s) pendente(s)</span>:null}</td>
         {metrics.map(key=><td className="whitespace-nowrap px-4 py-3" key={key}><b>{metricValue(group.summary,key)}</b><span className="mt-1 block text-xs text-slate-500">{group.metricDays[key]??0} de {group.totalDays} dias</span></td>)}
         <td className="px-4 py-3"><button className={buttonClass} aria-label={`Histórico de ${group.name} no período`} onClick={()=>onDetails(group.employeeId,group.firstDate)}>Ver histórico</button></td>
@@ -53,6 +56,6 @@ export function MonitoringResults({snapshot,applied,loading,onSort,onPage,onDeta
       {grouped?groups.map(groupRow):<tbody className="divide-y divide-slate-100">{snapshot.rows.map(row=>dayRow(row))}</tbody>}
     </table></div>:<div className="p-12 text-center text-slate-600"><Users className="mx-auto mb-3" size={28}/><p>Nenhum colaborador encontrado nos filtros e permissões atuais.</p></div>}
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 p-3 text-xs text-slate-600"><span>{snapshot.total?applied.offset+1:0}–{Math.min(applied.offset+applied.limit,snapshot.total)} de {snapshot.total}{grouped?" colaboradores":" registros"}</span><div className="flex gap-2"><button className={buttonClass} disabled={loading||applied.offset===0} onClick={()=>onPage(Math.max(0,applied.offset-applied.limit))}>Anterior</button><button className={buttonClass} disabled={loading||applied.offset+applied.limit>=snapshot.total} onClick={()=>onPage(applied.offset+applied.limit)}>Próxima</button></div></div>
-    <details className="border-t border-slate-200 px-4 py-3 text-xs leading-relaxed text-slate-600"><summary className="cursor-pointer font-semibold text-blue-900">Por que um valor aparece como “Não apurável”?</summary><p className="mt-2">Batidas e acessos são evidências diferentes. A jornada exige escala e sequência de ponto confirmadas. Os indicadores de localização exigem leitores validados, coleta integral no dia e, quando aplicável, grupos com vigência histórica. Abra “Ver detalhes” no dia para conferir a pendência específica. Dias sem trabalho, sem coleta completa ou com batida faltante não devem receber duração zero por suposição.</p></details>
+    <details className="border-t border-slate-200 px-4 py-3 text-xs leading-relaxed text-slate-600"><summary className="cursor-pointer font-semibold text-blue-900">Por que um valor aparece como “Não apurável”?</summary><p className="mt-2">O cálculo observado entre entrada e saída não comprova ausência de pausa. “Sem descanso registrado” informa a falta de marcação do intervalo. A saída sugerida pelo torniquete aparece em vermelho com a origem; não altera o relógio de ponto ou o banco de horas. Os indicadores de localização exigem leitores validados, coleta integral e grupos com vigência histórica. Abra “Ver detalhes” para conferir a pendência. Ausência de evidência não recebe duração zero.</p></details>
   </section>;
 }

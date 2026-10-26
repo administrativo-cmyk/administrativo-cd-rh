@@ -26,6 +26,16 @@ const ok = (data: ReturnType<typeof snapshot>) => ({ ok: true, json: async () =>
 afterEach(() => vi.unstubAllGlobals());
 const renderGrid = (overrides = {}) => render(<TooltipProvider><PeriodGrid {...props} {...overrides} /></TooltipProvider>);
 
+it("identifica horário sugerido pelo torniquete em vermelho com legenda e nome acessível", async () => {
+  const user=userEvent.setup();
+  const source=day("2026-10-08",["2026-10-08T10:00:00"]);
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(ok(snapshot([{...source,displayMarks:[{at:Date.parse("2026-10-08T10:00:00-03:00")},{at:Date.parse("2026-10-08T18:10:00-03:00"),role:"end",origin:"turnstile",eventId:"access",pointId:"Saída operação"}]}]))));
+  renderGrid();await user.click(screen.getByRole("button",{name:"Expandir batidas de Pessoa da noite"}));
+  const suggested=await screen.findByLabelText(/Saída sugerida pelo torniquete, não é batida do relógio/);
+  expect(suggested).toHaveClass("text-red-700");expect(suggested).toHaveTextContent("18:10");expect(suggested).toHaveTextContent("T");
+  expect(screen.getByText("Vermelho + T: saída sugerida do torniquete")).toBeVisible();
+});
+
 it("carrega somente ao expandir e alinha batidas dos dois relógios à data operacional noturna", async () => {
   const user = userEvent.setup();
   const fetcher = vi.fn().mockResolvedValue(ok(snapshot([

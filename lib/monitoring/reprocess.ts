@@ -1,4 +1,5 @@
 import { assessBankDay, type BankDay } from "./bank-day";
+import { observeIncompleteWork, type WorkObservation } from "./work-observation";
 import { z } from "zod";
 import { rosterState, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
@@ -72,6 +73,8 @@ export interface MonitoringResultSummary {
   expectedWorkSeconds?: number | null;
   overtimeSeconds?: number | null;
   bankDay?: BankDay;
+  workObservation?: WorkObservation | null;
+  recordedRestSeconds?: number | null;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -280,8 +283,11 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result: unavailable,
         summary: { ...summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null), bankDay } };
     }
+    const workObservation = result.workMs === null ? observeIncompleteWork({ employeeId: request.employeeId, date,
+      punches: punchEvents, accesses: accessEvents, mappings, window, schedule: bankTimes, referenceAt }) : null;
     return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
-      summary: { bankDay, ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
+      summary: { bankDay, workObservation, recordedRestSeconds: result.workMs !== null ? result.restMs / 1000 : workObservation?.restSeconds ?? null,
+        ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
         expectedWorkSeconds: scheduled?.payload.lunchMinutes !== undefined ? (durationMinutes(scheduled.payload.start, scheduled.payload.end)-scheduled.payload.lunchMinutes)*60 : null,
         overtimeSeconds: scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes !== undefined && result.journey.status === "complete" && result.workMs !== null
           ? Math.max(0, result.workMs/1000-(durationMinutes(scheduled.payload.start,scheduled.payload.end)-scheduled.payload.lunchMinutes)*60) : null } };

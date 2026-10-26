@@ -42,6 +42,15 @@ function completeUnscheduledSnapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("acrescenta duração observada entre duas batidas sem alterar jornada confirmada ou banco", () => {
+    const raw = snapshot(); raw.events = raw.events.filter(e => e.payload.type !== "punch" || ["p1", "p4"].includes(e.id));
+    const original = structuredClone(raw);
+    const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
+    expect(day.summary.workedSeconds).toBeNull();
+    expect(day.summary.workObservation).toMatchObject({ basis: "clock-pair", workedSeconds: 9 * 3600, restSeconds: 0 });
+    expect(day.summary.bankDay?.deltaMinutes).toBeNull();
+    expect(raw).toEqual(original);
+  });
   it("apura trabalho e acessos sem escala, mantendo atraso, extra e banco pendentes", () => {
     const raw = completeUnscheduledSnapshot();
     const original = structuredClone(raw);

@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     for (let date = period.start; date <= period.end; date = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
       try {
         const [day] = reprocessMonitoringSnapshot(historical.input, { employeeId: period.employeeId, start: date, end: date, reason: "Consulta do histórico de ponto" }, now);
-        days.push({ date, bankDay: day.summary.bankDay ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
+        days.push({ date, bankDay: day.summary.bankDay ?? null, workObservation: day.summary.workObservation ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "MONITORING_FUTURE_PERIOD") throw error;
         days.push({ date, bankDay: null, correctionVersion: null });
@@ -52,7 +52,13 @@ export async function GET(request: Request) {
       if (result.error) throw Object.assign(new Error("HISTORY_FAILED"), { code: result.error.code });
       reference = defaultScheduleSnapshotSchema.parse(result.data).setting;
     }
-    const displayDays = projectPeriodPunchDisplay(historical.input, days, period.employeeId, now, reference);
+    const displayDays = projectPeriodPunchDisplay(historical.input, days, period.employeeId, now, reference).map(day => {
+      const suggestion = day.workObservation?.exitSuggestion;
+      if (!suggestion) return day;
+      const marks = day.displayMarks ?? (day.bankDay?.slots.length ? day.bankDay.slots : day.bankDay?.punches ?? []);
+      return { ...day, displayMarks: [...marks, { at: suggestion.at, role: "end" as const, origin: "turnstile" as const, eventId: suggestion.eventId, pointId: suggestion.pointId }],
+        displayReason: day.workObservation!.reason };
+    });
     return Response.json({ days: displayDays, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory,...(historical.archive?{archive:historical.archive}:{}) }, { headers });
   } catch (error) { return failure(error); }
 }

@@ -5,12 +5,14 @@ import { dashboardButton as button, dashboardInput as input } from "@/components
 import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 import { formatSignedMinutes } from "@/lib/domain/bank-hours";
 import type { BankDay, PunchRole } from "@/lib/monitoring/bank-day";
+import type { WorkObservation } from "@/lib/monitoring/work-observation";
+import { duration } from "./shared";
 import { MeasurementEditor, type MeasurementEditorState } from "@/components/time-bank-admin/measurement-editor";
 import { bankAdminSnapshotSchema, type BankAdminMutation, type BankAdminSnapshot } from "@/lib/time-bank-admin/contracts";
 
 const roles: Record<PunchRole, string> = { start: "Entrada", breakStart: "Saída para intervalo", breakEnd: "Retorno do intervalo", end: "Saída do expediente" };
 const roleOrder = ["start", "breakStart", "breakEnd", "end"] as const;
-type Day = { date: string; bankDay: BankDay | null; correctionVersion: string | null };
+type Day = { date: string; bankDay: BankDay | null; correctionVersion: string | null; workObservation?: WorkObservation | null };
 type Snapshot = { days: Day[]; canEdit: boolean; bank: { saldo_minutos: number; aplica_a_partir_de: string; automatic: boolean; movementMinutes: number } | null; correctionHistory: Array<{ date: string; at: string; reason: string; actorName: string }>;archive?:{cutoff:string;used:boolean;records:number} };
 const time = (at: number) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(at);
 const localInput = (at: number | null) => at === null ? "" : new Date(at - 3 * 3_600_000).toISOString().slice(0, 16);
@@ -91,6 +93,7 @@ export function EmployeePunchHistory({ employeeId, date = todayInSaoPaulo(), ini
       <div className="space-y-2">{snapshot.days.map(day => <details key={day.date} className="rounded-lg border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm"><b>{day.date.split("-").reverse().join("/")}</b> · {day.bankDay?.state === "ready" ? <strong className={day.bankDay.deltaMinutes! < 0 ? "text-rose-800" : "text-emerald-800"}>{formatSignedMinutes(day.bankDay.deltaMinutes!)}</strong> : <span className="font-semibold text-amber-900">Pendente</span>} · {day.bankDay?.punches.length ?? 0} batida(s)</summary>
         <p className="mt-2 text-xs text-slate-600">{day.bankDay?.reason ?? "Jornada ainda não apurada"}</p>
+        {day.workObservation ? <div className="mt-2 space-y-1 text-xs"><p>Trabalho observado: <b>{duration(day.workObservation.workedSeconds)}</b> · Descanso registrado: {duration(day.workObservation.restSeconds)} — sem descanso registrado.</p>{day.workObservation.exitSuggestion ? <p className="font-semibold text-red-700">{time(day.workObservation.exitSuggestion.at)} · Saída sugerida pelo torniquete · {day.workObservation.exitSuggestion.pointId}</p> : null}<p className="text-slate-600">{day.workObservation.reason}</p></div> : null}
         <ul className="mt-2 space-y-1 text-xs">{day.bankDay?.punches.map(punch => <li key={punch.id}>{time(punch.at)} · {punch.sourceId === "rh-correction" ? "Correção RH / ADMIN" : punch.sourceId}{punch.role ? ` · ${roles[punch.role]}` : ""}</li>)}</ul>
         {day.bankDay?.originalPunches ? <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold">Batidas originais dos relógios</summary><ul className="mt-2 space-y-1">{day.bankDay.originalPunches.map(punch => <li key={punch.id}>{time(punch.at)} · {punch.sourceId}</li>)}</ul></details> : null}
         {day.bankDay?.slots.filter(slot => slot.at === null).map(slot => <p key={slot.role} className="mt-2 text-sm text-amber-900">Provável batida faltante: {roles[slot.role]} — em branco para conferência.</p>)}

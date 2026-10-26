@@ -1,6 +1,7 @@
 import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnapshot } from "./contracts";
+import { displayedRest, displayedWork, workObservation } from "./work-observation-view";
 
-export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
+export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
 export type MonitoringSortKey = typeof monitoringSortKeys[number];
 const metrics = ["workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds", "unknownSeconds"];
 const qualityNames: Record<string,string> = {complete:"Completa",partial:"Parcial",unavailable:"Não apurável",pending:"Pendente",excluded:"Excluída por regra",stale:"Recalcular"};
@@ -16,10 +17,14 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
     const summary: Record<string,unknown> = {};
     const metricDays: Record<string,number> = {};
     for (const key of metrics) {
-      const known = days.filter(row => !row.dirty && row.quality !== "stale" && finite(row.summary?.[key]));
+      const value = (row: MonitoringRow) => key === "workedSeconds" ? displayedWork(row.summary) : key === "restSeconds" ? displayedRest(row.summary) : row.summary?.[key];
+      const known = days.filter(row => !row.dirty && row.quality !== "stale" && finite(value(row)));
       metricDays[key] = known.length;
-      summary[key] = known.length ? known.reduce((sum,row)=>sum + (row.summary![key] as number),0) : null;
+      summary[key] = known.length ? known.reduce((sum,row)=>sum + (value(row) as number),0) : null;
     }
+    summary.recordedRestSeconds = summary.restSeconds;
+    summary.observedDays = days.filter(day => !day.dirty && !finite(day.summary?.workedSeconds) && workObservation(day.summary)).length;
+    summary.turnstileDays = days.filter(day => !day.dirty && workObservation(day.summary)?.basis === "turnstile-suggestion").length;
     const assessedDays = metricDays.workedSeconds;
     for (const [metric,quality] of [["outsideSeconds","outsideQuality"],["cafeteriaSeconds","cafeteriaQuality"],["mealsWithoutRest","mealQuality"]]) {
       if (days.length && days.every(day => !day.dirty && day.quality !== "stale" && day.summary?.[quality] === "excluded")) summary[quality] = "excluded";
@@ -38,7 +43,8 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
 export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], orderBy: MonitoringSortKey = "name", direction: "asc"|"desc" = "asc", grouped = false): T[] {
   const value = (row:T):string|number|null => orderBy === "name" ? row.name : orderBy === "quality" ? qualityNames[row.quality] ?? row.quality
     : orderBy === "date" ? grouped ? (row as unknown as MonitoringGroup).assessedDays : row.date
-      : !grouped && (row.dirty || row.quality === "stale") ? null : finite(row.summary?.[orderBy]) ? row.summary![orderBy] as number : null;
+      : !grouped && (row.dirty || row.quality === "stale") ? null : orderBy === "workedSeconds" ? displayedWork(row.summary)
+        : orderBy === "restSeconds" ? displayedRest(row.summary) : finite(row.summary?.[orderBy]) ? row.summary![orderBy] as number : null;
   return [...rows].sort((a,b)=>{
     const left=value(a),right=value(b);
     // Unavailable values remain last in both directions.
