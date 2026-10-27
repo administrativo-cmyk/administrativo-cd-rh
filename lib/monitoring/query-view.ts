@@ -1,5 +1,5 @@
 import type { MonitoringFilters, MonitoringGroup, MonitoringRow, MonitoringSnapshot } from "./contracts";
-import { displayedRest, displayedWork, workObservation } from "./work-observation-view";
+import { displayedLocation, displayedRest, displayedWork, locationObservation, workObservation } from "./work-observation-view";
 
 export const monitoringSortKeys = ["name", "date", "quality", "workedSeconds", "restSeconds", "outsideSeconds", "cafeteriaSeconds", "mealsWithoutRest", "lateSeconds"] as const;
 export type MonitoringSortKey = typeof monitoringSortKeys[number];
@@ -17,7 +17,8 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
     const summary: Record<string,unknown> = {};
     const metricDays: Record<string,number> = {};
     for (const key of metrics) {
-      const value = (row: MonitoringRow) => key === "workedSeconds" ? displayedWork(row.summary) : key === "restSeconds" ? displayedRest(row.summary) : row.summary?.[key];
+      const value = (row: MonitoringRow) => key === "workedSeconds" ? displayedWork(row.summary) : key === "restSeconds" ? displayedRest(row.summary)
+        : key === "outsideSeconds" || key === "cafeteriaSeconds" ? displayedLocation(row.summary, key) : row.summary?.[key];
       const known = days.filter(row => !row.dirty && row.quality !== "stale" && finite(value(row)));
       metricDays[key] = known.length;
       summary[key] = known.length ? known.reduce((sum,row)=>sum + (value(row) as number),0) : null;
@@ -25,9 +26,10 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
     summary.recordedRestSeconds = summary.restSeconds;
     summary.observedDays = days.filter(day => !day.dirty && workObservation(day.summary)).length;
     summary.turnstileDays = days.filter(day => !day.dirty && workObservation(day.summary)?.basis === "turnstile-suggestion").length;
+    for (const key of ["outsideSeconds", "cafeteriaSeconds"] as const) summary[`${key}ObservedDays`] = days.filter(day => !day.dirty && day.quality !== "stale" && finite(locationObservation(day.summary)?.[key])).length;
     const assessedDays = metricDays.workedSeconds;
     for (const [metric,quality] of [["outsideSeconds","outsideQuality"],["cafeteriaSeconds","cafeteriaQuality"],["mealsWithoutRest","mealQuality"]]) {
-      if (days.length && days.every(day => !day.dirty && day.quality !== "stale" && day.summary?.[quality] === "excluded")) summary[quality] = "excluded";
+      if (!summary[`${metric}ObservedDays`] && days.length && days.every(day => !day.dirty && day.quality !== "stale" && day.summary?.[quality] === "excluded")) summary[quality] = "excluded";
       else if (metricDays[metric]) summary[quality] = "partial";
     }
     const dirty = days.some(day=>day.dirty || day.quality === "stale");
@@ -44,7 +46,7 @@ export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], 
   const value = (row:T):string|number|null => orderBy === "name" ? row.name : orderBy === "quality" ? qualityNames[row.quality] ?? row.quality
     : orderBy === "date" ? grouped ? (row as unknown as MonitoringGroup).assessedDays : row.date
       : !grouped && (row.dirty || row.quality === "stale") ? null : orderBy === "workedSeconds" ? displayedWork(row.summary)
-        : orderBy === "restSeconds" ? displayedRest(row.summary) : finite(row.summary?.[orderBy]) ? row.summary![orderBy] as number : null;
+        : orderBy === "restSeconds" ? displayedRest(row.summary) : orderBy === "outsideSeconds" || orderBy === "cafeteriaSeconds" ? displayedLocation(row.summary, orderBy) : finite(row.summary?.[orderBy]) ? row.summary![orderBy] as number : null;
   return [...rows].sort((a,b)=>{
     const left=value(a),right=value(b);
     // Unavailable values remain last in both directions.
@@ -59,6 +61,11 @@ export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: Monit
   const observed = snapshot.rows.filter(row => !row.dirty && row.quality !== "stale" && workObservation(row.summary));
   snapshot = { ...snapshot, totals: { ...snapshot.totals, observedJourneys: observed.length,
     observedWorkSeconds: observed.length ? observed.reduce((sum, row) => sum + workObservation(row.summary)!.workedSeconds, 0) : null } };
+  for (const key of ["outsideSeconds", "cafeteriaSeconds"] as const) {
+    const valid = snapshot.rows.filter(row => !row.dirty && row.quality !== "stale" && displayedLocation(row.summary, key) !== null);
+    snapshot.totals[`displayed${key[0].toUpperCase()}${key.slice(1)}`] = valid.length ? valid.reduce((sum, row) => sum + displayedLocation(row.summary, key)!, 0) : null;
+    snapshot.totals[`${key}ObservedDays`] = valid.filter(row => finite(locationObservation(row.summary)?.[key])).length;
+  }
   // Build filter lists from the complete authorized dataset before pagination.
   snapshot = { ...snapshot, options: {
     units: snapshot.options?.units ?? [...new Set(snapshot.rows.map(row => row.unit))],

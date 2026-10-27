@@ -1,4 +1,14 @@
 import type { WorkObservation, WorkSuggestion } from "./work-observation";
+import type { LocationObservation } from "./location-observation";
+
+export function locationObservation(summary: Record<string, unknown> | null | undefined): LocationObservation | null {
+  const value = summary?.locationObservation as LocationObservation | undefined;
+  return value?.quality === "observed-partial" ? value : null;
+}
+export function displayedLocation(summary: Record<string, unknown> | null | undefined, key: "outsideSeconds" | "cafeteriaSeconds"): number | null {
+  const observed = locationObservation(summary)?.[key];
+  return typeof observed === "number" && Number.isFinite(observed) ? observed : typeof summary?.[key] === "number" ? summary[key] as number : null;
+}
 
 export function suggestedWorkMarks(observation: WorkObservation | null | undefined): WorkSuggestion[] {
   return observation?.suggestedMarks ?? (observation?.exitSuggestion ? [{ ...observation.exitSuggestion, role: "end" }] : []);

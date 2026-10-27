@@ -6,6 +6,17 @@ const row=(n:number,date="2026-10-08",worked:number|null=3600):MonitoringRow=>({
 const filters=filtersSchema.parse({start:"2026-10-08",end:"2026-10-09",limit:1});
 const snapshot=(rows:MonitoringRow[],total=rows.length,version="v1"):MonitoringSnapshot=>({datasetVersion:version,rows,total,people:new Set(rows.map(r=>r.employeeId)).size,pending:0,excluded:0,totals:{workedSeconds:1},timezone:"America/Sao_Paulo",queriedAt:"2026-10-19T12:00:00Z",start:filters.start,end:filters.end});
 describe("agrupamento e ordenação de todo o período",()=>{
+ it("seleciona tempos observados uma única vez e mantém totais oficiais e dados de origem",()=>{
+  const first={...row(1),summary:{outsideSeconds:900,cafeteriaSeconds:800,outsideQuality:"excluded",locationObservation:{quality:"observed-partial",outsideSeconds:92,cafeteriaSeconds:1880}}};
+  const second={...row(2),summary:{outsideSeconds:100,cafeteriaSeconds:200}};
+  const source=snapshot([first,second]),original=structuredClone(source);
+  const result=monitoringQueryView(source,{...filters,orderBy:"outsideSeconds",direction:"desc"});
+  expect(result.totals).toMatchObject({displayedOutsideSeconds:192,displayedCafeteriaSeconds:2080,outsideSecondsObservedDays:1,cafeteriaSecondsObservedDays:1});
+  expect(result.groups?.[0].employeeId).toBe(id(2));
+  const observed=monitoringGroups([first])[0];
+  expect(observed.summary).toMatchObject({outsideSeconds:92,cafeteriaSeconds:1880,outsideQuality:"partial"});
+  expect(source).toEqual(original);
+ });
  it("soma todos os dias antes de ordenar e paginar colaboradores",()=>{
   const source=snapshot([row(1,"2026-10-08",100),row(2,"2026-10-08",250),row(1,"2026-10-09",200)]);
   const view=monitoringQueryView(source,{...filters,orderBy:"workedSeconds",direction:"desc"});

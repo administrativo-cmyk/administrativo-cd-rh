@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     for (let date = period.start; date <= period.end; date = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
       try {
         const [day] = reprocessMonitoringSnapshot(historical.input, { employeeId: period.employeeId, start: date, end: date, reason: "Consulta do histórico de ponto" }, now);
-        days.push({ date, bankDay: day.summary.bankDay ?? null, workObservation: day.summary.workObservation ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
+        days.push({ date, bankDay: day.summary.bankDay ?? null, workObservation: day.summary.workObservation ?? null, locationObservation: day.summary.locationObservation ?? null, correctionVersion: corrections.find(row => row.date === date)?.updatedAt ?? null });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "MONITORING_FUTURE_PERIOD") throw error;
         days.push({ date, bankDay: null, correctionVersion: null });

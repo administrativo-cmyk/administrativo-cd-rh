@@ -4,6 +4,7 @@ import type { AccessEvent, AccessPointMapping, PunchEvent } from "./domain";
 type Role = NonNullable<PunchEvent["role"]>;
 export interface WorkSuggestion { at: number; eventId: string; pointId: string; sourceId: string; role: Role }
 export interface WorkObservation {
+  span?: { start: number; end: number };
   workedSeconds: number;
   restSeconds: number;
   basis: "clock-pair" | "turnstile-suggestion";
@@ -15,6 +16,21 @@ export interface WorkObservation {
 }
 const minute = 60_000;
 
+/** Alternating real marks are sufficient for an auxiliary observation, never for payroll confirmation. */
+export function observeClockWork(punches: PunchEvent[]): WorkObservation | null {
+  const prepared = preparePunches(punches, DEFAULT_REPETITION_POLICY), marks = prepared.events;
+  if (prepared.issues.length || ![4, 6].includes(marks.length)
+    || marks.some((mark, i) => i > 0 && mark.at - marks[i - 1].at < 2 * minute)) return null;
+  if (marks.some(mark => mark.role) && (marks.length !== 4 || marks.some((mark, i) => mark.role !== (["start", "breakStart", "breakEnd", "end"] as const)[i]))) return null;
+  const start = marks[0].at, end = marks.at(-1)!.at;
+  if (end - start < 2 * 3_600_000 || end - start > 18 * 3_600_000) return null;
+  let restSeconds = 0;
+  for (let i = 1; i + 1 < marks.length; i += 2) restSeconds += (marks[i + 1].at - marks[i].at) / 1000;
+  return { span: { start, end }, workedSeconds: (end - start) / 1000 - restSeconds, restSeconds,
+    basis: "clock-pair", restBasis: "clock", suggestedMarks: [],
+    reason: "Cálculo observado pela sequência alternada de batidas existentes, sem exigir horário padrão ou confirmação da jornada. Não altera ponto, banco ou RH." };
+}
+
 /** Auxiliary observation only. Complete point sequences never acquire access marks. */
 export function observeIncompleteWork(input: {
   employeeId: string; date: string; punches: PunchEvent[]; accesses: AccessEvent[];
@@ -24,7 +40,7 @@ export function observeIncompleteWork(input: {
   missingRole?: Role | null;
 }): WorkObservation | null {
   const prepared = preparePunches(input.punches, DEFAULT_REPETITION_POLICY), punches = prepared.events;
-  if (prepared.issues.length || !input.schedule || punches.length < 1 || punches.length > 3) return null;
+  if (prepared.issues.length || punches.length < 1 || punches.length > 3) return null;
   const clocks = new Map<Role, number>();
   if (punches.every(p => p.role)) {
     for (const punch of punches) { if (clocks.has(punch.role!)) return null; clocks.set(punch.role!, punch.at); }
@@ -36,10 +52,10 @@ export function observeIncompleteWork(input: {
     }
     if (clocks.size !== 3 || clocks.has(input.missingRole)) return null;
   } else {
-    if (punches.some(p => p.role) || Math.abs(punches[0].at - input.schedule.start) > 3 * 3_600_000) return null;
+    if (punches.some(p => p.role) || (input.schedule && Math.abs(punches[0].at - input.schedule.start) > 3 * 3_600_000)) return null;
     clocks.set("start", punches[0].at);
     if (punches.length === 2) {
-      if (punches[1].at < input.schedule.end - 4 * 3_600_000) return null;
+      if (input.schedule && punches[1].at < input.schedule.end - 4 * 3_600_000) return null;
       clocks.set("end", punches[1].at);
     } else if (punches.length !== 1) return null;
   }
@@ -56,16 +72,19 @@ export function observeIncompleteWork(input: {
   const suggest = (event: AccessEvent, role: Role) => { clocks.set(role, event.at); suggestedMarks.push({ at: event.at, eventId: event.id, pointId: event.pointId, sourceId: event.sourceId, role }); };
   if (!clocks.has("start")) {
     const firstClock = Math.min(...clocks.values());
-    const first = transitions.find(t => t.direction === "entry" && t.event.at < firstClock && Math.abs(t.event.at - input.schedule!.start) <= 3 * 3_600_000);
+    const first = transitions.find(t => t.direction === "entry" && t.event.at < firstClock && Math.abs(t.event.at - (input.schedule?.start ?? firstClock)) <= 3 * 3_600_000);
     if (!first || ambiguous.has(first.event.at)) return null;
     suggest(first.event, "start");
   }
   const start = clocks.get("start")!;
+  // A lone untyped mark needs a real entry nearby before it can anchor a suggested day.
+  if (!input.schedule && punches.length === 1 && !punches[0].role
+    && !transitions.some(t => t.direction === "entry" && t.event.at <= start && start - t.event.at <= 3 * 3_600_000 && !ambiguous.has(t.event.at))) return null;
   if (!clocks.has("end")) {
     // Do not mistake a lunch exit from an open operational window for the final exit.
     if (input.referenceAt < input.window.end) return null;
     const last = transitions.filter(t => t.event.at > Math.max(...clocks.values())).at(-1);
-    if (!last || last.direction !== "exit" || ambiguous.has(last.event.at) || last.event.at < input.schedule.end - 4 * 3_600_000) return null;
+    if (!last || last.direction !== "exit" || ambiguous.has(last.event.at) || (input.schedule && last.event.at < input.schedule.end - 4 * 3_600_000)) return null;
     suggest(last.event, "end");
   }
   const end = clocks.get("end")!;
@@ -100,7 +119,7 @@ export function observeIncompleteWork(input: {
   if (punches.some(p => ![...clocks.values()].includes(p.at))) return null;
   const restSeconds = hasBreak ? (breakEnd! - breakStart!) / 1000 : 0;
   const last = suggestedMarks.find(mark => mark.role === "end");
-  return { workedSeconds: (end - start) / 1000 - restSeconds, restSeconds,
+  return { span: { start, end }, workedSeconds: (end - start) / 1000 - restSeconds, restSeconds,
     basis: suggestedMarks.length ? "turnstile-suggestion" : "clock-pair",
     restBasis: restSuggestion ? "turnstile-suggestion" : hasBreak ? "clock" : "not-recorded", suggestedMarks,
     ...(restSuggestion ? { restSuggestion } : {}), ...(last ? { exitSuggestion: last } : {}),

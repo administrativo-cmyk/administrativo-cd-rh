@@ -8,6 +8,14 @@ const employeeId="30000000-0000-4000-8000-000000000001";
 const filters=filtersSchema.parse({start:"2026-10-08",end:"2026-10-09"});
 const source:MonitoringSnapshot={rows:["2026-10-08","2026-10-09"].map((date,i)=>({employeeId,name:"Ana Sintética",employeeNumber:"123",unit:"CD I",manager:null,managerId:null,date,quality:"partial",dirty:false,computedAt:null,ruleVersion:"test",summary:{workedSeconds:i?null:3600,outsideSeconds:i?null:0,cafeteriaSeconds:null,lateSeconds:null}})),total:2,people:1,pending:0,excluded:0,totals:{},timezone:"America/Sao_Paulo",queriedAt:"2026-10-19T12:00:00Z",start:filters.start,end:filters.end};
 describe("resumo expansível do Monitoramento",()=>{
+ it("identifica localização observada e refeitório mantido sem intervalo no ponto",async()=>{
+  const user=userEvent.setup();
+  const rows=source.rows.map(row=>({...row,summary:{...row.summary,outsideQuality:"excluded",locationObservation:{quality:"observed-partial",outsideSeconds:92,cafeteriaSeconds:1880,cafeteriaWithinSuggestedRestSeconds:1880,reason:"Somente intervalo marcado no ponto é excluído do refeitório"}}}));
+  render(<MonitoringResults snapshot={monitoringQueryView({...source,rows},filters)} applied={filters} loading={false} onSort={vi.fn()} onPage={vi.fn()} onDetails={vi.fn()}/>);
+  expect(screen.getByTestId("monitoring-employee-summary")).toHaveTextContent("2 com tempo observado parcial");
+  await user.click(screen.getByRole("button",{name:"Expandir dias de Ana Sintética"}));
+  expect(screen.getAllByText("Observado · cobertura parcial · inclui período sem intervalo no ponto")).toHaveLength(2);
+ });
  it("exibe descanso e separa cálculo sugerido de jornada confirmada",async()=>{
   const user=userEvent.setup();const rows=source.rows.map(row=>({...row,summary:{...row.summary,workedSeconds:null,workObservation:{basis:"turnstile-suggestion",workedSeconds:28800,restSeconds:3600,restBasis:"turnstile-suggestion",reason:"Intervalo sugerido do torniquete"}}}));
   render(<MonitoringResults snapshot={monitoringQueryView({...source,rows},filters)} applied={filters} loading={false} onSort={vi.fn()} onPage={vi.fn()} onDetails={vi.fn()}/>);

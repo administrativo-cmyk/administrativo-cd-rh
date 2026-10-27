@@ -42,6 +42,22 @@ function completeUnscheduledSnapshot() {
 }
 
 describe("adaptação de snapshot persistido ao motor", () => {
+  it("observa quatro batidas reais sem escala ou confirmação, sem sugerir marcações", () => {
+    const raw=snapshot();raw.settings=raw.settings.filter(s=>!["schedule","evidence","coverage"].includes(s.kind));
+    const day=reprocessMonitoringSnapshot(raw,request,reference)[0];
+    expect(day.summary.workObservation).toMatchObject({basis:"clock-pair",workedSeconds:8*3600,restSeconds:3600,suggestedMarks:[]});
+    expect(day.summary.locationObservation).toMatchObject({outsideSeconds:1200});
+    expect(day.summary.workedSeconds).toBeNull();expect(day.summary.bankDay?.state).toBe("pending");
+  });
+  it("observa localização sem escala, cobertura integral ou confirmação da jornada", () => {
+    const raw=snapshot(); raw.settings=raw.settings.filter(s=>!["schedule","evidence","coverage"].includes(s.kind));
+    raw.events=raw.events.filter(e=>e.payload.type!=="punch"||["p1","p4"].includes(e.id));
+    const original=structuredClone(raw),day=reprocessMonitoringSnapshot(raw,request,reference)[0];
+    expect(day.summary.locationObservation).toMatchObject({quality:"observed-partial",outsideGrossSeconds:4800,outsideSeconds:0,cafeteriaSeconds:null});
+    expect(day.summary.workObservation?.restSeconds).toBe(4800);
+    expect(day.summary.workedSeconds).toBeNull();expect(day.summary.bankDay?.deltaMinutes).toBeNull();
+    expect(raw).toEqual(original);
+  });
   it("acrescenta duração observada entre duas batidas sem alterar jornada confirmada ou banco", () => {
     const raw = snapshot(); raw.events = raw.events.filter(e => e.payload.type !== "punch" || ["p1", "p4"].includes(e.id));
     const original = structuredClone(raw);

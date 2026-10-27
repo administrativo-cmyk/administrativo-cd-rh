@@ -1,5 +1,6 @@
 import { assessBankDay, type BankDay } from "./bank-day";
-import { observeIncompleteWork, type WorkObservation } from "./work-observation";
+import { observeClockWork, observeIncompleteWork, type WorkObservation } from "./work-observation";
+import { observeLocations, unscheduledObservationWindow, type LocationObservation } from "./location-observation";
 import { z } from "zod";
 import { rosterState, durationMinutes } from "./standard-schedules";
 import { dateSchema, settingSchema, type MonitoringSetting } from "./contracts";
@@ -75,6 +76,7 @@ export interface MonitoringResultSummary {
   bankDay?: BankDay;
   workObservation?: WorkObservation | null;
   recordedRestSeconds?: number | null;
+  locationObservation?: LocationObservation | null;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -281,12 +283,26 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       const unavailable = calculateJourney({ ...calculationInput, evidence: { startConfirmed: false, endConfirmed: false, startCoverageConfirmed: false } });
       unavailable.issues.push(...result.issues.filter((issue) => ["CONFLICTED_PUNCH_EVENTS_REQUIRE_REVIEW", "SOURCE_IDENTITY_UNCONFIRMED", "CALENDAR_NON_WORKING_DAY", "CALENDAR_WORKING_OVERRIDE"].includes(issue.code)));
       return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result: unavailable,
-        summary: { ...summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null), bankDay } };
+        summary: { ...summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null), bankDay,
+          locationObservation: observeLocations({ employeeId: request.employeeId, date, punches: [], accesses: accessEvents, mappings, window, referenceAt, workObservation: null }) } };
     }
-    const workObservation = result.journey.status !== "complete" ? observeIncompleteWork({ employeeId: request.employeeId, date,
-      punches: punchEvents, accesses: accessEvents, mappings, window, schedule: bankTimes, referenceAt, slots: bankDay.slots, missingRole: bankDay.missingRole }) : null;
+    const observedContext = attribution || correction ? { punches: punchEvents, window } : unscheduledObservationWindow(
+      snapshot.events.filter(e => e.payload.type === "punch" && e.eligible && e.payload.eligible && !e.conflicted && Date.parse(e.payload.timestamp) <= referenceAt
+        && snapshot.sources.some(source => source.id === e.sourceId && source.kind === "afd" && source.configuration.sourceIdentityConfirmed === true))
+        .map(e => ({ id: e.id, sourceId: e.sourceId, at: Date.parse(e.payload.timestamp), personId: request.employeeId,
+          precision: e.payload.precisionSeconds >= 60 ? "minute" as const : "second" as const, role: evidencePayload?.punchRoles?.[e.id] ?? evidencePayload?.punchRoles?.[e.payload.key] })), date);
+    const observedAccesses = attribution || correction ? accessEvents : snapshot.events.filter(e => e.payload.type === "access").map(e => ({
+      id: e.id, personId: e.payload.identity ? request.employeeId : null, at: Date.parse(e.payload.timestamp), sourceId: e.sourceId,
+      pointId: e.payload.device, eventClass: e.payload.original.eventName || e.payload.classification,
+      authorized: e.eligible && e.payload.eligible && e.payload.classification === "authorized" && !e.conflicted,
+      identified: e.payload.identity !== null, provenance: provenanceFor(e),
+    }));
+    const workObservation = result.journey.status !== "complete" ? observeClockWork(observedContext.punches) ?? observeIncompleteWork({ employeeId: request.employeeId, date,
+      punches: observedContext.punches, accesses: observedAccesses, mappings, window: observedContext.window, schedule: bankTimes, referenceAt, slots: bankDay.slots, missingRole: bankDay.missingRole }) : null;
+    const locationObservation = observeLocations({ employeeId: request.employeeId, date, punches: observedContext.punches,
+      accesses: observedAccesses, mappings, window: observedContext.window, referenceAt, workObservation });
     return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
-      summary: { bankDay, workObservation, recordedRestSeconds: workObservation?.restBasis === "turnstile-suggestion" ? null : result.workMs !== null ? result.restMs / 1000 : workObservation?.restSeconds ?? null,
+      summary: { bankDay, workObservation, locationObservation, recordedRestSeconds: workObservation?.restBasis === "turnstile-suggestion" ? null : result.workMs !== null ? result.restMs / 1000 : workObservation?.restSeconds ?? null,
         ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
         expectedWorkSeconds: scheduled?.payload.lunchMinutes !== undefined ? (durationMinutes(scheduled.payload.start, scheduled.payload.end)-scheduled.payload.lunchMinutes)*60 : null,
         overtimeSeconds: scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes !== undefined && result.journey.status === "complete" && result.workMs !== null
