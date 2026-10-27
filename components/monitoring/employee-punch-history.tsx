@@ -7,6 +7,7 @@ import { formatSignedMinutes } from "@/lib/domain/bank-hours";
 import type { BankDay, PunchRole } from "@/lib/monitoring/bank-day";
 import type { WorkObservation } from "@/lib/monitoring/work-observation";
 import { duration } from "./shared";
+import { suggestedWorkMarks } from "@/lib/monitoring/work-observation-view";
 import { MeasurementEditor, type MeasurementEditorState } from "@/components/time-bank-admin/measurement-editor";
 import { bankAdminSnapshotSchema, type BankAdminMutation, type BankAdminSnapshot } from "@/lib/time-bank-admin/contracts";
 
@@ -93,7 +94,7 @@ export function EmployeePunchHistory({ employeeId, date = todayInSaoPaulo(), ini
       <div className="space-y-2">{snapshot.days.map(day => <details key={day.date} className="rounded-lg border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm"><b>{day.date.split("-").reverse().join("/")}</b> · {day.bankDay?.state === "ready" ? <strong className={day.bankDay.deltaMinutes! < 0 ? "text-rose-800" : "text-emerald-800"}>{formatSignedMinutes(day.bankDay.deltaMinutes!)}</strong> : <span className="font-semibold text-amber-900">Pendente</span>} · {day.bankDay?.punches.length ?? 0} batida(s)</summary>
         <p className="mt-2 text-xs text-slate-600">{day.bankDay?.reason ?? "Jornada ainda não apurada"}</p>
-        {day.workObservation ? <div className="mt-2 space-y-1 text-xs"><p>Trabalho observado: <b>{duration(day.workObservation.workedSeconds)}</b> · Descanso registrado: {duration(day.workObservation.restSeconds)} — sem descanso registrado.</p>{day.workObservation.exitSuggestion ? <p className="font-semibold text-red-700">{time(day.workObservation.exitSuggestion.at)} · Saída sugerida pelo torniquete · {day.workObservation.exitSuggestion.pointId}</p> : null}<p className="text-slate-600">{day.workObservation.reason}</p></div> : null}
+        {day.workObservation ? <div className="mt-2 space-y-1 text-xs"><p>Trabalho observado: <b>{duration(day.workObservation.workedSeconds)}</b> · {day.workObservation.restBasis === "turnstile-suggestion" ? "Descanso sugerido" : "Descanso registrado"}: {duration(day.workObservation.restSeconds)}{!day.workObservation.restBasis || day.workObservation.restBasis === "not-recorded" ? " — sem descanso registrado." : ""}</p>{suggestedWorkMarks(day.workObservation).map(mark => <p key={`${mark.eventId}:${mark.role}`} className="font-semibold text-red-700">{time(mark.at)} · {roles[mark.role]} · Sugestão do torniquete · {mark.pointId}</p>)}<p className="text-slate-600">{day.workObservation.reason}</p></div> : null}
         <ul className="mt-2 space-y-1 text-xs">{day.bankDay?.punches.map(punch => <li key={punch.id}>{time(punch.at)} · {punch.sourceId === "rh-correction" ? "Correção RH / ADMIN" : punch.sourceId}{punch.role ? ` · ${roles[punch.role]}` : ""}</li>)}</ul>
         {day.bankDay?.originalPunches ? <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold">Batidas originais dos relógios</summary><ul className="mt-2 space-y-1">{day.bankDay.originalPunches.map(punch => <li key={punch.id}>{time(punch.at)} · {punch.sourceId}</li>)}</ul></details> : null}
         {day.bankDay?.slots.filter(slot => slot.at === null).map(slot => <p key={slot.role} className="mt-2 text-sm text-amber-900">Provável batida faltante: {roles[slot.role]} — em branco para conferência.</p>)}

@@ -33,7 +33,7 @@ it("identifica horário sugerido pelo torniquete em vermelho com legenda e nome 
   renderGrid();await user.click(screen.getByRole("button",{name:"Expandir batidas de Pessoa da noite"}));
   const suggested=await screen.findByLabelText(/Saída sugerida pelo torniquete, não é batida do relógio/);
   expect(suggested).toHaveClass("text-red-700");expect(suggested).toHaveTextContent("18:10");expect(suggested).toHaveTextContent("T");
-  expect(screen.getByText("Vermelho + T: saída sugerida do torniquete")).toBeVisible();
+  expect(screen.getByText("Vermelho + T: horário sugerido do torniquete")).toBeVisible();
 });
 
 it("carrega somente ao expandir e alinha batidas dos dois relógios à data operacional noturna", async () => {

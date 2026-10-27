@@ -53,10 +53,11 @@ export async function GET(request: Request) {
       reference = defaultScheduleSnapshotSchema.parse(result.data).setting;
     }
     const displayDays = projectPeriodPunchDisplay(historical.input, days, period.employeeId, now, reference).map(day => {
-      const suggestion = day.workObservation?.exitSuggestion;
-      if (!suggestion) return day;
+      const suggestions = day.workObservation?.suggestedMarks ?? (day.workObservation?.exitSuggestion ? [{ ...day.workObservation.exitSuggestion, role: "end" as const }] : []);
+      if (!suggestions.length) return day;
       const marks = day.displayMarks ?? (day.bankDay?.slots.length ? day.bankDay.slots : day.bankDay?.punches ?? []);
-      return { ...day, displayMarks: [...marks, { at: suggestion.at, role: "end" as const, origin: "turnstile" as const, eventId: suggestion.eventId, pointId: suggestion.pointId }],
+      const retained = marks.filter(mark => mark.at !== null || !mark.role || !suggestions.some(s => s.role === mark.role));
+      return { ...day, displayMarks: [...retained, ...suggestions.map(s => ({ ...s, origin: "turnstile" as const }))].sort((a,b) => (a.at ?? Infinity) - (b.at ?? Infinity)),
         displayReason: day.workObservation!.reason };
     });
     return Response.json({ days: displayDays, bank: raw.bank, canEdit: raw.canEdit, correctionHistory: raw.correctionHistory,...(historical.archive?{archive:historical.archive}:{}) }, { headers });

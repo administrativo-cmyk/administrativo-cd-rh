@@ -9,10 +9,50 @@ const mappings: AccessPointMapping[] = ["entry", "exit"].map(direction => ({ id:
 const input = () => ({ employeeId, date, punches: [punch("10:00")], accesses: [access("13:00"), access("17:00"), access("18:12")], mappings,
   window: { start: at("02:00"), end: at("02:00", "2026-10-22") }, schedule: { start: at("10:00"), end: at("18:20") }, referenceAt: at("12:00", "2026-10-23") });
 describe("observação auxiliar de jornadas incompletas", () => {
+  it("desconta o maior intervalo saída/retorno e sugere só as duas marcações faltantes", () => {
+    const raw = { ...input(), punches: [punch("10:00"),punch("18:00")], accesses: [access("11:00"),access("11:20","entry"),access("12:05"),access("14:02","entry"),access("16:00"),access("16:30","entry")] };
+    const copy=structuredClone(raw), result=observeIncompleteWork(raw)!;
+    expect(result.restSuggestion).toMatchObject({start:at("12:05"),end:at("14:02"),outsideSeconds:117*60});
+    expect(result.workedSeconds).toBe(8*3600-117*60);
+    expect(result.suggestedMarks?.map(m=>m.role)).toEqual(["breakStart","breakEnd"]);
+    expect(raw).toEqual(copy);
+  });
+  it.each(["breakStart","breakEnd","end","start"] as const)("preenche somente %s quando existem três batidas", missing => {
+    const times={start:"10:00",breakStart:"12:00",breakEnd:"13:00",end:"18:00"};
+    const raw={...input(),punches:(Object.entries(times) as Array<[keyof typeof times,string]>).filter(([role])=>role!==missing).map(([role,time])=>({...punch(time),role})),accesses:[access("09:59","entry"),access("12:00"),access("13:00","entry"),access("18:00")]};
+    const result=observeIncompleteWork(raw)!;
+    expect(result.suggestedMarks).toHaveLength(1);expect(result.suggestedMarks![0].role).toBe(missing);
+    expect(result.restSeconds).toBe(3600);
+  });
+  it("usa a função faltante identificada pelo banco sem atribuir funções às batidas originais", () => {
+    const raw={...input(),punches:[punch("10:00"),punch("12:00"),punch("18:00")],missingRole:"breakEnd" as const,
+      slots:[{role:"start" as const,at:at("10:00")},{role:"breakStart" as const,at:at("12:00")},{role:"breakEnd" as const,at:null},{role:"end" as const,at:at("18:00")}],
+      accesses:[access("12:00"),access("13:00","entry")]};
+    const original=structuredClone(raw),result=observeIncompleteWork(raw)!;
+    expect(result.suggestedMarks?.map(m=>m.role)).toEqual(["breakEnd"]);expect(result.restSeconds).toBe(3600);expect(raw).toEqual(original);
+  });
+  it("não sugere nada com quatro ou seis marcações, nem com par saída/retorno aberto", () => {
+    expect(observeIncompleteWork({...input(),punches:["10:00","12:00","13:00","18:00"].map(t=>punch(t))})).toBeNull();
+    expect(observeIncompleteWork({...input(),punches:["10:00","11:00","11:15","12:00","13:00","18:00"].map(t=>punch(t))})).toBeNull();
+    const result=observeIncompleteWork({...input(),punches:[punch("10:00"),punch("18:00")],accesses:[access("12:00")]});
+    expect(result?.restSuggestion).toBeUndefined();expect(result?.suggestedMarks).toEqual([]);
+  });
+  it("não fecha a saída final enquanto a janela operacional ainda está aberta", () => {
+    expect(observeIncompleteWork({...input(),referenceAt:at("23:00")})).toBeNull();
+  });
+  it("exclui saída sem retorno e leituras muito curtas da sugestão de descanso", () => {
+    const result=observeIncompleteWork({...input(),punches:[punch("10:00"),punch("18:00")],accesses:[access("12:00"),access("12:05","entry"),access("17:00")]});
+    expect(result?.restSuggestion).toBeUndefined();
+  });
   it("calcula entrada e saída reais sem inventar descanso ou mudar os dados", () => {
     const raw = { ...input(), punches: [punch("09:52"), punch("18:00")] }, original = structuredClone(raw);
     expect(observeIncompleteWork(raw)).toMatchObject({ workedSeconds: 8 * 3600 + 8 * 60, restSeconds: 0, basis: "clock-pair" });
     expect(raw).toEqual(original);
+  });
+  it("trata a mesma leitura nos relógios CPF/PIS como uma marca lógica", () => {
+    const start=punch("10:00"),end=punch("18:00");
+    const result=observeIncompleteWork({...input(),punches:[start,{...start,id:"other-start",sourceId:"pis"},end,{...end,id:"other-end",sourceId:"pis"}]});
+    expect(result?.workedSeconds).toBe(8*3600);expect(result?.suggestedMarks).toEqual([]);
   });
   it("sugere a última saída válida da operação, com proveniência", () => {
     expect(observeIncompleteWork(input())).toMatchObject({ basis: "turnstile-suggestion", workedSeconds: 8 * 3600 + 12 * 60, exitSuggestion: { at: at("18:12"), eventId: "a-2026-10-21-18:12", pointId: "exit", sourceId: "defense" } });

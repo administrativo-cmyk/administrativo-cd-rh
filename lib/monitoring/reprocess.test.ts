@@ -47,7 +47,7 @@ describe("adaptação de snapshot persistido ao motor", () => {
     const original = structuredClone(raw);
     const day = reprocessMonitoringSnapshot(raw, request, reference)[0];
     expect(day.summary.workedSeconds).toBeNull();
-    expect(day.summary.workObservation).toMatchObject({ basis: "clock-pair", workedSeconds: 9 * 3600, restSeconds: 0 });
+    expect(day.summary.workObservation).toMatchObject({ basis: "turnstile-suggestion", workedSeconds: 7 * 3600 + 40 * 60, restSeconds: 80 * 60 });
     expect(day.summary.bankDay?.deltaMinutes).toBeNull();
     expect(raw).toEqual(original);
   });

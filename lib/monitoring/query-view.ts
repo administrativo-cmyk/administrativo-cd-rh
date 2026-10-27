@@ -23,7 +23,7 @@ export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGrou
       summary[key] = known.length ? known.reduce((sum,row)=>sum + (value(row) as number),0) : null;
     }
     summary.recordedRestSeconds = summary.restSeconds;
-    summary.observedDays = days.filter(day => !day.dirty && !finite(day.summary?.workedSeconds) && workObservation(day.summary)).length;
+    summary.observedDays = days.filter(day => !day.dirty && workObservation(day.summary)).length;
     summary.turnstileDays = days.filter(day => !day.dirty && workObservation(day.summary)?.basis === "turnstile-suggestion").length;
     const assessedDays = metricDays.workedSeconds;
     for (const [metric,quality] of [["outsideSeconds","outsideQuality"],["cafeteriaSeconds","cafeteriaQuality"],["mealsWithoutRest","mealQuality"]]) {
@@ -56,7 +56,7 @@ export function sortMonitoringRows<T extends MonitoringRow>(rows: readonly T[], 
 }
 
 export function monitoringQueryView(snapshot: MonitoringSnapshot, filters: MonitoringFilters): MonitoringSnapshot {
-  const observed = snapshot.rows.filter(row => !row.dirty && row.quality !== "stale" && !finite(row.summary?.workedSeconds) && workObservation(row.summary));
+  const observed = snapshot.rows.filter(row => !row.dirty && row.quality !== "stale" && workObservation(row.summary));
   snapshot = { ...snapshot, totals: { ...snapshot.totals, observedJourneys: observed.length,
     observedWorkSeconds: observed.length ? observed.reduce((sum, row) => sum + workObservation(row.summary)!.workedSeconds, 0) : null } };
   // Build filter lists from the complete authorized dataset before pagination.

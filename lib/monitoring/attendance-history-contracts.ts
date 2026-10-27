@@ -11,6 +11,9 @@ const role = z.enum(["start", "breakStart", "breakEnd", "end"]);
 const punch = z.object({ id: z.string(), at: z.number().finite(), sourceId: z.string(), role: role.optional() });
 const displayMark = z.object({ at: z.number().finite().nullable(), role: role.optional(), origin: z.literal("turnstile").optional(), eventId: z.string().optional(), pointId: z.string().optional() });
 const workObservation = z.object({ workedSeconds: z.number().nonnegative(), restSeconds: z.number().nonnegative(), basis: z.enum(["clock-pair", "turnstile-suggestion"]), reason: z.string(),
+ restBasis: z.enum(["clock", "not-recorded", "turnstile-suggestion"]).optional(),
+ suggestedMarks: z.array(z.object({ at: z.number(), eventId: z.string(), pointId: z.string(), sourceId: z.string(), role })).optional(),
+ restSuggestion: z.object({ start: z.number(), end: z.number(), exitEventId: z.string(), entryEventId: z.string(), outsideSeconds: z.number() }).optional(),
  exitSuggestion: z.object({ at: z.number(), eventId: z.string(), pointId: z.string(), sourceId: z.string() }).optional() });
 export const attendanceHistorySnapshotSchema = z.object({
  days: z.array(z.object({ date: dateSchema, correctionVersion: z.string().nullable(), workObservation: workObservation.nullable().optional(), displayMarks: z.array(displayMark).optional(), displayReason: z.string().optional(), bankDay: z.object({

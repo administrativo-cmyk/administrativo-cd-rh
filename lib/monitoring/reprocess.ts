@@ -283,10 +283,10 @@ export function reprocessMonitoringSnapshot(raw: unknown, request: ReprocessRequ
       return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result: unavailable,
         summary: { ...summarizeCalculation(unavailable, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null), bankDay } };
     }
-    const workObservation = result.workMs === null ? observeIncompleteWork({ employeeId: request.employeeId, date,
-      punches: punchEvents, accesses: accessEvents, mappings, window, schedule: bankTimes, referenceAt }) : null;
+    const workObservation = result.journey.status !== "complete" ? observeIncompleteWork({ employeeId: request.employeeId, date,
+      punches: punchEvents, accesses: accessEvents, mappings, window, schedule: bankTimes, referenceAt, slots: bankDay.slots, missingRole: bankDay.missingRole }) : null;
     return { employeeId: request.employeeId, date, version: snapshot.version, ruleVersion: RULE_VERSION, result,
-      summary: { bankDay, workObservation, recordedRestSeconds: result.workMs !== null ? result.restMs / 1000 : workObservation?.restSeconds ?? null,
+      summary: { bankDay, workObservation, recordedRestSeconds: workObservation?.restBasis === "turnstile-suggestion" ? null : result.workMs !== null ? result.restMs / 1000 : workObservation?.restSeconds ?? null,
         ...summarizeCalculation(result, groupSnapshots.length === 1 ? normalizeGroups(groupSnapshots[0].groups) : [], scheduled?.payload.name ?? null),
         expectedWorkSeconds: scheduled?.payload.lunchMinutes !== undefined ? (durationMinutes(scheduled.payload.start, scheduled.payload.end)-scheduled.payload.lunchMinutes)*60 : null,
         overtimeSeconds: scheduled && !scheduled.payload.estimated && scheduled.payload.lunchMinutes !== undefined && result.journey.status === "complete" && result.workMs !== null
