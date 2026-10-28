@@ -847,6 +847,19 @@ for (const code of ["P", "F", "A", "I", "B", "X", "H", "G", "D", "AF"]) {
   if (result.record.status !== code) throw new Error(`attendance code ${code} was not saved`);
   version = result.record.updatedAt;
 }
+const automaticTermination = await database.query(`
+  select situacao, desligamento from public.colaboradores where id = '${writeEmployee}';
+`);
+if (automaticTermination.rows[0].situacao !== 'DESLIGADO'
+    || automaticTermination.rows[0].desligamento?.toISOString().slice(0, 10) !== writeDate) {
+  throw new Error(`manual D did not update termination lifecycle: ${JSON.stringify(automaticTermination.rows[0])}`);
+}
+// The remaining disposable checks exercise an active employee on later dates.
+await database.exec(`
+  update public.colaboradores
+  set situacao = 'ATIVO', desligamento = null, situacao_desde = null
+  where id = '${writeEmployee}';
+`);
 const codeCount = await database.query(`
   select count(*)::integer as count from public.chamada_diaria
   where colaborador_id = '${writeEmployee}' and data = '${writeDate}';

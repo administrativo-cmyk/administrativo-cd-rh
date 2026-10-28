@@ -12,7 +12,7 @@ let db: PGlite, day: string, today: string, prior: string, future: string;
 async function value<T = Record<string, unknown>>(sql: string, args: unknown[] = []): Promise<T> { return (await db.query<{ value: T }>(sql, args)).rows[0].value; }
 async function guard<T>(work: () => Promise<T>) { await db.exec("savepoint action_guard"); try { const result = await work(); await db.exec("release savepoint action_guard"); return result; } catch (error) { await db.exec("rollback to savepoint action_guard;release savepoint action_guard"); throw error; } }
 async function actor(id = admin) { await db.exec(`set local role authenticated;select set_config('request.jwt.claim.sub','${id}',true)`); }
-async function rows(situation?: string) { return value<{ employees: Array<{ id: string; pendingTerminationDates: string[] }> }>("select public.daily_call_read($1::date,$1::date,$1::date,$2) value", [day, situation ?? null]); }
+async function rows(situation?: string) { return value<{ employees: Array<{ id: string; pendingTerminationDates: string[]; attendance: Array<{ date: string; status: string; origin: string }> }> }>("select public.daily_call_read($1::date,$1::date,$1::date,$2) value", [day, situation ?? null]); }
 async function record() { return (await value<{ rows: Record<string, unknown>[] }>("select public.administration('employee','list','{}') value")).rows[0]; }
 async function save(changes: Record<string, unknown>) {
   const old = await record();
@@ -60,13 +60,13 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     const row = await record();
     expect(employeeInputSchema.safeParse({ ...Object.fromEntries(Object.entries(row).filter(([key]) => !["id", "createdAt", "updatedAt", "activeInSystem", "defaultSchedule", "statusSignal"].includes(key))), situation: "DESLIGADO", terminationDate: null, reason: "Validar datas" }).success).toBe(false);
   });
-  it("mantém desligado só até o último dia pendente e permite filtro explícito", async () => {
+  it("oculta desligado sem ponto no período e projeta D no filtro explícito", async () => {
     await save({ situation: "DESLIGADO", terminationDate: day });
-    expect((await rows()).employees).toHaveLength(1);
-    expect((await rows()).employees[0].pendingTerminationDates).toEqual([day]);
-    await value("select public.salvar_chamada_diaria($1::uuid,$2::date,'P',null,null) value", [employee, day]);
     expect((await rows()).employees).toHaveLength(0);
-    expect((await rows("DESLIGADO")).employees).toHaveLength(1);
+    const explicit = await rows("DESLIGADO");
+    expect(explicit.employees).toHaveLength(1);
+    expect(explicit.employees[0].pendingTerminationDates).toEqual([]);
+    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: day, status: "D", origin: "lifecycle" }));
   });
   it("impede presença/falta após desligamento, inclusive por RPC manual e lote", async () => {
     await save({ situation: "DESLIGADO", terminationDate: day });
@@ -78,11 +78,22 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     const batch = await value<{ eligible: number }>("select public.daily_call_batch('preview',$1::jsonb) value", [JSON.stringify({ mode: "fill_blank", reason: "Verificar desligamento", items: [{ employeeId: employee, date: today, status: "P", observation: null }] })]);
     expect(batch.eligible).toBe(0);
   });
-  it("preserva falta automática anterior ao desligamento e bloqueia datas posteriores", async () => {
-    await save({ situation: "DESLIGADO", terminationDate: day });
-    expect(await evidence()).toMatchObject({ status: "I", state: "automatic_absence" });
-    expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: day }, today)).toBe(false);
-    expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: day }, day)).toBe(true);
+  it("preserva situação anterior ao desligamento e bloqueia datas posteriores", async () => {
+    await save({ situation: "DESLIGADO", terminationDate: today });
+    const explicit = await value<{ employees: Array<{ attendance: Array<{ date: string; status: string; origin: string }> }> }>("select public.daily_call_read($1::date,$1::date,$2::date,'DESLIGADO') value", [day, today]);
+    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: day, status: "F", origin: "schedule" }));
+    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: today, status: "D", origin: "lifecycle" }));
+    expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: today }, future)).toBe(false);
+    expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: today }, today)).toBe(true);
+  });
+  it("transforma D manual em desligamento automático no cadastro", async () => {
+    await value("select public.salvar_chamada_diaria($1::uuid,$2::date,'D','Desligamento confirmado',null) value", [employee, day]);
+    expect(await record()).toMatchObject({ situation: "DESLIGADO", terminationDate: day });
+    await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from private.employee_lifecycle_audit where employee_id=$1::uuid and action='automatic_termination_from_daily_call'", [employee])).toBe(1);
+    await actor();
+    const explicit = await rows("DESLIGADO");
+    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: day, status: "D", origin: "lifecycle" }));
   });
   it("não gera falta nem reativa sem ponto após o retorno previsto", async () => {
     await leave();
