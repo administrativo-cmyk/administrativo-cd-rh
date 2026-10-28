@@ -8,6 +8,6 @@ export async function GET(request:Request){
  try{
   const full=new URL(request.url).searchParams.get('size')!=='avatar';
   const data=await monitoringQuery(id?'photo':'my_photo',{...(id?{employeeId:id}:{}),...(full?{photoVariant:'full'}:{})});
-  return await authorizedPhotoResponse(data);
+  return await authorizedPhotoResponse(data,request);
  }catch(error){return monitoringFailure(error);}
 }

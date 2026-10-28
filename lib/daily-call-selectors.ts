@@ -46,15 +46,22 @@ function hasPunchInPeriod(employee: Employee, startDate?: string, endDate?: stri
 
 /** Only unique register matches can move a manager's attendance row. Never guess between namesakes. */
 function identifyManagerRows(employees: Employee[]): Map<string, string> {
-  const managers = [...new Set(employees.map(employee => employee.manager))].filter(manager => manager !== "Sem gestor definido");
+  const managers = new Set<string>();
+  const byName = new Map<string, Employee[]>();
+  const leaders: Array<{ employee: Employee; name: string }> = [];
+  for (const employee of employees) {
+    if (employee.manager !== "Sem gestor definido") managers.add(employee.manager);
+    const name = searchKey(employee.name);
+    const exact = byName.get(name);
+    if (exact) exact.push(employee); else byName.set(name, [employee]);
+    if (/\b(?:lider|supervisora?|coordenadora?|gerente|gestora?|encarregad[oa])\b/.test(searchKey(employee.role))) leaders.push({ employee, name: ` ${name} ` });
+  }
   const matches = new Map<string, string[]>();
   for (const manager of managers) {
     const name = searchKey(manager);
-    const exact = employees.filter(employee => searchKey(employee.name) === name);
+    const exact = byName.get(name) ?? [];
     const alias = name.replace(/\s+(?:t\s*\d+|flv)$/, "");
-    const candidates = exact.length ? exact : employees.filter(employee =>
-      /\b(?:lider|supervisora?|coordenadora?|gerente|gestora?|encarregad[oa])\b/.test(searchKey(employee.role))
-      && (` ${searchKey(employee.name)} `).includes(` ${alias} `));
+    const candidates = exact.length ? exact : leaders.filter(leader => leader.name.includes(` ${alias} `)).map(leader => leader.employee);
     if (candidates.length === 1) {
       const id = candidates[0].id;
       matches.set(id, [...(matches.get(id) ?? []), manager]);

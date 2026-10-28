@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { calculateDailyCallMetrics, countActiveFilters, filterEmployees, filtersForDate, groupEmployeesByManager } from "@/lib/daily-call-selectors";
 import { validDate, validPeriod } from "@/lib/data/daily-call-dates";
@@ -34,9 +34,11 @@ export function useDailyCall(initialDate: string, initialSnapshot: DailyCallSnap
     ...employees.flatMap(employee => Object.keys(employee.attendance).map(date => payrollPeriodForDate(date).key)),
   ])], [snapshot, employees, error]);
   const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId) ?? null, [employees, selectedEmployeeId]);
-  const filteredEmployees = useMemo(() => filterEmployees(employees, filters, selectedDate), [employees, filters, selectedDate]);
+  const deferredQuery = useDeferredValue(filters.query);
+  const deferredFilters = useMemo(() => ({ query: deferredQuery, unit: filters.unit, manager: filters.manager, employeeId: filters.employeeId, bank: filters.bank, status: filters.status, situation: filters.situation, startDate: filters.startDate, endDate: filters.endDate }), [deferredQuery, filters.unit, filters.manager, filters.employeeId, filters.bank, filters.status, filters.situation, filters.startDate, filters.endDate]);
+  const filteredEmployees = useMemo(() => filterEmployees(employees, deferredFilters, selectedDate), [employees, deferredFilters, selectedDate]);
   const metrics = useMemo(() => calculateDailyCallMetrics(filteredEmployees, selectedDate), [filteredEmployees, selectedDate]);
-  const managerGroups = useMemo(() => groupEmployeesByManager(filteredEmployees, filters.startDate, filters.endDate, employees), [filteredEmployees, filters.startDate, filters.endDate, employees]);
+  const managerGroups = useMemo(() => groupByManager ? groupEmployeesByManager(filteredEmployees, filters.startDate, filters.endDate, employees) : [], [groupByManager, filteredEmployees, filters.startDate, filters.endDate, employees]);
   const managerOptions = useMemo(() => [...new Set(employees.map((employee) => employee.manager))].sort((a, b) => a.localeCompare(b, "pt-BR")), [employees]);
   const defaults = useMemo(() => filtersForDate(selectedDate), [selectedDate]);
   const activeFilterCount = useMemo(() => countActiveFilters(filters, defaults), [filters, defaults]);

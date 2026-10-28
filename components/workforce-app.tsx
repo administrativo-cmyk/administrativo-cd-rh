@@ -2,7 +2,7 @@
 
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BriefcaseBusiness, ChevronLeft, ChevronRight, CircleHelp, RefreshCw, Search, UserRound, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 type SortKey = "name" | "employeeNumber" | "unit" | "manager" | "situation" | "admissionDate";
 const pageSize = 20;
 const emptyWorkforce: WorkforceEmployee[] = [];
+const numericCollator = new Intl.Collator("pt-BR", { numeric: true });
 const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
 
 function sortValue(employee: WorkforceEmployee, key: SortKey): string {
@@ -40,6 +41,8 @@ export function WorkforceApp({ profile, employees }: { profile: AuthenticatedPro
   const setSelected = (employee: WorkforceEmployee | null) => setSelectedId(employee?.id ?? null);
   const isManager = profile.papel_usuario === "GESTOR";
   const scopedEmployees = employees ?? emptyWorkforce;
+  const deferredQuery = useDeferredValue(filters.query);
+  const deferredFilters = useMemo(() => ({ query: deferredQuery, unit: filters.unit, managerId: filters.managerId, situation: filters.situation }), [deferredQuery, filters.unit, filters.managerId, filters.situation]);
 
   const unitOptions = useMemo(() => [...new Set(scopedEmployees.map((item) => item.unit))].sort((a, b) => a.localeCompare(b, "pt-BR")), [scopedEmployees]);
   const managerOptions = useMemo(() => {
@@ -49,12 +52,12 @@ export function WorkforceApp({ profile, employees }: { profile: AuthenticatedPro
   }, [scopedEmployees]);
   const situationOptions = useMemo(() => [...new Set(scopedEmployees.map((item) => item.situation))].sort((a, b) => situationLabels[a].localeCompare(situationLabels[b], "pt-BR")), [scopedEmployees]);
 
-  const filtered = useMemo(() => filterWorkforce(scopedEmployees, filters), [scopedEmployees, filters]);
+  const filtered = useMemo(() => filterWorkforce(scopedEmployees, deferredFilters), [scopedEmployees, deferredFilters]);
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
-    const result = sortValue(a, sortKey).localeCompare(sortValue(b, sortKey), "pt-BR", { numeric: true });
-    return (sortDescending ? -result : result) || a.employeeNumber.localeCompare(b.employeeNumber, "pt-BR", { numeric: true });
+    const result = numericCollator.compare(sortValue(a, sortKey), sortValue(b, sortKey));
+    return (sortDescending ? -result : result) || numericCollator.compare(a.employeeNumber, b.employeeNumber);
   }), [filtered, sortKey, sortDescending]);
-  const metrics = workforceMetrics(filtered);
+  const metrics = useMemo(() => workforceMetrics(filtered), [filtered]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const visiblePage = Math.min(page, pages);
   const visible = sorted.slice((visiblePage - 1) * pageSize, visiblePage * pageSize);

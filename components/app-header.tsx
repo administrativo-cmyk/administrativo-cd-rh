@@ -12,6 +12,28 @@ import { visiblePages } from "@/lib/navigation";
 import { workspaceRequest } from "@/lib/workspace/client";
 import type { WorkspaceSettings } from "@/lib/workspace/contracts";
 
+const headerCacheTtl = 60_000;
+const headerCache = new Map<string, { expiresAt: number; value?: unknown; promise?: Promise<unknown> }>();
+
+function cachedHeaderRequest<T>(key: string, request: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const cached = headerCache.get(key);
+  if (cached?.value !== undefined && cached.expiresAt > now) return Promise.resolve(cached.value as T);
+  if (cached?.promise) return cached.promise as Promise<T>;
+  const promise = request().then((value) => {
+    if (headerCache.get(key)?.promise === promise) {
+      headerCache.set(key, { value, expiresAt: Date.now() + headerCacheTtl });
+      return value;
+    }
+    return (headerCache.get(key)?.value as T | undefined) ?? value;
+  }).catch((error) => {
+    if (headerCache.get(key)?.promise === promise) headerCache.delete(key);
+    throw error;
+  });
+  headerCache.set(key, { expiresAt: now + headerCacheTtl, promise });
+  return promise;
+}
+
 const roleLabels: Record<UserRole, string> = {
   ADMIN: "Administrador",
   RH: "RH",
@@ -36,20 +58,26 @@ export function AppHeader({
   const pages = visiblePages(profile.papel_usuario, query);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(value => !value); } };
-    const preferences = (event: Event) => { const settings = (event as CustomEvent<WorkspaceSettings>).detail; setShowCount(settings.notificationsEnabled); };
-    const inbox = () => setInboxVersion(value => value + 1);
+    const preferences = (event: Event) => {
+      const settings = (event as CustomEvent<WorkspaceSettings>).detail;
+      headerCache.set(`settings:${profile.id}`, { value: settings, expiresAt: Date.now() + headerCacheTtl });
+      setShowCount(settings.notificationsEnabled);
+    };
+    const inbox = () => { headerCache.delete(`inbox:${profile.id}`); setInboxVersion(value => value + 1); };
     window.addEventListener("keydown", shortcut); window.addEventListener("workspace-preferences", preferences); window.addEventListener("workspace-inbox", inbox);
     return () => { window.removeEventListener("keydown", shortcut); window.removeEventListener("workspace-preferences", preferences); window.removeEventListener("workspace-inbox", inbox); };
-  }, []);
-  useEffect(() => {
-    const abort = new AbortController();
-    workspaceRequest<WorkspaceSettings>("settings", {}, abort.signal).then(settings => { if (!abort.signal.aborted) { document.documentElement.dataset.density = settings.compactTables ? "compact" : "comfortable"; setShowCount(settings.notificationsEnabled); } }).catch(() => {});
-    return () => abort.abort();
   }, [profile.id]);
   useEffect(() => {
-    const abort = new AbortController();
-    workspaceRequest<{unread:number}>("notification_summary", {}, abort.signal).then(result => { if (!abort.signal.aborted) setUnread(result.unread); }).catch(() => { if (!abort.signal.aborted) setUnread(null); });
-    return () => abort.abort();
+    let active = true;
+    cachedHeaderRequest(`settings:${profile.id}`, () => workspaceRequest<WorkspaceSettings>("settings"))
+      .then(settings => { if (active) { document.documentElement.dataset.density = settings.compactTables ? "compact" : "comfortable"; setShowCount(settings.notificationsEnabled); } }).catch(() => {});
+    return () => { active = false; };
+  }, [profile.id]);
+  useEffect(() => {
+    let active = true;
+    cachedHeaderRequest(`inbox:${profile.id}`, () => workspaceRequest<{unread:number}>("notification_summary"))
+      .then(result => { if (active) setUnread(result.unread); }).catch(() => { if (active) setUnread(null); });
+    return () => { active = false; };
   }, [profile.id, inboxVersion]);
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur-md sm:px-4 md:px-5">

@@ -24,7 +24,7 @@ const stickyColumns = [
   { label: "Férias previstas", left: 416, width: 124 }, { label: "BH em dias", left: 540, width: 78 }, { label: "A compensar / repor", left: 618, width: 130 }, { label: "Situação", left: 748, width: 108 },
 ] as const;
 
-export function PeriodGrid({ employees, managerGroups, startDate, endDate, onSelect, readOnly = true, onSave, isSaving, fillHeight = false, columnsCollapsed, onColumnsCollapsedChange }: Props) {
+export const PeriodGrid = memo(function PeriodGrid({ employees, managerGroups, startDate, endDate, onSelect, readOnly = true, onSave, isSaving, fillHeight = false, columnsCollapsed, onColumnsCollapsedChange }: Props) {
   const dates = useMemo(() => dateRange(startDate, endDate), [startDate, endDate]);
   const [expandedEmployees, setExpandedEmployees] = useState<Set<string>>(() => new Set());
   const expandableEmployees = useMemo(() => dates.length ? (managerGroups ? managerGroups.flatMap(([, rows]) => rows) : employees).filter(employee => employee.databaseId) : [], [employees, managerGroups, dates.length]);
@@ -67,7 +67,7 @@ export function PeriodGrid({ employees, managerGroups, startDate, endDate, onSel
       </table>
     </div>
   </section>;
-}
+});
 
 const PeriodRow = memo(function PeriodRow({ employee, dates, collapsed, expanded, onToggle, onSelect, readOnly, onSave, isSaving }: { employee: Employee; dates: string[]; collapsed: boolean; expanded: boolean; onToggle: (id: string) => void; onSelect: Props["onSelect"]; readOnly: boolean; onSave?: Props["onSave"]; isSaving?: Props["isSaving"] }) {
   const punchRowId = useId();
@@ -89,4 +89,5 @@ export function dateRange(start: string, end: string) {
   for (let time = Date.parse(`${start}T12:00:00Z`); time <= endTime; time += 86_400_000) dates.push(new Date(time).toISOString().slice(0, 10));
   return dates;
 }
-function weekday(date: string) { return new Intl.DateTimeFormat("pt-BR", { weekday: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`)).replace(".", ""); }
+const weekdayFormatter = new Intl.DateTimeFormat("pt-BR", { weekday: "short", timeZone: "UTC" });
+function weekday(date: string) { return weekdayFormatter.format(new Date(`${date}T12:00:00Z`)).replace(".", ""); }

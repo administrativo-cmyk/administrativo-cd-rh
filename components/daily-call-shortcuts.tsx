@@ -25,9 +25,10 @@ export function DailyCallShortcuts({ viewMode, selectedDate, filters, payrollPer
   const periods = payrollPeriodOptions(payrollPeriods);
   const selectedPeriod = periods.some(period => period.key === filters.endDate.slice(0, 7)) ? filters.endDate.slice(0, 7) : "";
   const managers = useMemo(() => managerOptions.map(manager => ({ value: manager, label: manager })), [managerOptions]);
-  const collaborators = useMemo(() => filterEmployees(employees, { ...filters, employeeId: undefined, query: "", bank: "Todos", status: "Todos" }, selectedDate)
+  const { unit, manager, situation, startDate, endDate } = filters;
+  const collaborators = useMemo(() => filterEmployees(employees, { unit, manager, situation, startDate, endDate, query: "", bank: "Todos", status: "Todos" }, selectedDate)
     .map(employee => ({ value: employee.id, label: `${employee.name} · ${[employee.id, ...(employee.additionalEmployeeNumbers ?? [])].join(" / ")}` }))
-    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")), [employees, filters, selectedDate]);
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")), [employees, unit, manager, situation, startDate, endDate, selectedDate]);
 
   return <div aria-label="Atalhos dos filtros da chamada" className="grid min-w-0 grid-cols-1 gap-3 border-b border-slate-200 px-3 pb-3 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-end">
     {viewMode === "period" ? <label className="min-w-0 space-y-1 xl:w-44"><span className="block text-xs font-semibold text-slate-600">Período</span><select aria-label="Período rápido da chamada" value={selectedPeriod} onChange={event => changePayrollPeriod(event.target.value)} className={controlClass}>

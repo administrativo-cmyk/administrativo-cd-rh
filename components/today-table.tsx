@@ -2,6 +2,7 @@
 import { attendanceWithinEmployment } from "@/lib/employee-lifecycle";
 
 import { EmployeeAvatar } from "@/components/employee-avatar";
+import { memo } from "react";
 
 import { MoreHorizontal } from "lucide-react";
 import { AttendanceStatusPicker } from "./attendance-status-picker";
@@ -17,12 +18,12 @@ type Props = { employees: Employee[]; date: string; onSelect: (employee: Employe
 };
 const columns = ["Matrícula", "Colaborador", "Unidade", "Gestor", "Situação BH", "Saldo BH", "A compensar / repor", "Status", "Observação", "Ações"];
 
-export function TodayTable({ employees, date, onSelect, readOnly = true, onSave, isSaving }: Props) {
+export const TodayTable = memo(function TodayTable({ employees, date, onSelect, readOnly = true, onSave, isSaving }: Props) {
   return <>
     <div className="hidden overflow-x-auto md:block" data-testid="today-table"><table className="w-full min-w-[1320px] text-left text-sm"><thead className="sticky top-0 z-20 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500"><tr><th className="w-10 border-b border-slate-200 px-3 py-2.5"><Checkbox aria-label="Selecionar todos" disabled /></th>{columns.map((heading) => <th key={heading} className="border-b border-slate-200 px-3 py-2.5 font-semibold">{heading}</th>)}</tr></thead><tbody>{employees.map((employee) => <EmployeeRow key={employee.id} employee={employee} date={date} onSelect={onSelect} readOnly={readOnly} onSave={onSave} isSaving={isSaving} />)}</tbody></table></div>
     <div className="divide-y divide-slate-100 md:hidden" data-testid="today-cards">{employees.map((employee) => <MobileCard key={employee.id} employee={employee} date={date} onSelect={onSelect} readOnly={readOnly} onSave={onSave} saving={isSaving?.(employee, date) ?? false} />)}</div>
   </>;
-}
+});
 
 function EmployeeRow({ employee, date, onSelect, readOnly, onSave, isSaving }: Omit<Props, "employees"> & { employee: Employee; readOnly: boolean }) {
   const saving = isSaving?.(employee, date) ?? false;

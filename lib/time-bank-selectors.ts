@@ -1,6 +1,7 @@
 import { defaultTimeBankFilters, type TimeBankClassification, type TimeBankEmployee, type TimeBankFilters } from "@/lib/time-bank";
 
 export type TimeBankOrder = "name" | "employeeNumber" | "mostPositive" | "mostNegative";
+const numericCollator = new Intl.Collator("pt-BR", { numeric: true });
 
 function searchable(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
@@ -38,8 +39,8 @@ export function sortTimeBank(rows: TimeBankEmployee[], order: TimeBankOrder): Ti
   const sorted = [...rows];
   sorted.sort((a, b) => {
     if (order === "name" || order === "employeeNumber") {
-      return a[order].localeCompare(b[order], "pt-BR", { numeric: true })
-        || a.employeeNumber.localeCompare(b.employeeNumber, "pt-BR", { numeric: true });
+      return numericCollator.compare(a[order], b[order])
+        || numericCollator.compare(a.employeeNumber, b.employeeNumber);
     }
     const aBalance = a.measuredMinutes;
     const bBalance = b.measuredMinutes;

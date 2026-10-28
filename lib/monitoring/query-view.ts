@@ -11,7 +11,10 @@ const finite = (value: unknown): value is number => typeof value === "number" &&
 /** Missing/dirty days never become zero. Every group is assembled before pagination. */
 export function monitoringGroups(rows: readonly MonitoringRow[]): MonitoringGroup[] {
   const grouped = new Map<string, MonitoringRow[]>();
-  for (const row of rows) grouped.set(row.employeeId, [...grouped.get(row.employeeId) ?? [], row]);
+  for (const row of rows) {
+    const days = grouped.get(row.employeeId);
+    if (days) days.push(row); else grouped.set(row.employeeId, [row]);
+  }
   return [...grouped.values()].map(days => {
     const first = days[0];
     const summary: Record<string,unknown> = {};

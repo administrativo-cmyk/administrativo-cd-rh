@@ -18,6 +18,6 @@ export async function GET(request: Request) {
     const full = new URL(request.url).searchParams.get("size") !== "avatar";
     const { data, error } = await client.rpc("monitoring_identity_photo", { p_source_id: input.data.sourceId, p_identity_value: input.data.identityValue, ...(full ? { p_variant: "full" } : {}) });
     if (error) throw Object.assign(new Error("MONITORING_PHOTO_FAILED"), { code: error.code });
-    return await authorizedPhotoResponse(data);
+    return await authorizedPhotoResponse(data, request);
   } catch (error) { return monitoringFailure(error); }
 }

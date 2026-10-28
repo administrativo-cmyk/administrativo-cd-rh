@@ -21,6 +21,17 @@ const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
 
 describe("Monitoramento integrado", () => {
+  it("carrega consulta uma vez ao sair de um atalho administrativo sem indicadores iniciais", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockImplementation(async url => response(String(url).startsWith("/api/monitoring/admin") ? admin : snapshot));
+    render(<MonitoringApp profile={profile} initialFilters={filters} initialSnapshot={null} initialTab="settings" />);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/monitoring?"))).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Consulta" }));
+    await screen.findByRole("table");
+    expect(screen.getByRole("table")).toHaveTextContent("Ana Sintética");
+    await user.click(screen.getByRole("button", { name: "Consulta" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("/api/monitoring?"))).toHaveLength(1);
+  });
   it("pesquisa e seleciona grupo sem consultar antes de aplicar; exporta o grupo aplicado", async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValue(response(snapshot));
@@ -72,7 +83,7 @@ describe("Monitoramento integrado", () => {
     vi.mocked(fetch).mockResolvedValue(response({ results: [], events }));
     render(<MonitoringApp profile={profile} initialFilters={period} initialSnapshot={{ ...snapshot, start: period.start, rows: [{ ...snapshot.rows[0], date: "2026-10-16" }, snapshot.rows[0]], total: 2 }} />);
     await user.click(screen.getAllByRole("button", { name: "Detalhes de Ana Sintética" })[1]);
-    expect(screen.getByLabelText("Data operacional")).toHaveValue("2026-10-17");
+    expect(await screen.findByLabelText("Data operacional", {}, { timeout: 5000 })).toHaveValue("2026-10-17");
     await waitFor(() => expect(screen.getByRole("button", { name: "Próximos eventos" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Próximos eventos" }));
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining("offset=100"), expect.anything()));

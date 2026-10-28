@@ -18,7 +18,7 @@ describe("resolução da foto autorizada", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL","https://aaaaaaaaaaaaaaaaaaaa.supabase.co");vi.stubEnv("MONITORING_SUPABASE_SERVICE_ROLE_KEY","synthetic-secret");
     const response=await GET(new Request(url));
     expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
     fetch.mockClear();mocks.query.mockRejectedValue(new Error("DENIED"));
     expect((await GET(new Request(url))).status).toBe(503);expect(fetch).not.toHaveBeenCalled();
   });
@@ -29,7 +29,7 @@ describe("resolução da foto autorizada", () => {
     expect(Buffer.from(await original.arrayBuffer())).toEqual(bytes);
     const thumbnail = await GET(new Request(`${url}&size=avatar`));
     expect(thumbnail.status).toBe(200);
-    expect(thumbnail.headers.get("cache-control")).toBe("private, no-store");
+    expect(thumbnail.headers.get("cache-control")).toBe("private, no-cache");
     expect(mocks.query).toHaveBeenCalledWith("photo", { employeeId: "30000000-0000-4000-8000-000000000001" });
     expect(mocks.query).toHaveBeenCalledWith("photo", { employeeId: "30000000-0000-4000-8000-000000000001", photoVariant: "full" });
   });
@@ -37,5 +37,21 @@ describe("resolução da foto autorizada", () => {
     mocks.session.mockResolvedValue({ response: new Response(null, { status: 401 }) });
     expect((await GET(new Request(`${url}&size=avatar`))).status).toBe(401);
     expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it("revalida autorização e evita baixar novamente uma foto inalterada", async () => {
+    const bytes = Buffer.from("synthetic-original"), sha256 = photoDigest(bytes);
+    mocks.query.mockResolvedValue({ mimeType: "image/jpeg", sha256, storagePath: `previews/${sha256}.jpg`, byteLength: bytes.length });
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const request = () => new Request(url, { headers: { "If-None-Match": `"${sha256}"` } });
+    const response = await GET(request());
+    expect(response.status).toBe(304);
+    expect(response.headers.get("vary")).toBe("Cookie");
+    expect(mocks.query).toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    mocks.session.mockResolvedValue({ response: new Response(null, { status: 403 }) });
+    expect((await GET(request())).status).toBe(403);
+    mocks.session.mockResolvedValue({});
+    mocks.query.mockResolvedValue(null);
+    expect((await GET(request())).status).toBe(404);
   });
 });

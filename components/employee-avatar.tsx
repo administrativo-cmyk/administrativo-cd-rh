@@ -3,11 +3,11 @@
 import Image from "next/image";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { memo, useEffect, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { photoRevision, serverPhotoRevision, subscribePhotoRefresh } from "@/lib/monitoring/photo-refresh";
 
-export function EmployeeAvatar({ name, employeeId, ownProfile = false, identity, size = 36, className }: {
+export const EmployeeAvatar = memo(function EmployeeAvatar({ name, employeeId, ownProfile = false, identity, size = 36, className }: {
   name: string; employeeId?: string; ownProfile?: boolean; identity?: { sourceId: string; value: string }; size?: number; className?: string;
 }) {
   const revision = useSyncExternalStore(subscribePhotoRefresh, photoRevision, serverPhotoRevision);
@@ -62,4 +62,4 @@ export function EmployeeAvatar({ name, employeeId, ownProfile = false, identity,
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   </DialogPrimitive.Root>;
-}
+});

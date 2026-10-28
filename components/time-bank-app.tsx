@@ -2,7 +2,7 @@
 
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CircleHelp, Clock3, Minus, Plus, RefreshCw, Search, Users } from "lucide-react";
@@ -46,6 +46,8 @@ export function TimeBankApp({ profile, snapshot }: { profile: AuthenticatedProfi
   const setSelected = (employee: TimeBankEmployee | null) => setSelectedId(employee?.id ?? null);
   const isManager = profile.papel_usuario === "GESTOR";
   const employees = useMemo(() => snapshot?.employees ?? [], [snapshot]);
+  const deferredQuery = useDeferredValue(filters.query);
+  const deferredFilters = useMemo(() => ({ query: deferredQuery, unit: filters.unit, managerId: filters.managerId, situation: filters.situation, classification: filters.classification }), [deferredQuery, filters.unit, filters.managerId, filters.situation, filters.classification]);
 
   const unitOptions = useMemo(() => [...new Set(employees.map((row) => row.unit))].sort((a, b) => a.localeCompare(b, "pt-BR")), [employees]);
   const managerOptions = useMemo(() => {
@@ -55,9 +57,9 @@ export function TimeBankApp({ profile, snapshot }: { profile: AuthenticatedProfi
   }, [employees]);
   const situationOptions = useMemo(() => [...new Set(employees.map((row) => row.situation))]
     .sort((a, b) => situationLabels[a].localeCompare(situationLabels[b], "pt-BR")), [employees]);
-  const filtered = useMemo(() => filterTimeBank(employees, filters), [employees, filters]);
+  const filtered = useMemo(() => filterTimeBank(employees, deferredFilters), [employees, deferredFilters]);
   const sorted = useMemo(() => sortTimeBank(filtered, order), [filtered, order]);
-  const metrics = timeBankMetrics(filtered);
+  const metrics = useMemo(() => timeBankMetrics(filtered), [filtered]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const visiblePage = Math.min(page, pages);
   const visible = sorted.slice((visiblePage - 1) * pageSize, visiblePage * pageSize);

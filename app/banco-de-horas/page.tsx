@@ -5,12 +5,8 @@ import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 import type { TimeBankSnapshot } from "@/lib/time-bank";
 
 export default async function TimeBankPage() {
-  const profile = await requireApprovedProfile();
-  let snapshot: TimeBankSnapshot | null = null;
-  try {
-    snapshot = await new SupabaseTimeBankRepository().load(todayInSaoPaulo());
-  } catch {
-    // A protected read failure must never fall back to local fixtures.
-  }
+  const profilePromise = requireApprovedProfile();
+  const snapshotPromise = new SupabaseTimeBankRepository().load(todayInSaoPaulo()).catch((): TimeBankSnapshot | null => null);
+  const [profile, snapshot] = await Promise.all([profilePromise, snapshotPromise]);
   return <TimeBankApp profile={profile} snapshot={snapshot} />;
 }

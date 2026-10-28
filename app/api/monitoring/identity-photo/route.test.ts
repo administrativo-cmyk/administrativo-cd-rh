@@ -31,7 +31,7 @@ describe("prévia restrita de foto Defense", () => {
     mocks.single.mockResolvedValue({ data: { status_usuario: "APROVADO", papel_usuario: role } });
     const result = await GET(request());
     expect(result.status).toBe(200);
-    expect(result.headers.get("cache-control")).toBe("private, no-store");
+    expect(result.headers.get("cache-control")).toBe("private, no-cache");
     expect(result.headers.get("content-type")).toBe("image/jpeg");
     expect(result.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await result.text()).toBe("abc");
