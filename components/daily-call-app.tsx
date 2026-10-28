@@ -7,6 +7,7 @@ import { AppHeader } from "./app-header";
 import { AppSidebar } from "./app-sidebar";
 import { AttendanceLegend } from "./attendance-legend";
 import { DailyCallFilters } from "./daily-call-filters";
+import { DailyCallExcelButton } from "./daily-call-excel-button";
 import { DailyCallMetrics } from "./daily-call-metrics";
 import { DailyCallShortcuts } from "./daily-call-shortcuts";
 import { DailyCallPending } from "./daily-call-pending";
@@ -74,6 +75,7 @@ export function DailyCallApp({ profile, initialDate, initialSnapshot }: Props) {
               <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-600"><CalendarRange size={14} /><span className="sr-only">Data da chamada</span><input aria-label="Data da chamada" type="date" value={daily.selectedDate} onChange={(event) => daily.changeDate(event.target.value)} className="bg-transparent outline-none" /></label>
               <span role="status" aria-live="polite" className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500"><CheckCircle2 size={14} />{daily.loading ? "Atualizando dados…" : daily.error ? "Falha na sincronização" : "Dados carregados"}{daily.lastSuccessfulAt ? ` · Última consulta: ${new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(new Date(daily.lastSuccessfulAt))}` : ""}</span>
               <button onClick={exportVisibleCall} disabled={daily.loading || daily.error || !daily.filteredEmployees.length} title="Exportar colaboradores filtrados e o período da visualização" className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"><Download size={14} />Exportar CSV</button>
+              <DailyCallExcelButton input={{ employees: daily.filteredEmployees, start: daily.filters.startDate, end: daily.filters.endDate, managerGroups: daily.groupByManager ? daily.managerGroups : undefined }} disabled={daily.loading || daily.error || !daily.filteredEmployees.length} />
               <button onClick={daily.refresh} disabled={daily.loading} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-70"><RefreshCw size={14} className={daily.loading ? "animate-spin" : ""} />Atualizar</button>
             </div>
           </header>
