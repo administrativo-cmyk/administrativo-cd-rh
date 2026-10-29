@@ -358,6 +358,23 @@ describe("durable cloud import SQL", () => {
     expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='cloud_reinspect'")).rows[0].n).toBe(1);
     done=reviewed;await expect(administrative("reinspect",{id:job.id,expectedUpdatedAt:done.updatedAt})).rejects.toThrow("CLOUD_RETRY_UNAVAILABLE");
   });
+  it.each(['cpf','pis'] as const)("discovers a saved %s when its first ordinary AFD batch arrives and preserves replay idempotency",async kind=>{
+    const person='cb190000-0000-4000-8000-000000000001';
+    const document=kind==='cpf'?'12345678909':'12345678900';
+    await db.exec(`update public.monitoring_sources set configuration='{"sourceIdentityConfirmed":true}' where id='cloud-test';
+      insert into public.colaboradores(id,matricula,nome,unidade_id,admissao) values('${person}','AUTO-LATER','Pessoa sintética',(select id from public.unidades limit 1),'2026-09-01');`);
+    await db.query(`insert into private.employee_identifiers(employee_id,${kind}) values($1,$2)`,[person,document]);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_bindings")).rows[0].n).toBe(0);
+    const occurrence={key:hash('new-doc-row'),line:1,payloadHash:hash('new-doc-event'),issues:[],original:{record:'synthetic'},event:{key:hash('new-doc-event'),type:'punch',identity:{type:kind,value:document},timestamp:'2026-10-02T11:00:00Z',device:'cloud-test',classification:'authorized',eligible:true,nsr:'000000001',precisionSeconds:60,original:{record:'synthetic'}}};
+    const input={...batch(hash('new-doc-file')),source:{...batch().source,sourceIdentityConfirmed:true},occurrences:[occurrence],batch:{index:0,final:true,totalRows:1,occurrenceCount:1,totalBatches:1}};
+    await db.exec("set local role service_role;select set_config('request.jwt.claim.sub','',true)");
+    const ingest=()=>db.query('select public.monitoring_ingest($1::jsonb)',[JSON.stringify(input)]);
+    await ingest(); await ingest(); await db.exec('reset role');
+    expect((await db.query("select employee_id,origin,created_by,valid_from::text from public.monitoring_bindings")).rows).toEqual([{employee_id:person,origin:'employee_document',created_by:null,valid_from:'2026-09-01'}]);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_audit where action='employee_document_binding'")).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_jobs where employee_id=$1 and operational_date='2026-10-02'",[person])).rows[0].n).toBe(1);
+    expect((await db.query<{n:number}>("select count(*)::int n from public.monitoring_events")).rows[0].n).toBe(1);
+  });
   it("links only exact canonical HR documents for alternate registrations, with an explicit system origin",async()=>{
     await db.exec(`update public.monitoring_sources set configuration='{"sourceIdentityConfirmed":true}' where id='cloud-test';
       insert into private.monitoring_cloud_routes values('afd','legacy','cloud-test','pis');

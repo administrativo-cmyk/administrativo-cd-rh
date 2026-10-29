@@ -79,9 +79,10 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     expect(batch.eligible).toBe(0);
   });
   it("preserva situação anterior ao desligamento e bloqueia datas posteriores", async () => {
+    await value("select public.salvar_chamada_diaria($1::uuid,$2::date,'F','Folga confirmada antes do desligamento',null) value", [employee, day]);
     await save({ situation: "DESLIGADO", terminationDate: today });
     const explicit = await value<{ employees: Array<{ attendance: Array<{ date: string; status: string; origin: string }> }> }>("select public.daily_call_read($1::date,$1::date,$2::date,'DESLIGADO') value", [day, today]);
-    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: day, status: "F", origin: "schedule" }));
+    expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: day, status: "F", origin: "manual" }));
     expect(explicit.employees[0].attendance).toContainEqual(expect.objectContaining({ date: today, status: "D", origin: "lifecycle" }));
     expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: today }, future)).toBe(false);
     expect(attendanceWithinEmployment({ situation: "Desligado", terminationDate: today }, today)).toBe(true);
@@ -182,6 +183,50 @@ describe("ciclo do colaborador em PostgreSQL isolado", () => {
     expect(oldClient).not.toHaveProperty("cpf");expect(oldClient).not.toHaveProperty("pis");
     await value("select public.administration('employee','save',$1::jsonb) value", [JSON.stringify(oldClient)]);
     expect((await record()).cpf).toBe("12345678909");
+  });
+  it.each(["cpf", "pis"] as const)("vincula %s salvo por RH a batidas exatas e agenda histórico desde a admissão", async kind => {
+    await db.exec("reset role;delete from public.monitoring_bindings");
+    const identifier = kind === "cpf" ? "12345678909" : "12345678900";
+    await db.query("insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload) values('lifecycle-test','unbound',repeat('b',64),'punch',$1,$2,$3::timestamptz,'authorized',true,'900000001','{}')", [kind, identifier, `${day}T08:00:00-03:00`]);
+    await actor(rh); await save({ [kind]: identifier });
+    await db.exec("reset role");
+    expect(await value("select jsonb_build_object('count',count(*),'origin',min(origin),'actor',min(created_by::text),'validFrom',min(valid_from)) value from public.monitoring_bindings where employee_id=$1::uuid", [employee])).toMatchObject({ count: 1, origin: "employee_document", actor: rh, validFrom: new Date(Date.parse(`${day}T12:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10) });
+    expect(await value<number>("select count(*)::int value from public.monitoring_jobs where employee_id=$1::uuid and operational_date=$2::date", [employee, day])).toBe(1);
+    expect(await value<number>("select count(*)::int value from public.monitoring_audit where action='employee_document_binding'")).toBe(1);
+    expect(await value<boolean>("select has_function_privilege('authenticated','private.employee_document_bindings(uuid,text)','execute') value")).toBe(false);
+    await actor(rh); await save({ [kind]: identifier });
+    await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_audit where action='employee_document_binding'")).toBe(1);
+  });
+  it("não restaura vínculo revogado nem duplica vínculo existente ao salvar documento", async () => {
+    await punch(); await actor(); await save({ cpf: "12345678909" });
+    await db.exec("reset role;update public.monitoring_bindings set revoked_at=now()");
+    await actor(); await save({ cpf: "12345678909" });
+    await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(1);
+    expect(await value<number>("select count(*)::int value from public.monitoring_audit where action='employee_document_binding'")).toBe(0);
+    expect(await value<boolean>("select revoked_at is not null value from public.monitoring_bindings")).toBe(true);
+  });
+  it("exige admissão, relógio confirmado e batida elegível posterior à admissão", async () => {
+    await db.exec("reset role;delete from public.monitoring_bindings");
+    await punch(day, "08:00", false); await actor(); await save({ cpf: "12345678909" });
+    await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(0);
+    await db.exec("update public.monitoring_events set eligible=true;update public.monitoring_sources set configuration='{}'");
+    await actor(); await save({ cpf: "12345678909" }); await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(0);
+    await db.exec("update public.monitoring_sources set configuration='{\"sourceIdentityConfirmed\":true}';update public.monitoring_events set occurred_at=occurred_at-interval '60 days'");
+    await actor(); await save({ cpf: "12345678909" }); await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(0);
+    await db.exec("update public.monitoring_events set occurred_at=occurred_at+interval '60 days'");
+    await actor(); await save({ admissionDate: null, cpf: "12345678909" }); await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(0);
+  });
+  it("mantém um vínculo por namespace compartilhado entre fontes do mesmo relógio", async () => {
+    await db.exec("reset role;delete from public.monitoring_bindings"); await punch();
+    await db.exec("insert into public.monitoring_sources(id,kind,identity_namespace,configuration) values('lifecycle-copy','afd','lifecycle-test','{\"sourceIdentityConfirmed\":true}');insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload) select 'lifecycle-copy',event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload from public.monitoring_events");
+    await actor(); await save({ cpf: "12345678909" }); await db.exec("reset role");
+    expect(await value<number>("select count(*)::int value from public.monitoring_bindings")).toBe(1);
   });
   it("RH recebe aviso de retorno vencido mesmo com afastamento cadastrado há meses", async () => {
     await leave();
