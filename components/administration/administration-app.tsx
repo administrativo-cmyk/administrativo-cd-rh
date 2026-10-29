@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useEffect, useState, type FormEvent } from "react";
 import { Archive, Download, Pencil, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import { AppShell } from "@/components/app-shell";

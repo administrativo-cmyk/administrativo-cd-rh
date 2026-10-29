@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { analysisCatalog } from "@/lib/analytics/contracts";
 import { dashboardButton } from "@/components/dashboards/format";
 

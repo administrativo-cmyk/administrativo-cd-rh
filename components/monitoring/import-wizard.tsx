@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useEffect, useRef, useState } from "react";
 import { dashboardButton as button, dashboardInput as input } from "@/components/dashboards/format";
 import type { ImportField, ImportInspection, ImportKind, ImportOptions, ImportPreview } from "@/lib/monitoring/operations-contracts";

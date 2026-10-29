@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Download, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";

@@ -1,7 +1,7 @@
 "use client";
 
 import { Bell, ChevronDown, Menu, Search, Settings, UserRound } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useEffect, useState } from "react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { LogoutButton } from "@/components/auth/logout-button";

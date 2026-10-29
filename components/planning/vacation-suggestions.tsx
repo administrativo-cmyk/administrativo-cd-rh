@@ -1,6 +1,6 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { dashboardButton as button, dashboardInput as control } from "@/components/dashboards/format";
 import { planningAcceptSchema, planningSuggestSchema, suggestionResultSchema, type PlanningSnapshot, type SuggestionResult } from "@/lib/schedule-planning/contracts";
 

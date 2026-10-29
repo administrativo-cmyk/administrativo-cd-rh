@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { AppShell } from "@/components/app-shell";
 import { requireApprovedProfile } from "@/lib/auth/server-authorization";
 import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";

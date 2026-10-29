@@ -1,3 +1,3 @@
-export default function Loading() {
-  return <p role="status" aria-live="polite" className="p-8 text-sm text-slate-600">Carregando análise autorizada…</p>;
-}
+import { PageLoading } from "@/components/page-loading";
+
+export default function Loading() { return <PageLoading label="Preparando sua análise" />; }

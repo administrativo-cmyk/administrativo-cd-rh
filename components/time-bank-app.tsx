@@ -3,7 +3,7 @@
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
 import { useDeferredValue, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CircleHelp, Clock3, Minus, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";

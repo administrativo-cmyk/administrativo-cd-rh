@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import type { LucideIcon } from "lucide-react";
 import { CalendarClock, CalendarDays, ChartNoAxesColumn, ChevronRight, CircleHelp, Clock3, LayoutDashboard, Settings, ShieldCheck, Users, X } from "lucide-react";
 import type { UserRole } from "@/lib/auth/types";

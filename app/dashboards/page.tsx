@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { ArrowUpRight, CalendarCheck2, Clock3, ShieldCheck, Users } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { dashboardCatalog } from "@/components/dashboards/catalog";

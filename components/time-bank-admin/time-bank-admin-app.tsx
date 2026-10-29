@@ -1,6 +1,6 @@
 "use client";
 import { ImportWizard } from "@/components/monitoring/import-wizard";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useEffect, useRef, useState } from "react";
 import { dashboardButton, dashboardDate, dashboardInput } from "@/components/dashboards/format";
 import { formatSignedMinutes } from "@/lib/domain/bank-hours";

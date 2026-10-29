@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { AppShell } from "@/components/app-shell";
 import { AnalysisNav } from "@/components/analytics/analysis-nav";
 import { requireApprovedProfile } from "@/lib/auth/server-authorization";
