@@ -57,6 +57,48 @@ afterEach(async () => { await db.exec("rollback"); });
 afterAll(async () => { await db?.close(); });
 
 describe("matrículas adicionais no PostgreSQL isolado", () => {
+  it("separa jornadas adiadas de falhas e volta a contar a jornada quando o turno inicia", async () => {
+    await db.exec(`reset role;
+      insert into public.monitoring_jobs(employee_id,operational_date,reason,last_error,leased_until)
+      select id,day::date,'Teste de progresso',code,until_at
+      from public.colaboradores cross join (values
+        ('2026-10-20','AWAITING_SHIFT_START',now()+interval '1 hour'),
+        ('2026-10-21','AWAITING_SHIFT_START',now()-interval '1 hour'),
+        ('2026-10-22','CLOUD_REPROCESS_FAILED',now()+interval '1 minute')
+      ) entries(day,code,until_at)
+      where matricula='52797';
+    `);
+    await actor();
+    const progress = await value("select public.monitoring_query('progress',$1::jsonb) value", [
+      JSON.stringify({ start: "2026-10-20", end: "2026-10-22", employeeId: employee }),
+    ]);
+    expect(progress).toMatchObject({ deferred: 1, pending: 2, total: 2, failed: 1 });
+  });
+
+  it("pré-cadastra documentos recentes de importação concluída e oculta os já cadastrados", async () => {
+    const list = () => value("select public.administration('employee','clock-preregistrations','{\"offset\":0}') value");
+    await db.exec(`reset role;
+      insert into public.monitoring_files(id,source_id,sha256,byte_length,relative_path,parser_version,expected_batches,metadata)
+        values('fa300000-0000-4000-8000-000000000001','numbers-old',repeat('a',64),1,'synthetic.afd','test',1,'{}');
+      insert into public.monitoring_events(source_id,event_key,payload_hash,event_type,identity_type,identity_value,occurred_at,classification,eligible,nsr,payload)
+        select 'numbers-old',n,repeat('a',64),'punch','cpf',document,now()-age,'authorized',true,lpad(n,9,'0'),'{}'
+        from (values ('1','52998224725',interval '1 day'),('2','52998224725',interval '2 days'),
+                     ('3','12345678909',interval '21 days')) data(n,document,age);
+      insert into public.monitoring_occurrences(file_id,occurrence_key,line,payload_hash,event_id,payload)
+        select 'fa300000-0000-4000-8000-000000000001',event_key,1,repeat('a',64),id,'{}' from public.monitoring_events;
+    `);
+    await actor();
+    expect(await list()).toEqual({ total: 0, rows: [] });
+    await db.exec("reset role;update public.monitoring_files set status='complete',completed_at=now()");
+    await actor();
+    expect(await list()).toMatchObject({ total: 1, rows: [{ kind: "cpf", document: "52998224725", sourceId: "numbers-old" }] });
+    await actor(reader);
+    await expect(guarded(list)).rejects.toThrow("ADMINISTRATION_FORBIDDEN");
+    await actor();
+    await save({ cpf: "52998224725" });
+    expect(await list()).toEqual({ total: 0, rows: [] });
+  });
+
   it("gênero permanece vazio sem fonte e aceita edição, omissão legada e limpeza explícita", async () => {
     expect((await record()).gender).toBeNull();
     expect((await save({ gender: "feminino" })).record.gender).toBe("feminino");

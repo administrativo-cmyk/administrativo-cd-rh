@@ -6,7 +6,7 @@ import { Archive, Download, Pencil, Plus, RefreshCw, RotateCcw } from "lucide-re
 import { AppShell } from "@/components/app-shell";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AuthenticatedProfile } from "@/lib/auth/types";
-import { administrationListSchema, archiveInputSchema, saveSchemas, type AdministrationEntity, type AdministrationRows, type AdministrationSnapshot } from "@/lib/administration/contracts";
+import { administrationListSchema, archiveInputSchema, clockPreregistrationsSchema, saveSchemas, type AdministrationEntity, type AdministrationRows, type AdministrationSnapshot, type ClockPreregistrations } from "@/lib/administration/contracts";
 import { situationLabels, workforceSituations } from "@/lib/workforce";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,7 @@ const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-l
 const valueAt = (row: Row, key: string) => (row as unknown as Record<string, unknown>)[key];
 const archived = (row: Row) => "active" in row ? !row.active : "activeInSystem" in row ? !row.activeInSystem : Boolean(row.archivedAt);
 const rowName = (row: Row) => "name" in row ? row.name : row.employeeName;
+const clockDateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
 async function api(entity: AdministrationEntity, action: string, data: unknown, signal?: AbortSignal) {
   const response = await fetch("/api/administration", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity, action, data }), signal });
@@ -64,6 +65,9 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
   const [managerFilter, setManagerFilter] = useState("");
   const [situationFilter, setSituationFilter] = useState("");
   const [scheduleEmployee, setScheduleEmployee] = useState<{ id: string; name: string } | null>(null);
+  const [clockOpen, setClockOpen] = useState(false);
+  const [clockOffset, setClockOffset] = useState(0);
+  const [clockResult, setClockResult] = useState<{ offset: number; refresh: number; page?: ClockPreregistrations } | null>(null);
   const limit = 25;
   const reload = () => setRefresh(value => value + 1);
 
@@ -82,10 +86,30 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
   }, [entity, query, includeArchived, offset, refresh, managerFilter, situationFilter]);
 
   const canCreate = Boolean(snapshot && (entity === "vacation" ? snapshot.permissions.canProposeVacation : snapshot.permissions.canManageRegisters));
-  function openEditor(row: Row | null, mode: "save" | "archive" | "restore") {
+  useEffect(() => {
+    if (entity !== "employee" || !canCreate || !clockOpen) return;
+    const abort = new AbortController();
+    api("employee", "clock-preregistrations", { offset: clockOffset }, abort.signal)
+      .then(result => {
+        const page = clockPreregistrationsSchema.parse(result);
+        if (abort.signal.aborted) return;
+        if (clockOffset && clockOffset >= page.total) setClockOffset(Math.max(0, Math.floor((page.total - 1) / limit) * limit));
+        else setClockResult({ offset: clockOffset, refresh, page });
+      })
+      .catch(() => {
+        if (!abort.signal.aborted) setClockResult({ offset: clockOffset, refresh });
+      });
+    return () => abort.abort();
+  }, [entity, canCreate, clockOpen, clockOffset, limit, refresh]);
+
+  function openEditor(row: Row | null, mode: "save" | "archive" | "restore", clock?: ClockPreregistrations["rows"][number]) {
     const next: Record<string, string> = { reason: "" };
     for (const field of fields[entity]) next[field.key] = row ? (field.key === "additionalEmployeeNumbers" ? ((valueAt(row, field.key) as string[] | undefined) ?? []).join("\n") : String(valueAt(row, field.key) ?? "")) : field.key === "situation" ? "ATIVO" : field.key === "status" ? "draft" : "";
     if (entity === "employee") for (const field of lifecycleFields) next[field.key] = row ? String(valueAt(row, field.key) ?? "") : "";
+    if (clock) {
+      next[clock.kind] = clock.document;
+      next.reason = "Conclusão de pré-cadastro por batida importada do relógio";
+    }
     setDraft(next); setFormError(""); setEditor({ row, mode });
   }
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -151,8 +175,27 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
   }
 
   const title = administrationLabels[entity];
+  const currentClockResult = clockResult?.offset === clockOffset && clockResult.refresh === refresh ? clockResult : null;
+  const clockPage = currentClockResult?.page;
   const editorFields = entity === "employee" ? [...fields.employee, ...lifecycleFields.filter(field => field.key !== "terminationDate" || draft.situation === "DESLIGADO").filter(field => field.key !== "expectedReturnDate" || isAwaySituation(draft.situation)).map(field => ({ ...field, required: (field.key === "terminationDate" && draft.situation === "DESLIGADO") || (["situationFrom", "expectedReturnDate"].includes(field.key) && isAwaySituation(draft.situation)) }))] : fields[entity];
   return <AppShell profile={profile} title={title} activeLabel={entity === "vacation" ? "Sugestão de Férias" : "Cadastros"}>
+    {entity === "employee" && canCreate ? <details className="mb-4 rounded-xl border border-slate-200 bg-white p-4" onToggle={event => setClockOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer font-semibold text-slate-800">Pré-cadastros do ponto{clockPage ? ` (${clockPage.total})` : ""}</summary>
+      <p className="my-3 text-sm text-slate-600">Documentos sem cadastro identificados em batidas recentes importadas. Confira o documento e complete os dados do colaborador.</p>
+      {clockOpen && !currentClockResult ? <p role="status" className="text-sm">Consultando pré-cadastros…</p> : null}
+      {clockOpen && currentClockResult && !clockPage ? <p role="alert" className="text-sm text-rose-700">Não foi possível consultar pré-cadastros. <button className={button} onClick={reload}>Tentar novamente</button></p> : null}
+      {clockPage?.rows.length ? <ul className="divide-y divide-slate-100">
+        {clockPage.rows.map(row => <li key={`${row.kind}:${row.document}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
+          <div><p className="text-sm font-medium">{row.kind.toUpperCase()} {row.document}</p><p className="break-all text-xs text-slate-600">Última batida importada em {clockDateTime.format(new Date(row.lastPunchAt))} · Relógio {row.sourceId}</p></div>
+          <button className={button} onClick={() => openEditor(null, "save", row)}>Completar cadastro</button>
+        </li>)}
+      </ul> : clockPage ? <p className="text-sm text-slate-600">Nenhum pré-cadastro pendente.</p> : null}
+      {clockPage && clockPage.total > limit ? <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+        <span>{clockOffset + 1}–{clockOffset + clockPage.rows.length} de {clockPage.total}</span>
+        <button className={button} disabled={!clockOffset} onClick={() => setClockOffset(clockOffset - limit)}>Anterior</button>
+        <button className={button} disabled={clockOffset + limit >= clockPage.total} onClick={() => setClockOffset(clockOffset + limit)}>Próxima</button>
+      </div> : null}
+    </details> : null}
     <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{entity === "vacation" ? "Planejamento" : "Administração"}</p><h1 className="mt-1 text-2xl font-bold">{title}</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">{entity === "vacation" ? "Organize propostas, períodos e aprovações por colaborador. A programação não substitui o lançamento da Chamada." : "Cadastros compartilhados pelos módulos. Alterações registram motivo, autor e versão."}</p></div><button className={cn(button, "border-blue-700 bg-blue-700 text-white hover:bg-blue-800")} disabled={!canCreate || loading || Boolean(error)} onClick={() => openEditor(null, "save")}><Plus size={16} />Novo cadastro</button></header>
     <nav aria-label={entity === "vacation" ? "Planejamento" : "Cadastros"} className="flex flex-wrap gap-2">{entity === "vacation" ? <><Link className={button} href="/planejamento/ferias" aria-current="page">Propostas de férias</Link><Link className={button} href="/planejamento/calendario">Calendário por gestor</Link><Link className={button} href="/planejamento/escalas">Escalas e calendário</Link><Link className={button} href="/planejamento/sugestoes-ferias">Sugestões de férias</Link></> : (["unit", "manager", "employee", "department", "job", "category"] as const).map(key => <Link className={cn(button, key === entity && "border-blue-300 bg-blue-50 text-blue-800")} aria-current={key === entity ? "page" : undefined} key={key} href={paths[key]}>{administrationLabels[key]}</Link>)}{entity !== "vacation" ? <><Link className={button} href="/administracao/banco-horas">Medições do Banco de Horas</Link><Link className={button} href="/administracao/auditoria">Auditoria</Link></> : null}</nav>
     <section className="rounded-xl border border-slate-200 bg-white p-4"><form onSubmit={event => { event.preventDefault(); setOffset(0); setQuery(draftQuery); }} className="flex flex-wrap items-end gap-3"><label className="min-w-48 flex-1 text-sm font-medium">Buscar por nome ou código<input className={`${control} mt-1`} value={draftQuery} onChange={event => setDraftQuery(event.target.value)} maxLength={100} /></label>{entity === "employee" ? <><label className="text-sm font-medium">Gestor<select className={`${control} mt-1`} aria-label="Filtrar gestor" value={managerFilter} onChange={event => { setManagerFilter(event.target.value); setOffset(0); }}><option value="">Todos os gestores</option>{snapshot?.options.managers.map(manager => <option key={manager.id} value={manager.id}>{manager.name}</option>)}</select></label><label className="text-sm font-medium">Situação<select className={`${control} mt-1`} aria-label="Filtrar situação" value={situationFilter} onChange={event => { setSituationFilter(event.target.value); setOffset(0); }}><option value="">Todas as situações</option>{workforceSituations.map(situation => <option key={situation} value={situation}>{situationLabels[situation]}</option>)}</select></label></> : null}<button className={button} type="submit">Aplicar busca</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={includeArchived} onChange={event => { setIncludeArchived(event.target.checked); setOffset(0); }} />Incluir arquivados</label><button type="button" className={button} onClick={reload} disabled={loading}><RefreshCw size={16} />Atualizar</button><button type="button" className={button} onClick={exportAll} disabled={exporting || loading || !snapshot || Boolean(error)}><Download size={16} />{exporting ? "Exportando…" : "Exportar CSV"}</button></form></section>

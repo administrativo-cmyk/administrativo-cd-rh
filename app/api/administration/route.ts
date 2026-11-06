@@ -1,4 +1,4 @@
-import { administrationEnvelopeSchema, administrationListSchema, archiveInputSchema, saveSchemas } from "@/lib/administration/contracts";
+import { administrationEnvelopeSchema, administrationListSchema, archiveInputSchema, clockPreregistrationPageSchema, saveSchemas } from "@/lib/administration/contracts";
 import { administrationFailure, administrationQuery } from "@/lib/administration/server";
 import { boundedJson, monitoringSession } from "@/lib/monitoring/server";
 import { isTrustedMutationOrigin } from "@/lib/security/mutation-origin";
@@ -12,7 +12,8 @@ export async function POST(request: Request) {
   const envelope = administrationEnvelopeSchema.safeParse(raw);
   if (!envelope.success) return Response.json({ error: "Operação inválida." }, { status: 400 });
   const { entity, action } = envelope.data;
-  const schema = action === "list" ? administrationListSchema : action === "save" ? saveSchemas[entity] : archiveInputSchema;
+  if (action === "clock-preregistrations" && entity !== "employee") return Response.json({ error: "Operação inválida." }, { status: 400 });
+  const schema = action === "clock-preregistrations" ? clockPreregistrationPageSchema : action === "list" ? administrationListSchema : action === "save" ? saveSchemas[entity] : archiveInputSchema;
   const data = schema.safeParse(envelope.data.data);
   if (!data.success) return Response.json({ error: "Revise os campos e a versão consultada.", fields: data.error.flatten() }, { status: 400 });
   try { return Response.json(await administrationQuery(entity, action, data.data), { headers: { "Cache-Control": "private, no-store" } }); }

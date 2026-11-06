@@ -5,7 +5,8 @@ import { isAwaySituation } from "@/lib/employee-lifecycle";
 
 export const administrationEntities = ["unit", "manager", "employee", "vacation", "department", "job", "category"] as const;
 export type AdministrationEntity = (typeof administrationEntities)[number];
-export type AdministrationAction = "list" | "save" | "archive" | "restore";
+const administrationActions = ["list", "save", "archive", "restore", "clock-preregistrations"] as const;
+export type AdministrationAction = (typeof administrationActions)[number];
 export const vacationStatuses = ["draft", "requested", "approved", "cancelled"] as const;
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value, "Data inválida");
 const nullableText = (max: number) => z.string().trim().max(max).nullable().default(null);
@@ -34,7 +35,18 @@ export const employeeInputSchema = z.object({ ...mutation, gender: employeeGende
 export const vacationInputSchema = z.object({ ...mutation, employeeId: z.string().uuid(), acquisitionStart: date.nullable().default(null), acquisitionEnd: date.nullable().default(null), startDate: date, endDate: date, status: z.enum(vacationStatuses), observation: nullableText(1000) }).strict().refine(versioned, "Atualização exige a versão consultada").refine(value => value.endDate >= value.startDate, "Período inválido").refine(value => (value.acquisitionStart === null && value.acquisitionEnd === null) || Boolean(value.acquisitionStart && value.acquisitionEnd && value.acquisitionEnd >= value.acquisitionStart), "Período aquisitivo inválido");
 export const archiveInputSchema = z.object({ id: z.string().uuid(), expectedUpdatedAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(5).max(1000) }).strict();
 export const administrationListSchema = z.object({ query: z.string().trim().max(100).default(""), includeArchived: z.boolean().default(false), offset: z.number().int().min(0).max(100000).default(0), limit: z.number().int().min(1).max(500).default(100), managerId: z.string().uuid().optional(), employeeId: z.string().uuid().optional(), status: z.enum(vacationStatuses).optional(), situation: z.enum(workforceSituations).optional() }).strict();
-export const administrationEnvelopeSchema = z.object({ entity: z.enum(administrationEntities), action: z.enum(["list", "save", "archive", "restore"]), data: z.unknown().default({}) }).strict();
+export const administrationEnvelopeSchema = z.object({ entity: z.enum(administrationEntities), action: z.enum(administrationActions), data: z.unknown().default({}) }).strict();
+export const clockPreregistrationPageSchema = z.object({ offset: z.number().int().min(0).max(100000) }).strict();
+export const clockPreregistrationsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  rows: z.array(z.object({
+    kind: z.enum(["cpf", "pis"]),
+    document: z.string().regex(/^\d{11}$/),
+    sourceId: z.string(),
+    lastPunchAt: z.string().datetime({ offset: true }),
+  })).max(25),
+});
+export type ClockPreregistrations = z.infer<typeof clockPreregistrationsSchema>;
 export const saveSchemas = { unit: unitInputSchema, manager: managerInputSchema, employee: employeeInputSchema, vacation: vacationInputSchema, department: catalogInputSchema, job: catalogInputSchema, category: catalogInputSchema };
 export type UnitInput = z.infer<typeof unitInputSchema>;
 export type ManagerInput = z.infer<typeof managerInputSchema>;
