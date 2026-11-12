@@ -91,7 +91,36 @@ describe("matrículas adicionais no PostgreSQL isolado", () => {
     expect(await list()).toEqual({ total: 0, rows: [] });
     await db.exec("reset role;update public.monitoring_files set status='complete',completed_at=now()");
     await actor();
-    expect(await list()).toMatchObject({ total: 1, rows: [{ kind: "cpf", document: "52998224725", sourceId: "numbers-old" }] });
+    const pending = { kind: "cpf", document: "52998224725", sourceId: "numbers-old" };
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: null, name: null }] });
+
+    await db.exec(`reset role;
+      insert into private.clock_preregistration_users(source_id,identity_type,identity_value,employee_number,normalized_name,file_sha256,source_row)
+      values('numbers-old','cpf','52998224725','004321','pessoa agata nova',repeat('c',64),2);
+    `);
+    await actor();
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: "004321", name: null }] });
+    const imported = await preview("004321", "Pessoa Agata Nova");
+    expect(imported.rows[0].errors).toEqual(["MATRICULA_NAO_ENCONTRADA"]);
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: "004321", name: null }] });
+
+    await db.exec(`reset role;
+      insert into public.monitoring_sources(id,kind,identity_namespace) values('numbers-facial','defense-person','facial');
+      insert into public.monitoring_files(id,source_id,sha256,byte_length,relative_path,parser_version,expected_batches,metadata,status,completed_at)
+        values('fa300000-0000-4000-8000-000000000002','numbers-facial',repeat('b',64),1,'facial.xlsx','test',1,'{}','complete',now());
+      insert into public.monitoring_people(source_id,external_id,name,groups,file_id) values
+        ('numbers-facial','4321','Pessoa sem os zeros','[]','fa300000-0000-4000-8000-000000000002'),
+        ('numbers-facial','004321','Outra pessoa','[]','fa300000-0000-4000-8000-000000000002');
+    `);
+    await actor();
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: "004321", name: null }] });
+    await db.exec("reset role; update public.monitoring_people set name='Pessoa Ágata Nova' where external_id='004321'");
+    await actor();
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: "004321", name: "Pessoa Ágata Nova" }] });
+    await preview("004322", "Pessoa Agata Nova", pending.document, "numbers-new");
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: "004321", name: "Pessoa Ágata Nova" }] });
+    await preview("004323", "Pessoa Agata Nova");
+    expect(await list()).toMatchObject({ total: 1, rows: [{ ...pending, employeeNumber: null, name: null }] });
     await actor(reader);
     await expect(guarded(list)).rejects.toThrow("ADMINISTRATION_FORBIDDEN");
     await actor();

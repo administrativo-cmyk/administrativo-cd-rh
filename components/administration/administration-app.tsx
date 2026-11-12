@@ -108,6 +108,8 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
     if (entity === "employee") for (const field of lifecycleFields) next[field.key] = row ? String(valueAt(row, field.key) ?? "") : "";
     if (clock) {
       next[clock.kind] = clock.document;
+      next.employeeNumber = clock.employeeNumber ?? "";
+      next.name = clock.name ?? "";
       next.reason = "Conclusão de pré-cadastro por batida importada do relógio";
     }
     setDraft(next); setFormError(""); setEditor({ row, mode });
@@ -186,7 +188,11 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
       {clockOpen && currentClockResult && !clockPage ? <p role="alert" className="text-sm text-rose-700">Não foi possível consultar pré-cadastros. <button className={button} onClick={reload}>Tentar novamente</button></p> : null}
       {clockPage?.rows.length ? <ul className="divide-y divide-slate-100">
         {clockPage.rows.map(row => <li key={`${row.kind}:${row.document}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
-          <div><p className="text-sm font-medium">{row.kind.toUpperCase()} {row.document}</p><p className="break-all text-xs text-slate-600">Última batida importada em {clockDateTime.format(new Date(row.lastPunchAt))} · Relógio {row.sourceId}</p></div>
+          <div>
+            {row.name ? <p className="text-sm font-medium">{row.name}</p> : null}
+            <p className="text-sm">{row.kind.toUpperCase()} {row.document}{row.employeeNumber ? ` · Matrícula ${row.employeeNumber}` : ""}</p>
+            <p className="break-all text-xs text-slate-600">Última batida importada em {clockDateTime.format(new Date(row.lastPunchAt))} · Relógio {row.sourceId}</p>
+          </div>
           <button className={button} onClick={() => openEditor(null, "save", row)}>Completar cadastro</button>
         </li>)}
       </ul> : clockPage ? <p className="text-sm text-slate-600">Nenhum pré-cadastro pendente.</p> : null}

@@ -13,6 +13,21 @@ const units = { entity: "unit", datasetVersion: "fixture-v1", rows: [{ id, code:
 afterEach(() => vi.unstubAllGlobals());
 
 describe("formulários administrativos", () => {
+  it("abre o pré-cadastro com documento, matrícula e nome completo importados", async () => {
+    const snapshot = { ...units, entity: "employee", total: 0, rows: [] };
+    const clockRow = { kind: "pis", document: "12026761291", employeeNumber: "004321", name: "Pessoa Ágata Nova", sourceId: "ponto-legado", lastPunchAt: version };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response({ total: 1, rows: [clockRow] })));
+    render(<AdministrationApp profile={profile} entity="employee" />);
+
+    fireEvent.click(await screen.findByText("Pré-cadastros do ponto"));
+    fireEvent.click(await screen.findByRole("button", { name: "Completar cadastro" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByLabelText("Matrícula principal *")).toHaveValue(clockRow.employeeNumber);
+    expect(dialog.getByLabelText("Nome completo *")).toHaveValue(clockRow.name);
+    expect(dialog.getByLabelText("PIS (11 dígitos)")).toHaveValue(clockRow.document);
+  });
+
   it("gestor pode cancelar proposta própria ainda não aprovada",async()=>{
     const vacation={...units,entity:"vacation",rows:[{id,employeeId:id,employeeName:"Proposta própria",employeeNumber:"001",startDate:"2026-11-01",endDate:"2026-11-05",acquisitionStart:null,acquisitionEnd:null,status:"requested",observation:null,archivedAt:null,createdAt:version,updatedAt:version,createdBy:id,managerId:id,canEdit:true}],options:{units:[],managers:[],employees:[{id,name:"Pessoa",employeeNumber:"001",activeInSystem:true}]},permissions:{canManageRegisters:false,canApproveVacation:false,canProposeVacation:true}};
     const fetcher=vi.fn().mockResolvedValueOnce(response(vacation)).mockResolvedValueOnce(response({error:"Conflito teste"},409));vi.stubGlobal("fetch",fetcher);render(<AdministrationApp profile={{...profile,papel_usuario:"GESTOR",gestor_id:id}} entity="vacation"/>);

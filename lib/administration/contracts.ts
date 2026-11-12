@@ -44,6 +44,8 @@ export const clockPreregistrationsSchema = z.object({
     document: z.string().regex(/^\d{11}$/),
     sourceId: z.string(),
     lastPunchAt: z.string().datetime({ offset: true }),
+    employeeNumber: z.string().max(100).nullish(),
+    name: z.string().max(200).nullish(),
   })).max(25),
 });
 export type ClockPreregistrations = z.infer<typeof clockPreregistrationsSchema>;
