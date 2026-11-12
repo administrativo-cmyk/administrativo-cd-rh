@@ -69,10 +69,13 @@ export async function monitoringSession(admin=false){
  if(!profile||profile.status_usuario!=='APROVADO'||!profile.papel_usuario||(admin&&!['ADMIN','RH'].includes(profile.papel_usuario))) return {response:Response.json({error:"Acesso não autorizado."},{status:403})} as const;
  return {userId,profile} as const;
 }
-export async function boundedJson(request:Request,maxBytes=262144){
+export async function boundedBody(request:Request,maxBytes:number){
  if(Number(request.headers.get('content-length'))>maxBytes) throw new Error('BODY_TOO_LARGE');
  const reader=request.body?.getReader(); if(!reader) throw new Error('BODY_REQUIRED');
  const chunks:Uint8Array[]=[];let size=0;
  while(true){const {value,done}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxBytes){await reader.cancel();throw new Error('BODY_TOO_LARGE');}chunks.push(value);}
- return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+ return Buffer.concat(chunks);
+}
+export async function boundedJson(request:Request,maxBytes=262144){
+ return JSON.parse((await boundedBody(request,maxBytes)).toString('utf8')) as unknown;
 }

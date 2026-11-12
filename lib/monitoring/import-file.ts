@@ -12,7 +12,7 @@ export class ImportFileError extends Error { constructor(public readonly code: s
 function fail(code: string): never { throw new ImportFileError(code); }
 
 /** Inspect archive sizes before ExcelJS expands any XML. No entry is extracted to disk. */
-function guardWorkbook(bytes: Buffer) {
+export function guardWorkbook(bytes: Buffer) {
   try { validateWorkbookArchive(bytes, 40 * 1024 * 1024); }
   catch (error) {
     if (error instanceof ImportError && /LIMIT|EXPANSION/.test(error.code)) fail("XLSX_LIMITE_EXCEDIDO");

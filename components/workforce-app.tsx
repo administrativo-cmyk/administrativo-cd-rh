@@ -8,6 +8,7 @@ import { BriefcaseBusiness, ChevronLeft, ChevronRight, CircleHelp, RefreshCw, Se
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { WorkforceDrawer } from "@/components/workforce-drawer";
+import { RegisterWorkbookDialog } from "@/components/administration/register-workbook-dialog";
 import { formatWorkforceBalance, formatWorkforceDate } from "@/lib/workforce-format";
 import type { AuthenticatedProfile } from "@/lib/auth/types";
 import { defaultWorkforceFilters, situationLabels, type WorkforceEmployee, type WorkforceFilters } from "@/lib/workforce";
@@ -78,7 +79,7 @@ export function WorkforceApp({ profile, employees }: { profile: AuthenticatedPro
     <section className="lg:pl-18">
       <AppHeader onMobileOpen={() => setMobileOpen(true)} profile={profile} title="Quadro Atual" />
       <div className="mx-auto max-w-[1720px] space-y-4 p-3 sm:p-4 md:p-5">
-        <header className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Operação de pessoas</p><h1 className="text-2xl font-bold tracking-tight md:text-[28px]">Quadro Atual</h1><p className="mt-1 text-sm text-slate-500">Colaboradores cadastrados, incluindo situações fora da Chamada Diária.</p></div><div className="flex gap-2"><span className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500">Somente leitura</span><button type="button" onClick={() => router.refresh()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800"><RefreshCw size={14} />Atualizar</button></div></header>
+        <header className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">Operação de pessoas</p><h1 className="text-2xl font-bold tracking-tight md:text-[28px]">Quadro Atual</h1><p className="mt-1 text-sm text-slate-500">Colaboradores cadastrados, incluindo situações fora da Chamada Diária.</p></div><div className="flex flex-wrap gap-2">{profile.papel_usuario === "ADMIN" || profile.papel_usuario === "RH" ? <RegisterWorkbookDialog onApplied={() => router.refresh()} /> : null}<span className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-500">Somente leitura</span><button type="button" onClick={() => router.refresh()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800"><RefreshCw size={14} />Atualizar</button></div></header>
 
         {employees === null ? <section role="alert" className="rounded-xl border border-rose-200 bg-white p-8 text-center text-sm text-slate-600">Não foi possível carregar o Quadro Atual. Atualize a página para tentar novamente.</section> : <>
           <section aria-label="Filtros do quadro" className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgb(15_23_42/4%)] md:grid-cols-2 xl:grid-cols-6">

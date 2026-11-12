@@ -14,6 +14,7 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import { EmployeePunchHistory } from "@/components/monitoring/employee-punch-history";
 import { EmployeeSchedule } from "@/components/employee-schedule";
 import { EmployeeRegisterDetails } from "./employee-register-details";
+import { RegisterWorkbookDialog } from "./register-workbook-dialog";
 import { isAwaySituation } from "@/lib/employee-lifecycle";
 import { todayInSaoPaulo } from "@/lib/data/daily-call-dates";
 
@@ -181,6 +182,7 @@ export function AdministrationApp({ profile, entity }: { profile: AuthenticatedP
   const clockPage = currentClockResult?.page;
   const editorFields = entity === "employee" ? [...fields.employee, ...lifecycleFields.filter(field => field.key !== "terminationDate" || draft.situation === "DESLIGADO").filter(field => field.key !== "expectedReturnDate" || isAwaySituation(draft.situation)).map(field => ({ ...field, required: (field.key === "terminationDate" && draft.situation === "DESLIGADO") || (["situationFrom", "expectedReturnDate"].includes(field.key) && isAwaySituation(draft.situation)) }))] : fields[entity];
   return <AppShell profile={profile} title={title} activeLabel={entity === "vacation" ? "Sugestão de Férias" : "Cadastros"}>
+    {profile.papel_usuario === "ADMIN" || profile.papel_usuario === "RH" ? <div className="mb-4 flex justify-end"><RegisterWorkbookDialog onApplied={reload} /></div> : null}
     {entity === "employee" && canCreate ? <details className="mb-4 rounded-xl border border-slate-200 bg-white p-4" onToggle={event => setClockOpen(event.currentTarget.open)}>
       <summary className="cursor-pointer font-semibold text-slate-800">Pré-cadastros do ponto{clockPage ? ` (${clockPage.total})` : ""}</summary>
       <p className="my-3 text-sm text-slate-600">Documentos sem cadastro identificados em batidas recentes importadas. Confira o documento e complete os dados do colaborador.</p>
